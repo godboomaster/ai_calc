@@ -1,0 +1,24 @@
+# Android Studio / IntelliJ
+*.iml
+/.idea/
+.DS_Store
+/captures
+
+# Сборка и кэши Gradle/Kotlin
+.gradle/
+.kotlin/
+/build/
+/app/build/
+/app/release/
+.externalNativeBuild/
+.cxx/
+
+# Локальный путь к Android SDK — у каждого свой
+/local.properties
+
+# Готовые сборки и ключи подписи не храним в репозитории
+*.apk
+*.aab
+*.jks
+*.keystore
+*.hprof
