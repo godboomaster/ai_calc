@@ -3,6 +3,7 @@ name: Check Android
 on:
   push:
     branches: ['**']
+    tags: ['v*']
   pull_request:
 
 permissions:
@@ -29,3 +30,5 @@ jobs:
         run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
       - name: Test, lint and build
         run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+      - name: Test local release command
+        run: python3 -m unittest discover -s scripts/tests -v

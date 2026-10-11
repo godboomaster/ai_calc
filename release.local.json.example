@@ -1,0 +1,7 @@
+{
+  "java_home": "D:/path/to/jdk-17-or-newer",
+  "android_sdk": "D:/DevTools/Android/Sdk",
+  "gradle_user_home": "D:/DevTools/Gradle",
+  "keystore": "D:/path/to/existing-signing.keystore",
+  "key_alias": "existing-signing-alias"
+}
