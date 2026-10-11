@@ -81,6 +81,7 @@ object MathMarkup {
     }
 
     private val SEPARATOR_CELL = Regex(""":?-+:?""")
+    private val BARE_RELATION = Regex("""[=<>≤≥≠≈≃≅∼]|\\(?:leq?|geq?|neq?|approx|sim)\b""")
 
     /** Делит текст на абзацы и таблицы markdown (строки, начинающиеся с «|»). */
     fun blocks(source: String): List<TextBlock> {
@@ -117,8 +118,13 @@ object MathMarkup {
         val rows = lines.map(::splitRow)
         fun isSeparator(row: List<String>) = row.isNotEmpty() && row.all { SEPARATOR_CELL.matches(it) }
         val separator = rows.indexOfFirst(::isSeparator)
-        // Без строки-разделителя таблицей считаем только ряды по две ячейки и больше, иначе это «|x| = 5».
-        if (separator < 0 && rows.any { it.size < 2 }) return null
+        // Without a Markdown separator, ambiguous equations must retain their absolute-value bars.
+        // Formula cells explicitly enclosed in $...$ are already protected by splitRow.
+        if (separator < 0 && (rows.any { row -> row.size < 2 || row.any { cell ->
+                '$' !in cell && BARE_RELATION.containsMatchIn(cell)
+            } } || lines.any {
+                !it.trimEnd().endsWith("|") || it.trimEnd().endsWith("\\|")
+            })) return null
         val header = rows.getOrNull(0)?.takeIf { separator == 1 }
         val body = rows.drop(if (header != null) 1 else 0).filterNot(::isSeparator)
         val align = rows.getOrNull(separator)?.map { cell ->

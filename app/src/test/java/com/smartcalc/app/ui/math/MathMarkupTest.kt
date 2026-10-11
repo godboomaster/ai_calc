@@ -79,4 +79,21 @@ class MathMarkupTest {
         assertEquals(listOf(TextBlock.Prose("|x| = 5\nзначит x = ±5")), MathMarkup.blocks("|x| = 5\nзначит x = ±5"))
         assertEquals(listOf("a", "b|c"), MathMarkup.splitRow("| a | b\\|c |"))
     }
+
+    @Test fun adjacentAbsoluteValueEquationsStayProse() {
+        val equations = "|x| = 5\n|y| = 3"
+        assertEquals(listOf(TextBlock.Prose(equations)), MathMarkup.blocks(equations))
+    }
+
+    @Test fun absoluteValuesOnBothSidesStayProse() {
+        for (operator in listOf("=", "≤", "≥", "≈", "= 2")) {
+            val equations = "|x| $operator |y|\n|2x| $operator |y+1|"
+            assertEquals(listOf(TextBlock.Prose(equations)), MathMarkup.blocks(equations))
+        }
+    }
+
+    @Test fun unambiguousHeaderlessTableIsStillRendered() {
+        val table = (MathMarkup.blocks("| a | b |\n| c | d |").single() as TextBlock.Table).table
+        assertEquals(listOf(listOf("a", "b"), listOf("c", "d")), table.rows)
+    }
 }
