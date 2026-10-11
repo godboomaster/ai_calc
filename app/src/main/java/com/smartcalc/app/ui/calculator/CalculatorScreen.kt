@@ -126,6 +126,7 @@ fun CalculatorScreen(
     vm: SolutionViewModel,
     onOpenSolution: () -> Unit,
     onOpenStep: (Int) -> Unit,
+    onRestoreAssistant: () -> Unit,
     onOpenCamera: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -224,7 +225,7 @@ fun CalculatorScreen(
     fun restoreAssistant() {
         stopEditing()
         aiKeys = false
-        vm.showOnDisplay()
+        onRestoreAssistant()
     }
 
     /**

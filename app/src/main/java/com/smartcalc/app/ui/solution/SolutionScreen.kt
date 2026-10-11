@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddComment
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
@@ -65,6 +66,7 @@ fun SolutionScreen(
     vm: SolutionViewModel,
     onBack: () -> Unit,
     onOpenCalculator: () -> Unit,
+    onHideToCalculator: () -> Unit,
 ) {
     val solution by vm.current.collectAsState()
     var copied by remember(solution?.id) { mutableStateOf(false) }
@@ -91,6 +93,9 @@ fun SolutionScreen(
             )
             val s = solution
             if (s != null) {
+                IconButton(onClick = onHideToCalculator) {
+                    Icon(Icons.Filled.Calculate, contentDescription = "К калькулятору")
+                }
                 IconButton(onClick = {
                     clipboard.setText(AnnotatedString(copyText(s)))
                     copied = true

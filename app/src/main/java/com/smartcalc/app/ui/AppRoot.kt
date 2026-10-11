@@ -8,6 +8,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -46,10 +47,53 @@ object Routes {
 @Composable
 fun AppRoot(vm: SolutionViewModel = viewModel()) {
     val nav = rememberNavController()
+    val solution by vm.current.collectAsState()
+    val shown by vm.shown.collectAsState()
+    val solving by vm.solving.collectAsState()
+    val error by vm.error.collectAsState()
+    // Новая задача, дополнение или выбор из истории начинают новый сеанс чтения.
+    val readingKey = "${solution?.id}:${solution?.followUps?.size}:$shown"
+    var readingReturn by rememberSaveable { mutableStateOf<String?>(null) }
+    var savedReadingKey by rememberSaveable { mutableStateOf(readingKey) }
+    var selectedStep by rememberSaveable(readingKey) { mutableIntStateOf(0) }
+
+    fun forgetReadingReturn() {
+        readingReturn?.let { nav.clearBackStack(it) }
+        readingReturn = null
+    }
+
+    LaunchedEffect(readingKey) {
+        if (savedReadingKey != readingKey) {
+            forgetReadingReturn()
+            savedReadingKey = readingKey
+        }
+    }
 
     // Задача отправлена или выбрана из истории — ход решения и ответ показывает дисплей калькулятора.
     fun backToCalculator() {
         nav.popBackStack(Routes.CALCULATOR, inclusive = false)
+    }
+
+    fun hideReading(route: String) {
+        readingReturn = route
+        savedReadingKey = readingKey
+        vm.hideFromDisplay()
+        // Сохраняем саму запись навигации: её ключи rememberSaveable остаются прежними при возврате.
+        nav.popBackStack(Routes.CALCULATOR, inclusive = false, saveState = true)
+    }
+
+    fun restoreAssistant() {
+        vm.showOnDisplay()
+        val route = readingReturn
+        readingReturn = null
+        if (route != null && savedReadingKey == readingKey && solution != null && !solving && error == null) {
+            nav.navigate(route) {
+                restoreState = true
+                launchSingleTop = true
+            }
+        } else if (route != null) {
+            nav.clearBackStack(route)
+        }
     }
 
     Scaffold { padding ->
@@ -64,8 +108,16 @@ fun AppRoot(vm: SolutionViewModel = viewModel()) {
             composable(Routes.CALCULATOR) {
                 CalculatorScreen(
                     vm = vm,
-                    onOpenSolution = { nav.navigate(Routes.SOLUTION) },
-                    onOpenStep = { nav.navigate(Routes.step(it)) },
+                    onOpenSolution = {
+                        forgetReadingReturn()
+                        nav.navigate(Routes.SOLUTION) { launchSingleTop = true }
+                    },
+                    onOpenStep = {
+                        forgetReadingReturn()
+                        selectedStep = it
+                        nav.navigate(Routes.step(it)) { launchSingleTop = true }
+                    },
+                    onRestoreAssistant = ::restoreAssistant,
                     onOpenCamera = { nav.navigate(Routes.CAMERA) },
                     onOpenHistory = { nav.navigate(Routes.HISTORY) },
                     onOpenSettings = { nav.navigate(Routes.SETTINGS) },
@@ -108,21 +160,29 @@ fun AppRoot(vm: SolutionViewModel = viewModel()) {
                 HistoryScreen(vm = vm, onBack = { nav.popBackStack() }, onOpenSolution = ::backToCalculator)
             }
             composable(Routes.SOLUTION) {
-                SolutionScreen(vm = vm, onBack = { nav.popBackStack() }, onOpenCalculator = ::backToCalculator)
+                SolutionScreen(
+                    vm = vm,
+                    onBack = { nav.popBackStack() },
+                    onOpenCalculator = {
+                        forgetReadingReturn()
+                        backToCalculator()
+                    },
+                    onHideToCalculator = { hideReading(Routes.SOLUTION) },
+                )
             }
             composable(
                 Routes.STEP,
                 arguments = listOf(navArgument("index") { type = NavType.IntType }),
             ) { entry ->
-                val solution by vm.current.collectAsState()
-                var index by rememberSaveable { mutableIntStateOf(entry.arguments?.getInt("index") ?: 0) }
                 val s = solution
                 if (s != null && s.latestSteps.isNotEmpty()) {
                     StepScreen(
                         solution = s,
-                        index = index.coerceIn(s.latestSteps.indices),
-                        onIndexChange = { index = it },
+                        index = selectedStep.coerceIn(s.latestSteps.indices),
+                        onIndexChange = { selectedStep = it },
                         onBack = { nav.popBackStack() },
+                        // Восстанавливаем исходную запись маршрута; выбранный стрелками шаг хранится отдельно.
+                        onHideToCalculator = { hideReading(Routes.step(entry.arguments?.getInt("index") ?: 0)) },
                     )
                 } else {
                     // После восстановления процесса решение может ещё отсутствовать в памяти.

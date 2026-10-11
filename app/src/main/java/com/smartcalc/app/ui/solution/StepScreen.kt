@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -27,9 +28,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,11 +52,13 @@ fun StepScreen(
     index: Int,
     onIndexChange: (Int) -> Unit,
     onBack: () -> Unit,
+    onHideToCalculator: () -> Unit,
 ) {
     val steps = solution.latestSteps
     val step = steps[index]
     val prefix = if (solution.followUps.isEmpty()) "" else "Дополнение · "
     var choosingStep by rememberSaveable(solution.id, solution.followUps.size) { mutableStateOf(false) }
+    val stepState = rememberSaveableStateHolder()
 
     // Системные отступы уже учитываются общим Scaffold в AppRoot.
     Column(
@@ -83,6 +86,9 @@ fun StepScreen(
                     modifier = Modifier.weight(1f, fill = false),
                 )
                 Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
+            }
+            IconButton(onClick = onHideToCalculator) {
+                Icon(Icons.Filled.Calculate, contentDescription = "К калькулятору")
             }
             IconButton(onClick = onBack) {
                 Icon(
@@ -131,7 +137,7 @@ fun StepScreen(
                     }
                 }
             }
-        } else key(index) {
+        } else stepState.SaveableStateProvider(index) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
