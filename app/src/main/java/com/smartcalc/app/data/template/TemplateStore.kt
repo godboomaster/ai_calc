@@ -58,7 +58,11 @@ class ExampleDraft(
 class TemplateImportException(message: String) : Exception(message)
 
 /** Итог импорта: сколько шаблонов новых, сколько заменили уже бывшие (тот же шаблон, импорт повторно). */
-data class ImportResult(val added: Int, val updated: Int)
+data class ImportResult(val added: Int, val updated: Int) {
+    /** Сами загруженные шаблоны — уже с путями к своим фото. В сравнении итогов не участвуют. */
+    var items: List<TaskTemplate> = emptyList()
+        internal set
+}
 
 /**
  * Список шаблонов в файле. В ZIP это manifest.json, а пути к фото в нём — имена внутри архива
@@ -84,6 +88,12 @@ enum class TemplateFormat(val extension: String, val mime: String) {
     JSON("json", "application/json"),
     MARKDOWN("md", "text/markdown"),
 }
+
+/**
+ * Что хранит [TemplateStore]: шаблоны заданий для ИИ или базу решённых задач для поиска. Файлы у них
+ * одного формата: раздел базы — это тип задач (название) и сами задачи (примеры).
+ */
+enum class TemplateKind { TEMPLATES, LIBRARY }
 
 /** Шаблоны хранятся в [root]: список в templates.json, картинки в templates/. */
 class TemplateStore(private val root: File) {
@@ -240,9 +250,49 @@ class TemplateStore(private val root: File) {
             val updated = unique + _items.value.filterNot { old -> unique.any { it.id == old.id } }
             file.writeText(json.encodeToString(updated))
             _items.value = updated
-            ImportResult(added = unique.size - replaced.size, updated = replaced.size)
+            ImportResult(added = unique.size - replaced.size, updated = replaced.size).apply { items = unique }
         }
     }
+
+    /**
+     * Дописывает к шаблону [templateId] задачи из другого хранилища (из базы задач). Фото копируются в
+     * свои файлы: шаблон не зависит от того, удалят ли задачу из базы. Задача, которая в шаблоне уже
+     * есть, второй раз не добавляется. Возвращает число добавленных задач.
+     */
+    suspend fun attach(templateId: String, examples: List<TemplateExample>): Int = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val template = _items.value.firstOrNull { it.id == templateId } ?: return@withLock 0
+            val known = template.examples.mapTo(mutableSetOf()) { it.sameTaskKey() }
+            val created = mutableListOf<File>()
+            fun copy(paths: List<String>) = paths.mapNotNull { path ->
+                File(path).takeIf { it.exists() }?.let { source ->
+                    File(imagesDir, "${UUID.randomUUID()}.jpg").also { source.copyTo(it); created += it }.absolutePath
+                }
+            }
+            val added = try {
+                examples.filter { !it.isEmpty && known.add(it.sameTaskKey()) }.map {
+                    it.copy(conditionImages = copy(it.conditionImages), solutionImages = copy(it.solutionImages))
+                }
+            } catch (e: Exception) {
+                created.forEach { it.delete() }
+                throw e
+            }
+            if (added.isEmpty()) return@withLock 0
+            val changed = template.copy(examples = template.examples + added, updated = System.currentTimeMillis())
+            val updated = listOf(changed) + _items.value.filterNot { it.id == templateId }
+            file.writeText(json.encodeToString(updated))
+            _items.value = updated
+            added.size
+        }
+    }
+
+    /** Одна и та же задача: тот же текст и фото того же размера (у копии фото другое имя файла). */
+    private fun TemplateExample.sameTaskKey() = listOf(
+        condition.trim(),
+        solution.trim(),
+        conditionImages.map { File(it).length() },
+        solutionImages.map { File(it).length() },
+    ).toString()
 
     private fun bundleOf(text: String): TemplateBundle =
         json.decodeFromString<TemplateBundle>(text).takeIf { it.format == BUNDLE_FORMAT }

@@ -15,7 +15,7 @@ internal fun SessionState.restoredFor(history: List<Solution>): SessionState {
     if (state.reading.followUpCount != solution.followUps.size) {
         return state.copy(calculator = calculator, reading = ReadingSession(solution.id, solution.followUps.size))
     }
-    val itemCount = 3 + (if (solution.template != null || solution.format != null) 1 else 0) +
+    val itemCount = 3 + (if (solution.hasCaption) 1 else 0) +
         solution.steps.size + solution.followUps.sumOf { it.steps.size + 2 }
     val position = state.reading.solutionScroll?.let {
         val index = it.index.coerceIn(0, itemCount - 1)

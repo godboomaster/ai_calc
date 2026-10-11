@@ -23,6 +23,8 @@ class SmartCalcApplication : Application() {
     val settingsRepository by lazy { SettingsRepository(this) }
     val formatStore by lazy { FormatStore(this) }
     val templateStore by lazy { TemplateStore(filesDir) }
+    /** База решённых задач для поиска: тот же формат, что у шаблонов, но в своей папке. */
+    val libraryStore by lazy { TemplateStore(File(filesDir, "library").apply { mkdirs() }) }
     val generation by lazy {
         GenerationController(this, applicationScope, historyStore, sessionStore,
             settingsRepository, formatStore, templateStore)

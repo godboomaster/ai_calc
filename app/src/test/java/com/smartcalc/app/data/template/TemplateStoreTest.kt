@@ -59,6 +59,39 @@ class TemplateStoreTest {
     }
 
     @Test
+    fun attachCopiesTasksWithPhotosOnce() = runBlocking {
+        val templates = store()
+        val template = templates.addSample()
+        val library = store()
+        library.save(
+            null,
+            "Кинематика",
+            "",
+            listOf(ExampleDraft("Найти скорость", emptyList(), "Ответ: 5", listOf(ImageDraft(bytes = byteArrayOf(9, 9))))),
+        )
+        val tasks = library.items.value.single().examples
+        assertEquals(1, templates.attach(template.id, tasks))
+        // Те же задачи второй раз не добавляются.
+        assertEquals(0, templates.attach(template.id, tasks))
+        val attached = templates.items.value.single().examples.last()
+        assertEquals("Найти скорость", attached.condition)
+        // Фото — своя копия: удаление раздела базы шаблон не трогает.
+        library.delete(library.items.value.single().id)
+        assertArrayEquals(byteArrayOf(9, 9), File(attached.solutionImages.single()).readBytes())
+        assertEquals(2, templates.items.value.single().examples.size)
+    }
+
+    @Test
+    fun importReportsLoadedItems() = runBlocking {
+        // «## Задача» — как пишут файл для базы задач; текст без «### Условие» — условие.
+        val md = "# Кинематика\n## Задача 1\n### Условие\nНайти v\n### Решение\nОтвет: 5\n## Задача 2\nНайти t\n"
+        val result = store().import(ByteArrayInputStream(md.toByteArray()))
+        assertEquals(1, result.added)
+        assertEquals(listOf("Найти v", "Найти t"), result.items.single().examples.map { it.condition })
+        assertEquals("Ответ: 5", result.items.single().examples.first().solution)
+    }
+
+    @Test
     fun exportThenImportOnAnotherPhone() = runBlocking {
         val source = store()
         val original = source.addSample()

@@ -1,5 +1,6 @@
 package com.smartcalc.app.ui
 
+import android.net.Uri
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
@@ -24,9 +25,12 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.smartcalc.app.SolutionViewModel
 import com.smartcalc.app.data.session.ReadingTarget
+import com.smartcalc.app.data.template.TemplateKind
 import com.smartcalc.app.ui.calculator.CalculatorScreen
 import com.smartcalc.app.ui.camera.CameraScreen
 import com.smartcalc.app.ui.format.FormatScreen
+import com.smartcalc.app.ui.search.LibraryScreen
+import com.smartcalc.app.ui.search.SearchScreen
 import com.smartcalc.app.ui.settings.SettingsScreen
 import com.smartcalc.app.ui.solution.HistoryScreen
 import com.smartcalc.app.ui.solution.SolutionScreen
@@ -44,8 +48,13 @@ object Routes {
     const val FORMAT = "format"
     const val TEMPLATES = "templates"
     const val TEMPLATE_EDIT = "template?id={id}"
+    const val SEARCH = "search?q={q}"
+    const val LIBRARY = "library"
+    const val LIBRARY_EDIT = "library/section?id={id}"
 
     fun templateEdit(id: String?) = if (id == null) "template" else "template?id=$id"
+    fun search(query: String) = if (query.isBlank()) "search" else "search?q=${Uri.encode(query)}"
+    fun libraryEdit(id: String?) = if (id == null) "library/section" else "library/section?id=$id"
     fun step(index: Int) = "step/$index"
 }
 
@@ -154,6 +163,49 @@ private fun AppSession(vm: SolutionViewModel) {
                     onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                     onOpenFormat = { nav.navigate(Routes.FORMAT) },
                     onOpenTemplates = { nav.navigate(Routes.TEMPLATES) },
+                    onOpenSearch = { query -> nav.navigate(Routes.search(query)) },
+                )
+            }
+            composable(
+                Routes.SEARCH,
+                arguments = listOf(
+                    navArgument("q") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                ),
+            ) { entry ->
+                SearchScreen(
+                    vm = vm,
+                    initialQuery = entry.arguments?.getString("q").orEmpty(),
+                    onBack = { nav.popBackStack() },
+                    onOpenLibrary = { nav.navigate(Routes.LIBRARY) },
+                    onOpenSolution = ::backToCalculator,
+                )
+            }
+            composable(Routes.LIBRARY) {
+                LibraryScreen(
+                    vm = vm,
+                    onBack = { nav.popBackStack() },
+                    onEdit = { id -> nav.navigate(Routes.libraryEdit(id)) },
+                )
+            }
+            composable(
+                Routes.LIBRARY_EDIT,
+                arguments = listOf(
+                    navArgument("id") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                ),
+            ) { entry ->
+                TemplateEditScreen(
+                    vm = vm,
+                    templateId = entry.arguments?.getString("id"),
+                    onBack = { nav.popBackStack() },
+                    kind = TemplateKind.LIBRARY,
                 )
             }
             composable(Routes.TEMPLATES) {

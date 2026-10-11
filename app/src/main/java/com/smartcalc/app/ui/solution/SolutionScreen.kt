@@ -129,7 +129,7 @@ fun SolutionScreen(
         // После дополнения экран открывается на нём: исходное решение — выше, прокруткой.
         val latestStart = remember(s.id, s.followUps.size) {
             if (s.followUps.isEmpty()) 0
-            else 1 + (if (s.template != null || s.format != null) 1 else 0) + s.steps.size + 1 +
+            else 1 + (if (s.hasCaption) 1 else 0) + s.steps.size + 1 +
                 s.followUps.dropLast(1).sumOf { it.steps.size + 2 }
         }
         val savedPosition = remember(s.id, s.followUps.size) {
@@ -182,10 +182,11 @@ fun SolutionScreen(
                     MathText(s.problem, fontSize = 17.sp)
                 }
             }
-            if (s.template != null || s.format != null) {
+            if (s.hasCaption) {
                 item {
                     Text(
                         listOfNotNull(
+                            s.source,
                             s.template?.let { "По шаблону «$it»" },
                             s.format?.let { "В вашем формате · $it" },
                         ).joinToString(" · "),
@@ -239,6 +240,7 @@ private fun LazyListScope.stepsAndAnswer(steps: List<SolutionStep>, answer: Stri
     itemsIndexed(steps) { index, step ->
         SolutionBlock(number = if (numbered) index + 1 else null, title = step.title) {
             if (step.content.isNotBlank()) MathText(step.content, fontSize = 16.sp)
+            StepImages(step.images)
             step.plot?.let {
                 PlotView(it, container = MaterialTheme.colorScheme.surface, modifier = Modifier.padding(top = 12.dp))
             }
@@ -253,6 +255,22 @@ private fun LazyListScope.stepsAndAnswer(steps: List<SolutionStep>, answer: Stri
         ) {
             MathText(answer, fontSize = 24.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
         }
+    }
+}
+
+/** Фото к шагу во всю ширину — решение из базы бывает сфотографированной тетрадью. */
+@Composable
+internal fun StepImages(images: List<String>) {
+    images.forEach { path ->
+        AsyncImage(
+            model = File(path),
+            contentDescription = "Фото решения",
+            contentScale = ContentScale.FillWidth,
+            modifier = Modifier
+                .padding(top = 12.dp)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp)),
+        )
     }
 }
 

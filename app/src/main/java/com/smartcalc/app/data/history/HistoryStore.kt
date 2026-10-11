@@ -27,6 +27,8 @@ data class SolutionStep(
     val plot: Plot? = null,
     /** Схема или чертёж к шагу — SVG-код от модели. */
     val svg: String? = null,
+    /** Фото к шагу — у задачи из базы решение бывает сфотографированным. */
+    val images: List<String> = emptyList(),
 )
 
 /** Дополнительный вопрос к решённой задаче и ответ на него. */
@@ -56,7 +58,12 @@ data class Solution(
     val templateId: String? = null,
     /** Дополнения по порядку: каждое — вопрос после ответа и ответ на него. */
     val followUps: List<FollowUp> = emptyList(),
+    /** Откуда готовое решение, если его нашёл поиск, а не решил ИИ: «База · Кинематика». */
+    val source: String? = null,
 ) {
+    /** Есть ли под условием подпись: шаблон, формат или откуда решение. */
+    val hasCaption: Boolean get() = template != null || format != null || source != null
+
     /** Последний вопрос в цепочке — исходная задача или последнее дополнение. */
     val latestQuestion: String get() = followUps.lastOrNull()?.question ?: problem
 

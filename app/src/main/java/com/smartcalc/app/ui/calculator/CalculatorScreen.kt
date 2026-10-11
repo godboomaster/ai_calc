@@ -40,6 +40,7 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Icon
@@ -118,6 +119,10 @@ private class AiAction(
 /** Шаг решения, который открывается удержанием цифры: 1–9 — шаги с первого по девятый, 0 — десятый. */
 private fun stepIndex(digit: Char) = if (digit == '0') 9 else digit - '1'
 
+/** Числа из выражения на дисплее — запрос для поиска: «12+3.5×40» → «12 3.5 40». */
+internal fun searchNumbers(expression: String): String =
+    Regex("""\d+(?:[.,]\d+)?""").findAll(expression).joinToString(" ") { it.value }
+
 /** Высота задаётся только клавишам самого калькулятора; экраны шага и решения сохраняют свой размер. */
 private val LocalCalculatorKeyHeight = staticCompositionLocalOf<Dp?> { null }
 
@@ -146,6 +151,8 @@ fun CalculatorScreen(
     onOpenSettings: () -> Unit,
     onOpenFormat: () -> Unit,
     onOpenTemplates: () -> Unit,
+    /** Поиск готовых решений; в запрос сразу подставляются числа, набранные на калькуляторе. */
+    onOpenSearch: (query: String) -> Unit,
 ) {
     // Файл сеанса переживает новый процесс; rememberSaveable сохраняет текущую композицию при навигации.
     val savedCalculator = remember { vm.session.value.calculator }
@@ -582,8 +589,9 @@ fun CalculatorScreen(
             val operatorColor = MaterialTheme.colorScheme.primaryContainer
             val accentColor = MaterialTheme.colorScheme.primary
 
-            // В режиме ИИ клавиатура та же, только цифры 1–8 становятся действиями: 1–4 — откуда взять
-            // задачу, 5–6 — история и настройки, 7–8 — шаблон и формат. 9, 0 и операции считают как обычно.
+            // В режиме ИИ клавиатура та же, только цифры 1–9 становятся действиями: 1–4 — откуда взять
+            // задачу, 5–6 — история и настройки, 7–8 — шаблон и формат, 9 — поиск готового решения.
+            // 0 и операции считают как обычно.
             val aiActions: Map<Char, AiAction> = mapOf(
                 '1' to AiAction("Написать", Icons.Outlined.Edit, onClick = ::tapDisplay),
                 '2' to AiAction("Камера", Icons.Outlined.PhotoCamera, onClick = onOpenCamera),
@@ -598,6 +606,10 @@ fun CalculatorScreen(
                 // Выбранный шаблон и заданный формат подсвечены: следующая задача пойдёт с ними.
                 '7' to AiAction("Шаблоны", Icons.Outlined.ContentCopy, highlighted = template != null, onClick = onOpenTemplates),
                 '8' to AiAction("Формат", Icons.Outlined.Tune, highlighted = format.isSet, onClick = onOpenFormat),
+                // Числа задачи можно набрать на калькуляторе до поиска — например, 12+3,5+40.
+                '9' to AiAction("Поиск", Icons.Outlined.Search) {
+                    onOpenSearch(if (!onDisplay && !evaluated) searchNumbers(expr) else "")
+                },
             )
 
             /**

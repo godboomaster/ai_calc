@@ -156,6 +156,7 @@ fun StepScreen(
                     .verticalScroll(scroll),
             ) {
                 if (step.content.isNotBlank()) MathText(step.content, fontSize = 17.sp)
+                StepImages(step.images)
                 step.plot?.let {
                     PlotView(it, container = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(top = 12.dp))
                 }
