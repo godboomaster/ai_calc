@@ -143,15 +143,31 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun askFollowUp(question: String) {
         val base = _current.value ?: return solveText(question)
+        val template = followUpTemplate(base)
         launchSolve(question, retry = question, followUp = true) {
-            val payload = client.followUp(settings.value, base, question)
+            val payload = client.followUp(settings.value, base, question, template?.let { templatePrompt(it) })
             val updated = base.copy(
-                followUps = base.followUps + FollowUp(question, payload.answer, payload.steps.map { it.toStep() }),
+                followUps = base.followUps + FollowUp(
+                    question,
+                    payload.answer,
+                    payload.steps.map { it.toStep() },
+                    template = template?.name,
+                ),
+                // Шаблон, выбранный для дополнения, дальше идёт со всей цепочкой.
+                templateId = template?.id ?: base.templateId,
             )
             historyStore.update(updated)
+            if (template != null && armedId.value == template.id) armedId.value = null
             updated
         }
     }
+
+    /**
+     * Шаблон для дополнения: выбранный сейчас, а если не выбран — тот, по которому решалась задача
+     * (если его ещё не удалили). Поправки к ответу по шаблону тоже делаются по шаблону.
+     */
+    fun followUpTemplate(base: Solution?): TaskTemplate? =
+        armedTemplate.value ?: base?.templateId?.let { id -> templates.value.firstOrNull { it.id == id } }
 
     fun hideFromDisplay() {
         _onDisplay.value = false
@@ -187,6 +203,7 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
                 imagePath = imagePath,
                 format = format.summary.takeIf { format.isSet },
                 template = template?.name,
+                templateId = template?.id,
             )
             historyStore.add(solution)
             // Шаблон отработал — следующая задача снова обычная.

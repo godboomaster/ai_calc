@@ -32,6 +32,8 @@ data class FollowUp(
     val answer: String,
     val steps: List<SolutionStep> = emptyList(),
     val timestamp: Long = System.currentTimeMillis(),
+    /** Название шаблона, с которым ушло дополнение. */
+    val template: String? = null,
 )
 
 @Serializable
@@ -46,6 +48,8 @@ data class Solution(
     val format: String? = null,
     /** Название шаблона заданий, если задача решалась по нему. */
     val template: String? = null,
+    /** Шаблон цепочки: с ним уходят и дополнения к ответу. */
+    val templateId: String? = null,
     /** Дополнения по порядку: каждое — вопрос после ответа и ответ на него. */
     val followUps: List<FollowUp> = emptyList(),
 ) {

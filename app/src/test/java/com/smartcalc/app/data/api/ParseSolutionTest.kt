@@ -114,6 +114,21 @@ class ParseSolutionTest {
     }
 
     @Test
+    fun followUpCarriesTemplateBeforeTheQuestion() {
+        val base = Solution(problem = "p", answer = "a")
+        val template = TemplatePrompt("Гурвиц", "", listOf(TemplatePrompt.Example("", listOf("EX_IMG"), "решение", emptyList())))
+        val messages = client.followUpMessages(ApiSettings(), base, "исправь шаг 2", template)
+        // Шаблон — в последнем сообщении, прямо перед вопросом; картинки примера тоже там.
+        val last = messages.last().jsonObject["content"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(last.first()["text"]!!.jsonPrimitive.content.startsWith("Ответ на дополнение дай по шаблону «Гурвиц»"))
+        assertTrue(last.any { it["type"]!!.jsonPrimitive.content == "image_url" })
+        assertTrue(last.last()["text"]!!.jsonPrimitive.content.startsWith("Дополнение: исправь шаг 2"))
+        // Без шаблона дополнение — обычный текст, как раньше.
+        val plain = client.followUpMessages(ApiSettings(), base, "исправь шаг 2").last().jsonObject["content"]!!
+        assertTrue(plain.jsonPrimitive.content.startsWith("Дополнение: исправь шаг 2"))
+    }
+
+    @Test
     fun templateGoesBeforeTheNewTask() {
         val template = TemplatePrompt(
             name = "Гурвиц",

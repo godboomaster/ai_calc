@@ -32,6 +32,14 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Calculate
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -53,7 +61,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
@@ -61,6 +69,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -88,6 +97,14 @@ private const val ARITHMETIC = "0123456789.,+-−×÷*/()%E∞"
 
 private fun isArithmetic(text: String) = text.all { it in ARITHMETIC || it.isWhitespace() }
 
+/** Действие ИИ на месте цифры. */
+private class AiAction(
+    val label: String,
+    val icon: ImageVector,
+    val highlighted: Boolean = false,
+    val onClick: () -> Unit,
+)
+
 /** Шаг решения, который открывается удержанием цифры: 1–9 — шаги с первого по девятый, 0 — десятый. */
 private fun stepIndex(digit: Char) = if (digit == '0') 9 else digit - '1'
 
@@ -99,10 +116,10 @@ private fun inputFontSize(length: Int): TextUnit = when {
 }
 
 /**
- * Калькулятор, он же вход в ИИ. Значок в углу меняет цифры на клавиши ИИ (камера, галерея,
- * документ, история, настройки, формат), а нажатие на строку ввода открывает системную
- * клавиатуру — задачу можно написать прямо на дисплее. «=» считает выражение, а всё, что
- * выражением не является, отправляет ИИ; ход решения и ответ появляются на этом же дисплее.
+ * Калькулятор, он же вход в ИИ. Значок в углу превращает цифры 1–8 в действия ИИ (написать,
+ * камера, галерея, документ, история, настройки, шаблоны, формат), а нажатие на строку ввода
+ * открывает системную клавиатуру — задачу можно написать прямо на дисплее. «=» считает выражение,
+ * а всё, что выражением не является, отправляет ИИ; ход решения и ответ появляются на этом же дисплее.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -126,8 +143,6 @@ fun CalculatorScreen(
     // Недописанное дополнение не пропадает, если клавиатуру закрыли.
     var followUpDraft by rememberSaveable { mutableStateOf("") }
     var field by remember { mutableStateOf(TextFieldValue()) }
-    // Высота цифровой клавиатуры — для клавиш ИИ; переживает уход в настройки и обратно.
-    var keypadHeight by rememberSaveable { mutableIntStateOf(0) }
     val keyboard = LocalSoftwareKeyboardController.current
 
     val onDisplay by vm.onDisplay.collectAsState()
@@ -137,6 +152,7 @@ fun CalculatorScreen(
     val solution by vm.current.collectAsState()
     val format by vm.format.collectAsState()
     val template by vm.armedTemplate.collectAsState()
+    val templates by vm.templates.collectAsState()
     val steps = solution?.latestSteps.orEmpty()
 
     val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -319,7 +335,13 @@ fun CalculatorScreen(
                         val s = solution
                         if (followUp && s != null) {
                             // Дополнение пишется с прежним ответом перед глазами; ✕ — это новая задача.
-                            ContextCaption("Дополнение к ответу", s.latestAnswer, onDrop = { followUp = false })
+                            // С ним уйдёт выбранный шаблон или шаблон, по которому решалась задача.
+                            val withTemplate = template ?: s.templateId?.let { id -> templates.firstOrNull { it.id == id } }
+                            ContextCaption(
+                                "Дополнение к ответу" + (withTemplate?.let { " · шаблон «${it.name}»" } ?: ""),
+                                s.latestAnswer,
+                                onDrop = { followUp = false },
+                            )
                         } else if (template != null) {
                             // Задача уйдёт вместе с шаблоном; ✕ — решать без него.
                             ContextCaption("Шаблон", template!!.name, onDrop = vm::disarmTemplate)
@@ -416,9 +438,48 @@ fun CalculatorScreen(
         val operatorColor = MaterialTheme.colorScheme.primaryContainer
         val accentColor = MaterialTheme.colorScheme.primary
 
-        /** Цифра; удержание открывает шаг решения с этим номером, точка в углу подсказывает, что он есть. */
+        // В режиме ИИ клавиатура та же, только цифры 1–8 становятся действиями: 1–4 — откуда взять
+        // задачу, 5–6 — история и настройки, 7–8 — шаблон и формат. 9, 0 и операции считают как обычно.
+        val aiActions: Map<Char, AiAction> = mapOf(
+            '1' to AiAction("Написать", Icons.Outlined.Edit, onClick = ::tapDisplay),
+            '2' to AiAction("Камера", Icons.Outlined.PhotoCamera, onClick = onOpenCamera),
+            '3' to AiAction("Галерея", Icons.Outlined.PhotoLibrary) {
+                galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            '4' to AiAction("Документ", Icons.Outlined.Description) {
+                documentLauncher.launch(DocumentReader.mimeTypes)
+            },
+            '5' to AiAction("История", Icons.Outlined.History, onClick = onOpenHistory),
+            '6' to AiAction("Настройки", Icons.Outlined.Settings, onClick = onOpenSettings),
+            // Выбранный шаблон и заданный формат подсвечены: следующая задача пойдёт с ними.
+            '7' to AiAction("Шаблоны", Icons.Outlined.ContentCopy, highlighted = template != null, onClick = onOpenTemplates),
+            '8' to AiAction("Формат", Icons.Outlined.Tune, highlighted = format.isSet, onClick = onOpenFormat),
+        )
+
+        /**
+         * Цифра; удержание открывает шаг решения с этим номером, точка в углу подсказывает, что он есть.
+         * В режиме ИИ на месте цифры — действие.
+         */
         @Composable
         fun RowScope.DigitKey(digit: Char) {
+            val action = aiActions[digit]?.takeIf { aiKeys }
+            if (action != null) {
+                CalcKey(if (action.highlighted) operatorColor else numberColor, onClick = action.onClick) {
+                    // Иконка и подпись не выше цифры — клавиши не меняют размер при переключении.
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(action.icon, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Text(
+                            action.label,
+                            fontSize = 12.sp,
+                            lineHeight = 14.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 4.dp),
+                        )
+                    }
+                }
+                return
+            }
             val step = stepIndex(digit).takeIf { it < steps.size }
             CalcKey(
                 digit.toString(),
@@ -439,26 +500,7 @@ fun CalculatorScreen(
                 }
             }
 
-            aiKeys -> AiKeypad(
-                heightPx = keypadHeight,
-                formatSummary = format.summary.takeIf { format.isSet },
-                templateName = template?.name,
-                onWrite = ::tapDisplay,
-                onPhoto = onOpenCamera,
-                onGallery = {
-                    galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                },
-                onDocument = { documentLauncher.launch(DocumentReader.mimeTypes) },
-                onHistory = onOpenHistory,
-                onSettings = onOpenSettings,
-                onFormat = onOpenFormat,
-                onTemplates = onOpenTemplates,
-            )
-
-            else -> Column(
-                modifier = Modifier.onSizeChanged { keypadHeight = it.height },
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+            else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     CalcKey("C", numberColor, MaterialTheme.colorScheme.error) { clear() }
                     CalcKey("(", numberColor) { input("(") }

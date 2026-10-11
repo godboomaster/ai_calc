@@ -177,7 +177,7 @@ fun SolutionScreen(
             stepsAndAnswer(s.steps, s.answer, numbered)
             s.followUps.forEach { f ->
                 item {
-                    SolutionBlock(label = "Дополнение") {
+                    SolutionBlock(label = "Дополнение" + (f.template?.let { " · по шаблону «$it»" } ?: "")) {
                         MathText(f.question, fontSize = 17.sp)
                     }
                 }

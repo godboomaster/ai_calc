@@ -145,12 +145,23 @@ class OpenAiClient {
      * ответ, прежние дополнения с ответами — и новый вопрос. Фото задачи заново не отправляется:
      * распознанное условие уже есть в первом ответе.
      */
-    suspend fun followUp(settings: ApiSettings, base: Solution, question: String): SolutionPayload =
+    suspend fun followUp(
+        settings: ApiSettings,
+        base: Solution,
+        question: String,
+        template: TemplatePrompt? = null,
+    ): SolutionPayload =
         withContext(Dispatchers.IO) {
-            complete(settings, followUpMessages(settings, base, question))
+            complete(settings, followUpMessages(settings, base, question, template))
         }
 
-    internal fun followUpMessages(settings: ApiSettings, base: Solution, question: String) = buildJsonArray {
+    /** [template] — шаблон, по которому нужно ответить на дополнение: уходит прямо перед вопросом. */
+    internal fun followUpMessages(
+        settings: ApiSettings,
+        base: Solution,
+        question: String,
+        template: TemplatePrompt? = null,
+    ) = buildJsonArray {
         add(systemMessage(settings))
         add(message("user", JsonPrimitive("Задача: ${base.problem}")))
         add(message("assistant", JsonPrimitive(turnJson(base.problem, base.answer, base.steps))))
@@ -158,16 +169,18 @@ class OpenAiClient {
             add(message("user", JsonPrimitive("Дополнение: ${f.question}")))
             add(message("assistant", JsonPrimitive(turnJson(f.question, f.answer, f.steps))))
         }
-        add(
-            message(
-                "user",
-                JsonPrimitive(
-                    "Дополнение: $question\n" +
-                        "Ответь тем же JSON-объектом: answer — ответ именно на это дополнение, steps — его решение " +
-                        "(то, что уже решено выше, не повторяй), problem — коротко, о чём дополнение.",
-                ),
-            ),
-        )
+        val ask = "Дополнение: $question\n" +
+            "Ответь тем же JSON-объектом: answer — ответ именно на это дополнение, steps — его решение " +
+            "(то, что уже решено выше, не повторяй), problem — коротко, о чём дополнение."
+        val content = if (template == null) {
+            JsonPrimitive(ask)
+        } else {
+            buildJsonArray {
+                templateParts(template, followUp = true).forEach { add(it) }
+                add(textPart(ask))
+            }
+        }
+        add(message("user", content))
     }
 
     /** Прежний ответ в том виде, в каком модель его прислала: так она продолжит в том же формате. */
@@ -242,12 +255,18 @@ class OpenAiClient {
         images.forEach { add(imagePart(it)) }
     }
 
-    private fun templateParts(t: TemplatePrompt): List<JsonObject> = buildList {
+    /** [followUp] — шаблон к дополнению: ответить на него так же, как в примерах. */
+    private fun templateParts(t: TemplatePrompt, followUp: Boolean = false): List<JsonObject> = buildList {
         add(
             textPart(
                 buildString {
-                    append("Это задача по шаблону «${t.name}». Реши её тем же способом и оформи так же, ")
-                    append("как в примерах ниже; примеры решать не нужно.")
+                    if (followUp) {
+                        append("Ответ на дополнение дай по шаблону «${t.name}»: тем же способом и в том же ")
+                        append("оформлении, что в примерах ниже; примеры решать не нужно.")
+                    } else {
+                        append("Это задача по шаблону «${t.name}». Реши её тем же способом и оформи так же, ")
+                        append("как в примерах ниже; примеры решать не нужно.")
+                    }
                     if (t.requirements.isNotBlank()) {
                         append("\n\nТребования к таким задачам:\n")
                         append(t.requirements)
