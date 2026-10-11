@@ -13,6 +13,10 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.io.FileOutputStream
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.UUID
 
 @Serializable
@@ -63,11 +67,13 @@ data class Solution(
     val latestSteps: List<SolutionStep> get() = followUps.lastOrNull()?.steps ?: steps
 }
 
-class HistoryStore(private val context: Context) {
+class HistoryStore internal constructor(private val filesDir: File) {
+
+    constructor(context: Context) : this(context.filesDir)
 
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
-    private val file get() = File(context.filesDir, "history.json")
-    private val imagesDir get() = File(context.filesDir, "images").apply { mkdirs() }
+    private val file = File(filesDir, "history.json")
+    private val imagesDir get() = File(filesDir, "images").apply { mkdirs() }
     private val mutex = Mutex()
 
     private val _items = MutableStateFlow(load())
@@ -81,33 +87,92 @@ class HistoryStore(private val context: Context) {
 
     suspend fun add(solution: Solution) = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val updated = listOf(solution) + _items.value
-            file.writeText(json.encodeToString(updated))
-            _items.value = updated
+            upsert(solution)
         }
     }
 
     /** Решение с новым дополнением: заменяет старую запись и поднимается наверх истории. */
-    suspend fun update(solution: Solution) = withContext(Dispatchers.IO) {
+    suspend fun update(solution: Solution, requireExisting: Boolean = false): Boolean = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val updated = listOf(solution) + _items.value.filterNot { it.id == solution.id }
-            file.writeText(json.encodeToString(updated))
-            _items.value = updated
+            if (requireExisting && _items.value.none { it.id == solution.id }) return@withLock false
+            upsert(solution)
+            true
         }
     }
 
     suspend fun delete(id: String) = withContext(Dispatchers.IO) {
         mutex.withLock {
-            _items.value.firstOrNull { it.id == id }?.imagePath?.let { File(it).delete() }
+            val imagePath = _items.value.firstOrNull { it.id == id }?.imagePath
             val updated = _items.value.filterNot { it.id == id }
-            file.writeText(json.encodeToString(updated))
+            writeAtomically(updated)
             _items.value = updated
+            imagePath?.let(::ownedImage)?.delete()
         }
     }
 
-    suspend fun saveImage(jpeg: ByteArray): String = withContext(Dispatchers.IO) {
-        val f = File(imagesDir, "${UUID.randomUUID()}.jpg")
-        f.writeBytes(jpeg)
-        f.absolutePath
+    suspend fun saveImage(jpeg: ByteArray, stableId: String? = null): String = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val id = stableId?.let(::canonicalUuid) ?: UUID.randomUUID().toString()
+            val image = File(imagesDir, "$id.jpg")
+            writeAtomically(image, File(imagesDir, "$id.jpg.tmp"), jpeg)
+            image.absolutePath
+        }
     }
+
+    suspend fun removeImageIfUnreferenced(path: String) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val image = ownedImage(path) ?: return@withLock
+            val referenced = _items.value.any { solution ->
+                solution.imagePath?.let { runCatching { File(it).canonicalFile == image }.getOrDefault(false) } == true
+            }
+            if (!referenced) image.delete()
+        }
+    }
+
+    private fun upsert(solution: Solution) {
+        val updated = listOf(solution) + _items.value.filterNot { it.id == solution.id }
+        writeAtomically(updated)
+        _items.value = updated
+    }
+
+    private fun writeAtomically(updated: List<Solution>) {
+        writeAtomically(
+            target = file,
+            temporary = File(filesDir, "history.json.tmp"),
+            bytes = json.encodeToString(updated).toByteArray(Charsets.UTF_8),
+        )
+    }
+
+    private fun writeAtomically(target: File, temporary: File, bytes: ByteArray) {
+        try {
+            FileOutputStream(temporary).use { output ->
+                output.write(bytes)
+                output.flush()
+                output.fd.sync()
+            }
+            try {
+                Files.move(
+                    temporary.toPath(),
+                    target.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            } catch (_: AtomicMoveNotSupportedException) {
+                Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            }
+        } finally {
+            temporary.delete()
+        }
+    }
+
+    private fun canonicalUuid(value: String): String {
+        val parsed = UUID.fromString(value)
+        require(parsed.toString().equals(value, ignoreCase = true)) { "stableId must be a canonical UUID" }
+        return parsed.toString()
+    }
+
+    private fun ownedImage(path: String): File? = runCatching {
+        val directory = imagesDir.canonicalFile
+        File(path).canonicalFile.takeIf { it.path.startsWith(directory.path + File.separator) }
+    }.getOrNull()
 }

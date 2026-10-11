@@ -46,6 +46,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -87,6 +88,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartcalc.app.SolutionViewModel
 import com.smartcalc.app.data.session.CalculatorSession
+import com.smartcalc.app.data.request.RequestStatus
 import com.smartcalc.app.data.DocumentReader
 import com.smartcalc.app.ui.math.MathMarkup
 import com.smartcalc.app.ui.math.MathText
@@ -166,6 +168,7 @@ fun CalculatorScreen(
     val solving by vm.solving.collectAsState()
     val error by vm.error.collectAsState()
     val pending by vm.pending.collectAsState()
+    val request by vm.request.collectAsState()
     val solution by vm.current.collectAsState()
     var draftSolutionId by rememberSaveable { mutableStateOf(solution?.id) }
     val format by vm.format.collectAsState()
@@ -518,19 +521,30 @@ fun CalculatorScreen(
                             )
                         }
 
-                        solving -> {
-                            DisplayCaption(pending ?: "Задача с фото", maxLines = captionMaxLines)
-                            SolvingDots()
+                        solving -> Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                            Box(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+                                contentAlignment = Alignment.BottomEnd) {
+                                DisplayCaption(pending ?: "Задача с фото", maxLines = captionMaxLines)
+                            }
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically) {
+                                SolvingDots()
+                                TextButton(onClick = vm::cancelRequest) { Text("Отменить") }
+                            }
                         }
 
-                        error != null -> Column(horizontalAlignment = Alignment.End) {
-                            DisplayCaption(error.orEmpty(), maxLines = 4)
-                            Text(
-                                "Ошибка",
-                                fontSize = 52.sp,
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
-                            )
+                        error != null -> Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                            Box(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+                                contentAlignment = Alignment.BottomEnd) {
+                                DisplayCaption(error.orEmpty(), maxLines = 4)
+                            }
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Text(if (request?.status == RequestStatus.INTERRUPTED) "Прервано" else "Ошибка",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    color = MaterialTheme.colorScheme.error)
+                                TextButton(onClick = vm::retryRequest) { Text("Повторить запрос") }
+                            }
                         }
 
                         solution != null -> Column(

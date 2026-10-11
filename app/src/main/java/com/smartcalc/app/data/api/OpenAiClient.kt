@@ -5,7 +5,9 @@ import com.smartcalc.app.data.history.SolutionStep
 import com.smartcalc.app.data.plot.Plot
 import com.smartcalc.app.data.settings.ApiSettings
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -19,11 +21,17 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 class ApiException(message: String, val httpCode: Int? = null) : Exception(message)
 
@@ -76,7 +84,9 @@ data class StepPayload(
 )
 
 /** Шаблон заданий в запросе: требования и примеры, картинки уже в base64. */
+@Serializable
 class TemplatePrompt(val name: String, val requirements: String, val examples: List<Example>) {
+    @Serializable
     class Example(
         val condition: String,
         val conditionImages: List<String>,
@@ -96,6 +106,7 @@ class OpenAiClient {
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(false)
         .build()
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -208,7 +219,7 @@ class OpenAiClient {
         put("content", content)
     }
 
-    private fun complete(settings: ApiSettings, messages: JsonArray): SolutionPayload {
+    private suspend fun complete(settings: ApiSettings, messages: JsonArray): SolutionPayload {
         fun body(jsonMode: Boolean) = buildJsonObject {
             put("model", settings.model)
             put("messages", messages)
@@ -336,7 +347,7 @@ class OpenAiClient {
         "Соединение успешно: модель отвечает"
     }
 
-    private fun execute(settings: ApiSettings, body: JsonObject): String {
+    private suspend fun execute(settings: ApiSettings, body: JsonObject): String {
         if (settings.apiKey.isBlank()) {
             throw ApiException("API-ключ не задан. Откройте настройки и введите ключ.")
         }
@@ -346,26 +357,25 @@ class OpenAiClient {
             .header("Authorization", "Bearer ${settings.apiKey}")
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
-        client.newCall(request).execute().use { resp ->
-            val respBody = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) {
-                val apiMessage = try {
-                    json.parseToJsonElement(respBody).jsonObject["error"]
-                        ?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull
-                } catch (e: Exception) {
-                    null
-                }
-                throw ApiException("Ошибка API (HTTP ${resp.code}): ${apiMessage ?: respBody.take(300)}", resp.code)
-            }
-            val root = try {
-                json.parseToJsonElement(respBody).jsonObject
+        val resp = client.newCall(request).awaitResponse()
+        val respBody = resp.body
+        if (!resp.isSuccessful) {
+            val apiMessage = try {
+                json.parseToJsonElement(respBody).jsonObject["error"]
+                    ?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull
             } catch (e: Exception) {
-                throw ApiException("Сервер вернул некорректный ответ")
+                null
             }
-            return root["choices"]?.jsonArray?.firstOrNull()?.jsonObject
-                ?.get("message")?.jsonObject?.get("content")?.jsonPrimitive?.contentOrNull
-                ?: throw ApiException("Модель вернула пустой ответ")
+            throw ApiException("Ошибка API (HTTP ${resp.code}): ${apiMessage ?: respBody.take(300)}", resp.code)
         }
+        val root = try {
+            json.parseToJsonElement(respBody).jsonObject
+        } catch (e: Exception) {
+            throw ApiException("Сервер вернул некорректный ответ")
+        }
+        return root["choices"]?.jsonArray?.firstOrNull()?.jsonObject
+            ?.get("message")?.jsonObject?.get("content")?.jsonPrimitive?.contentOrNull
+            ?: throw ApiException("Модель вернула пустой ответ")
     }
 
     internal fun parseSolution(raw: String): SolutionPayload {
@@ -411,4 +421,40 @@ class OpenAiClient {
             .map { StepPayload(title = "Схема", content = "", svg = it) }
         return SolutionPayload(problem, answer, steps + plotSteps + schemeSteps)
     }
+}
+
+private data class HttpResponse(
+    val code: Int,
+    val isSuccessful: Boolean,
+    val body: String,
+)
+
+/** Читает тело в callback OkHttp; отмена корутины закрывает сокет и освобождает response. */
+private suspend fun Call.awaitResponse(): HttpResponse = suspendCancellableCoroutine { continuation ->
+    continuation.invokeOnCancellation { cancel() }
+    enqueue(object : Callback {
+        override fun onFailure(call: Call, e: IOException) {
+            continuation.resumeWithException(e)
+        }
+
+        override fun onResponse(call: Call, response: Response) {
+            if (!continuation.isActive) {
+                response.close()
+                return
+            }
+            val result = try {
+                response.use {
+                    HttpResponse(
+                        code = it.code,
+                        isSuccessful = it.isSuccessful,
+                        body = it.body?.string().orEmpty(),
+                    )
+                }
+            } catch (e: Exception) {
+                continuation.resumeWithException(e)
+                return
+            }
+            continuation.resume(result)
+        }
+    })
 }
