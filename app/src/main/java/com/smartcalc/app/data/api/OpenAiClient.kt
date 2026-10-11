@@ -33,7 +33,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-class ApiException(message: String, val httpCode: Int? = null) : Exception(message)
+open class ApiException(message: String, val httpCode: Int? = null) : Exception(message)
 
 /** Приложение рисует формулы LaTeX, поэтому просим именно его — и с правильными разделителями. */
 private const val FORMULA_RULE =
@@ -349,9 +349,9 @@ class OpenAiClient {
 
     private suspend fun execute(settings: ApiSettings, body: JsonObject): String {
         if (settings.apiKey.isBlank()) {
-            throw ApiException("API-ключ не задан. Откройте настройки и введите ключ.")
+            throw ApiConfigurationException("API-ключ не задан. Откройте настройки и введите ключ.")
         }
-        val url = settings.baseUrl.trim().trimEnd('/') + "/chat/completions"
+        val url = apiEndpoint(settings.baseUrl)
         val request = Request.Builder()
             .url(url)
             .header("Authorization", "Bearer ${settings.apiKey}")

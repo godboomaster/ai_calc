@@ -8,6 +8,7 @@ import com.smartcalc.app.data.DocumentException
 import com.smartcalc.app.data.DocumentReader
 import com.smartcalc.app.data.ImageUtils
 import com.smartcalc.app.data.api.ApiException
+import com.smartcalc.app.data.api.ApiConfigurationException
 import com.smartcalc.app.data.api.OpenAiClient
 import com.smartcalc.app.data.api.TemplatePrompt
 import com.smartcalc.app.data.format.FormatStore
@@ -192,8 +193,9 @@ class GenerationController(
     private fun encode(bytes: ByteArray) = Base64.encodeToString(bytes, Base64.NO_WRAP)
 }
 
-private fun requestError(error: Throwable): String = when (error) {
+internal fun requestError(error: Throwable): String = when (error) {
     is DocumentException -> error.message ?: "Не удалось прочитать вложение"
+    is ApiConfigurationException -> error.message ?: "Проверьте настройки API."
     is ApiException -> when (error.httpCode) {
         401, 403 -> "Сервер отклонил доступ. Проверьте API-ключ и выбранную модель в настройках."
         429 -> "Лимит запросов исчерпан. Повторите позже."
