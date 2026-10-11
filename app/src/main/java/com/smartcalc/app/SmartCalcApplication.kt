@@ -22,7 +22,7 @@ class SmartCalcApplication : Application() {
     val historyStore by lazy { HistoryStore(this) }
     val settingsRepository by lazy { SettingsRepository(this) }
     val formatStore by lazy { FormatStore(this) }
-    val templateStore by lazy { TemplateStore(this) }
+    val templateStore by lazy { TemplateStore(filesDir) }
     val generation by lazy {
         GenerationController(this, applicationScope, historyStore, sessionStore,
             settingsRepository, formatStore, templateStore)

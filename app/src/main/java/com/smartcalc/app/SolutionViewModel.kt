@@ -9,7 +9,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.smartcalc.app.data.api.OpenAiClient
 import com.smartcalc.app.data.template.ExampleDraft
+import com.smartcalc.app.data.template.ImportResult
 import com.smartcalc.app.data.template.TaskTemplate
+import com.smartcalc.app.data.template.TemplateFormat
 import com.smartcalc.app.data.format.SolutionFormat
 import com.smartcalc.app.data.history.Solution
 import com.smartcalc.app.data.settings.ApiSettings
@@ -26,6 +28,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.InputStream
+import java.io.OutputStream
 import java.util.UUID
 
 class SolutionViewModel(app: Application) : AndroidViewModel(app) {
@@ -76,6 +80,12 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
     fun deleteTemplate(id: String) {
         viewModelScope.launch { templateStore.delete(id) }
     }
+
+    /** Файл шаблонов с [ids] (null — все) — для сохранения или отправки. */
+    suspend fun exportTemplates(ids: Collection<String>?, out: OutputStream, format: TemplateFormat): Int =
+        templateStore.export(ids, out, format)
+
+    suspend fun importTemplates(input: InputStream): ImportResult = templateStore.import(input)
     val settings = settingsRepo.settings.stateIn(viewModelScope, SharingStarted.Eagerly, ApiSettings())
     val swipeToRestore = settingsRepo.swipeToRestore.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 

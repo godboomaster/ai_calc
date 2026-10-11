@@ -1,0 +1,25 @@
+{
+  "format": "smartcalc-templates",
+  "version": 1,
+  "templates": [
+    {
+      "id": "example-hurwitz",
+      "name": "Устойчивость по Гурвицу",
+      "requirements": "Составить матрицу Гурвица, вычислить её главные миноры и сделать вывод об устойчивости.\nФормулы — в LaTeX, в конце — одна строка с выводом.",
+      "examples": [
+        {
+          "condition": "Исследовать устойчивость системы с характеристическим уравнением $s^3 + 2s^2 + 3s + 1 = 0$.",
+          "conditionImages": [],
+          "solution": "Коэффициенты: $a_0 = 1,\\ a_1 = 2,\\ a_2 = 3,\\ a_3 = 1$.\n\n$$H = \\begin{pmatrix} 2 & 1 & 0 \\\\ 1 & 3 & 0 \\\\ 0 & 2 & 1 \\end{pmatrix}$$\n\n$\\Delta_1 = 2 > 0$, $\\Delta_2 = 2 \\cdot 3 - 1 \\cdot 1 = 5 > 0$, $\\Delta_3 = a_3 \\Delta_2 = 5 > 0$.\n\nВывод: все миноры положительны — система устойчива.",
+          "solutionImages": ["images/primer-1-reshenie.jpg"]
+        },
+        {
+          "condition": "Исследовать устойчивость системы с характеристическим уравнением $s^3 + s^2 + s + 2 = 0$.",
+          "conditionImages": [],
+          "solution": "$\\Delta_1 = a_1 = 1 > 0$, $\\Delta_2 = a_1 a_2 - a_0 a_3 = 1 \\cdot 1 - 1 \\cdot 2 = -1 < 0$.\n\nВывод: $\\Delta_2 < 0$ — система неустойчива.",
+          "solutionImages": []
+        }
+      ]
+    }
+  ]
+}

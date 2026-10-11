@@ -93,6 +93,7 @@ fun TemplateEditScreen(vm: SolutionViewModel, templateId: String?, onBack: () ->
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val existing = remember { templateId?.let { id -> vm.templates.value.firstOrNull { it.id == id } } }
+    val transfer = rememberTemplateTransfer(vm)
 
     var name by remember { mutableStateOf(existing?.name.orEmpty()) }
     var requirements by remember { mutableStateOf(existing?.requirements.orEmpty()) }
@@ -258,6 +259,25 @@ fun TemplateEditScreen(vm: SolutionViewModel, templateId: String?, onBack: () ->
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Сохранить") }
             if (existing != null) {
+                // Экспортируется сохранённый шаблон — поэтому с несохранёнными правками кнопки ждут.
+                Text(
+                    if (dirty) "Экспорт — после сохранения изменений" else "Экспорт шаблона",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { transfer.save(listOf(existing), false) },
+                        enabled = !dirty,
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Сохранить в файл") }
+                    OutlinedButton(
+                        onClick = { transfer.share(listOf(existing), false) },
+                        enabled = !dirty,
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Отправить") }
+                }
                 OutlinedButton(onClick = { confirmDelete = true }, modifier = Modifier.fillMaxWidth()) {
                     Text("Удалить шаблон")
                 }

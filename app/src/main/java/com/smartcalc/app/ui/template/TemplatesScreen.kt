@@ -2,6 +2,7 @@ package com.smartcalc.app.ui.template
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,19 +15,27 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.outlined.FileOpen
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -48,6 +57,8 @@ fun TemplatesScreen(
 ) {
     val templates by vm.templates.collectAsState()
     val armed by vm.armedTemplate.collectAsState()
+    val transfer = rememberTemplateTransfer(vm)
+    var exportMenu by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
@@ -55,6 +66,31 @@ fun TemplatesScreen(
             navigationIcon = {
                 IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                }
+            },
+            actions = {
+                if (templates.isNotEmpty()) {
+                    Box {
+                        IconButton(onClick = { exportMenu = true }) {
+                            Icon(Icons.Outlined.Share, contentDescription = "Экспорт всех шаблонов")
+                        }
+                        DropdownMenu(expanded = exportMenu, onDismissRequest = { exportMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Сохранить все в файл") },
+                                onClick = {
+                                    exportMenu = false
+                                    transfer.save(templates, true)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Отправить все") },
+                                onClick = {
+                                    exportMenu = false
+                                    transfer.share(templates, true)
+                                },
+                            )
+                        }
+                    }
                 }
             },
         )
@@ -92,9 +128,22 @@ fun TemplatesScreen(
                 }
             }
             item {
-                Button(onClick = { onEdit(null) }, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Filled.Add, contentDescription = null)
-                    Text("Создать шаблон заданий", modifier = Modifier.padding(start = 8.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { onEdit(null) }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Filled.Add, contentDescription = null)
+                        Text("Создать шаблон заданий", modifier = Modifier.padding(start = 8.dp))
+                    }
+                    // Файл шаблонов — из экспорта на другом телефоне или присланный кем-то.
+                    OutlinedButton(onClick = transfer.import, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Outlined.FileOpen, contentDescription = null)
+                        Text("Импортировать из файла", modifier = Modifier.padding(start = 8.dp))
+                    }
+                    Text(
+                        "Подходят ZIP и JSON из экспорта SmartCalc и Markdown (.md): «# Название», " +
+                            "«## Требования», «## Пример 1», «### Условие», «### Решение».",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
             if (templates.isEmpty()) {
