@@ -9,7 +9,7 @@ import java.util.UUID
  * # Шаблон: Название
  * ## Требования
  * текст
- * ## Пример 1
+ * ## Пример 1          (или «## Задача 1»)
  * ### Условие
  * текст
  * ### Решение
@@ -99,7 +99,8 @@ object TemplateMarkdown {
 
                 name == null -> Unit
                 level == 2 && title.startsWith("Требования", ignoreCase = true) -> target = requirements
-                level == 2 && title.startsWith("Пример", ignoreCase = true) -> {
+                // «## Задача 1» — так удобнее писать файл для базы задач; это тот же пример.
+                level == 2 && (title.startsWith("Пример", ignoreCase = true) || title.startsWith("Задача", ignoreCase = true)) -> {
                     examples += StringBuilder() to StringBuilder()
                     target = examples.last().first
                 }

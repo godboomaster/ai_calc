@@ -31,6 +31,7 @@ import com.smartcalc.app.data.template.ImportResult
 import com.smartcalc.app.data.template.TaskTemplate
 import com.smartcalc.app.data.template.TemplateFormat
 import com.smartcalc.app.data.template.TemplateImportException
+import com.smartcalc.app.data.template.TemplateKind
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -60,9 +61,12 @@ internal class TemplateTransfer(
     val import: () -> Unit,
 )
 
-/** «Шаблон Гурвиц.md» для одного шаблона и «Шаблоны SmartCalc.zip» для нескольких. */
-internal fun exportFileName(templates: List<TaskTemplate>, format: TemplateFormat): String {
-    val name = templates.singleOrNull()?.let { "Шаблон ${it.name}" } ?: "Шаблоны SmartCalc"
+/** «Шаблон Гурвиц.md» для одного шаблона и «Шаблоны SmartCalc.zip» для нескольких; у базы — «База …». */
+internal fun exportFileName(templates: List<TaskTemplate>, format: TemplateFormat, kind: TemplateKind = TemplateKind.TEMPLATES): String {
+    val name = when (kind) {
+        TemplateKind.TEMPLATES -> templates.singleOrNull()?.let { "Шаблон ${it.name}" } ?: "Шаблоны SmartCalc"
+        TemplateKind.LIBRARY -> templates.singleOrNull()?.let { "База ${it.name}" } ?: "База задач SmartCalc"
+    }
     return name.replace(Regex("""[\\/:*?"<>|\n]"""), "_").trim().take(60) + "." + format.extension
 }
 
@@ -70,11 +74,16 @@ internal fun exportFileName(templates: List<TaskTemplate>, format: TemplateForma
 private class PendingExport(val ids: ArrayList<String>?, val names: List<TaskTemplate>, val share: Boolean)
 
 /**
- * Экспорт и импорт для экрана шаблонов. Сам показывает окно выбора формата, поэтому вызывается там,
- * где у экрана могут появиться диалоги.
+ * Экспорт и импорт для экрана шаблонов или базы задач ([kind]). Сам показывает окно выбора формата,
+ * поэтому вызывается там, где у экрана могут появиться диалоги. [onImported] получает загруженное —
+ * база по нему прикрепляет задачи к шаблону.
  */
 @Composable
-internal fun rememberTemplateTransfer(vm: SolutionViewModel): TemplateTransfer {
+internal fun rememberTemplateTransfer(
+    vm: SolutionViewModel,
+    kind: TemplateKind = TemplateKind.TEMPLATES,
+    onImported: (suspend (ImportResult) -> Unit)? = null,
+): TemplateTransfer {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var pending by remember { mutableStateOf<PendingExport?>(null) }
@@ -87,9 +96,9 @@ internal fun rememberTemplateTransfer(vm: SolutionViewModel): TemplateTransfer {
             val ids = saveIds
             scope.launch {
                 try {
-                    val count = context.contentResolver.openOutputStream(uri)?.use { vm.exportTemplates(ids, it, format) }
+                    val count = context.contentResolver.openOutputStream(uri)?.use { vm.exportTemplates(ids, it, format, kind) }
                         ?: throw IllegalStateException()
-                    toast(context, "Сохранено шаблонов: $count")
+                    toast(context, if (kind == TemplateKind.LIBRARY) "Сохранено разделов: $count" else "Сохранено шаблонов: $count")
                 } catch (e: Exception) {
                     toast(context, "Не удалось сохранить файл")
                 }
@@ -100,9 +109,10 @@ internal fun rememberTemplateTransfer(vm: SolutionViewModel): TemplateTransfer {
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             try {
-                val result = context.contentResolver.openInputStream(uri)?.use { vm.importTemplates(it) }
+                val result = context.contentResolver.openInputStream(uri)?.use { vm.importTemplates(it, kind) }
                     ?: throw TemplateImportException("Не удалось открыть файл")
-                toast(context, importMessage(result))
+                toast(context, importMessage(result, kind))
+                onImported?.invoke(result)
             } catch (e: TemplateImportException) {
                 // Сообщение про формат Markdown длинное — короткий тост его обрежет.
                 Toast.makeText(context, e.message ?: "Не удалось импортировать шаблоны", Toast.LENGTH_LONG).show()
@@ -120,20 +130,20 @@ internal fun rememberTemplateTransfer(vm: SolutionViewModel): TemplateTransfer {
                 if (p.share) {
                     scope.launch {
                         try {
-                            shareFile(context, vm, p.ids, exportFileName(p.names, format), format)
+                            shareFile(context, vm, p.ids, exportFileName(p.names, format, kind), format, kind)
                         } catch (e: Exception) {
                             toast(context, "Не удалось подготовить файл")
                         }
                     }
                 } else {
                     saveIds = p.ids
-                    createLaunchers.getValue(format).launch(exportFileName(p.names, format))
+                    createLaunchers.getValue(format).launch(exportFileName(p.names, format, kind))
                 }
             },
         )
     }
 
-    return remember(vm) {
+    return remember(vm, kind) {
         TemplateTransfer(
             save = { templates, all ->
                 pending = PendingExport(if (all) null else ArrayList(templates.map { it.id }), templates, share = false)
@@ -178,12 +188,13 @@ private suspend fun shareFile(
     ids: List<String>?,
     fileName: String,
     format: TemplateFormat,
+    kind: TemplateKind,
 ) {
     val file = withContext(Dispatchers.IO) {
         // Прежние экспорты уже отправлены — копить их незачем.
         val dir = File(context.cacheDir, "shared").apply { mkdirs() }
         dir.listFiles()?.forEach { it.delete() }
-        File(dir, fileName).also { f -> f.outputStream().use { vm.exportTemplates(ids, it, format) } }
+        File(dir, fileName).also { f -> f.outputStream().use { vm.exportTemplates(ids, it, format, kind) } }
     }
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
     val send = Intent(Intent.ACTION_SEND)
@@ -191,12 +202,16 @@ private suspend fun shareFile(
         .setType(if (format == TemplateFormat.MARKDOWN) "text/plain" else format.mime)
         .putExtra(Intent.EXTRA_STREAM, uri)
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    context.startActivity(Intent.createChooser(send, "Отправить шаблоны"))
+    context.startActivity(Intent.createChooser(send, if (kind == TemplateKind.LIBRARY) "Отправить задачи" else "Отправить шаблоны"))
 }
 
-private fun importMessage(r: ImportResult): String = listOfNotNull(
-    "Добавлено шаблонов: ${r.added}".takeIf { r.added > 0 },
-    "обновлено: ${r.updated}".takeIf { r.updated > 0 },
-).joinToString(", ").replaceFirstChar { it.uppercase() }
+private fun importMessage(r: ImportResult, kind: TemplateKind): String = when (kind) {
+    TemplateKind.TEMPLATES -> listOfNotNull(
+        "Добавлено шаблонов: ${r.added}".takeIf { r.added > 0 },
+        "обновлено: ${r.updated}".takeIf { r.updated > 0 },
+    ).joinToString(", ").replaceFirstChar { it.uppercase() }
+    // В базе важнее число задач: раздел в файле обычно один.
+    TemplateKind.LIBRARY -> "Загружено задач: ${r.items.sumOf { it.examples.size }}"
+}
 
 private fun toast(context: Context, text: String) = Toast.makeText(context, text, Toast.LENGTH_SHORT).show()

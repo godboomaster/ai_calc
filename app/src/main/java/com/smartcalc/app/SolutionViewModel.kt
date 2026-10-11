@@ -11,7 +11,12 @@ import com.smartcalc.app.data.api.OpenAiClient
 import com.smartcalc.app.data.template.ExampleDraft
 import com.smartcalc.app.data.template.ImportResult
 import com.smartcalc.app.data.template.TaskTemplate
+import com.smartcalc.app.data.template.TemplateExample
 import com.smartcalc.app.data.template.TemplateFormat
+import com.smartcalc.app.data.template.TemplateKind
+import com.smartcalc.app.data.search.FoundSolution
+import com.smartcalc.app.data.search.SearchEntry
+import com.smartcalc.app.data.search.TaskSearch
 import com.smartcalc.app.data.format.SolutionFormat
 import com.smartcalc.app.data.history.Solution
 import com.smartcalc.app.data.settings.ApiSettings
@@ -27,7 +32,9 @@ import com.smartcalc.app.data.request.active
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.InputStream
@@ -41,6 +48,7 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
     private val historyStore = applicationState.historyStore
     private val formatStore = applicationState.formatStore
     private val templateStore = applicationState.templateStore
+    private val libraryStore = applicationState.libraryStore
     private val generation = applicationState.generation
     val request = generation.state
     private val client = OpenAiClient()
@@ -48,6 +56,16 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
     val history = historyStore.items
     val format: StateFlow<SolutionFormat> = formatStore.format
     val templates: StateFlow<List<TaskTemplate>> = templateStore.items
+    /** База решённых задач: разделы по типам задач. */
+    val library: StateFlow<List<TaskTemplate>> = libraryStore.items
+
+    /** Всё, по чему ищет поиск; считается, только пока открыт экран поиска. null — ещё не собрано. */
+    val searchEntries: StateFlow<List<SearchEntry>?> =
+        combine(libraryStore.items, templateStore.items, historyStore.items) { base, templates, solved ->
+            TaskSearch.entries(base, templates, solved)
+        }
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val sessionStore = applicationState.sessionStore
     val session = sessionStore.state
@@ -76,18 +94,52 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
         armedId.value = null
     }
 
-    suspend fun saveTemplate(id: String?, name: String, requirements: String, examples: List<ExampleDraft>) =
-        templateStore.save(id, name, requirements, examples)
-
-    fun deleteTemplate(id: String) {
-        viewModelScope.launch { templateStore.delete(id) }
+    private fun store(kind: TemplateKind) = when (kind) {
+        TemplateKind.TEMPLATES -> templateStore
+        TemplateKind.LIBRARY -> libraryStore
     }
 
-    /** Файл шаблонов с [ids] (null — все) — для сохранения или отправки. */
-    suspend fun exportTemplates(ids: Collection<String>?, out: OutputStream, format: TemplateFormat): Int =
-        templateStore.export(ids, out, format)
+    fun items(kind: TemplateKind): StateFlow<List<TaskTemplate>> = store(kind).items
 
-    suspend fun importTemplates(input: InputStream): ImportResult = templateStore.import(input)
+    suspend fun saveTemplate(
+        id: String?,
+        name: String,
+        requirements: String,
+        examples: List<ExampleDraft>,
+        kind: TemplateKind = TemplateKind.TEMPLATES,
+    ) = store(kind).save(id, name, requirements, examples)
+
+    fun deleteTemplate(id: String, kind: TemplateKind = TemplateKind.TEMPLATES) {
+        viewModelScope.launch { store(kind).delete(id) }
+    }
+
+    /** Файл шаблонов (или разделов базы) с [ids] (null — все) — для сохранения или отправки. */
+    suspend fun exportTemplates(
+        ids: Collection<String>?,
+        out: OutputStream,
+        format: TemplateFormat,
+        kind: TemplateKind = TemplateKind.TEMPLATES,
+    ): Int = store(kind).export(ids, out, format)
+
+    suspend fun importTemplates(input: InputStream, kind: TemplateKind = TemplateKind.TEMPLATES): ImportResult =
+        store(kind).import(input)
+
+    /** Задачи из базы дописываются примерами к шаблону: с ним они уйдут ИИ. Возвращает, сколько добавлено. */
+    suspend fun attachToTemplate(templateId: String, examples: List<TemplateExample>): Int =
+        templateStore.attach(templateId, examples)
+
+    /**
+     * Найденная задача — на дисплей калькулятора, как решение из истории. Задача из базы или шаблона
+     * сохраняется в историю: к ней можно задать дополнение ИИ, и она переживёт перезапуск. Открытая
+     * повторно, она берётся из истории — вместе с дополнениями.
+     */
+    fun openFound(entry: SearchEntry) {
+        entry.history?.let { return open(it) }
+        val solution = FoundSolution.of(entry)
+        history.value.firstOrNull { it.id == solution.id }?.let { return open(it) }
+        open(solution)
+        viewModelScope.launch { historyStore.add(solution) }
+    }
     val settings = settingsRepo.settings.stateIn(viewModelScope, SharingStarted.Eagerly, ApiSettings())
     val swipeToRestore = settingsRepo.swipeToRestore.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 

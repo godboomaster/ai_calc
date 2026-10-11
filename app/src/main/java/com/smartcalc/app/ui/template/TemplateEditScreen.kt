@@ -60,6 +60,7 @@ import com.smartcalc.app.data.ImageUtils
 import com.smartcalc.app.data.template.ExampleDraft
 import com.smartcalc.app.data.template.ImageDraft
 import com.smartcalc.app.data.template.TemplateExample
+import com.smartcalc.app.data.template.TemplateKind
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -83,17 +84,80 @@ private fun TemplateExample.toState() = ExampleState(
 
 private fun emptyExample() = ExampleState(SectionState("", emptyList()), SectionState("", emptyList()))
 
+/** Надписи редактора: шаблон заданий и раздел базы задач устроены одинаково, но называются по-разному. */
+private class EditorWords(
+    val title: String,
+    val newTitle: String,
+    val nameLabel: String,
+    val namePlaceholder: String,
+    val examplesTitle: String,
+    val examplesHint: String,
+    val example: String,
+    val solutionPlaceholder: String,
+    val addExample: String,
+    val removeExample: String,
+    val exportTitle: String,
+    val delete: String,
+    val lostChanges: String,
+    val deleteDetails: String,
+)
+
+private fun wordsFor(kind: TemplateKind) = when (kind) {
+    TemplateKind.TEMPLATES -> EditorWords(
+        title = "Шаблон заданий",
+        newTitle = "Новый шаблон",
+        nameLabel = "Название",
+        namePlaceholder = "Например: устойчивость по Гурвицу",
+        examplesTitle = "Примеры решённых задач",
+        examplesHint = "Условие и решение — текстом, фото или документом. Всё это уходит ИИ вместе с каждой задачей " +
+            "по шаблону, поэтому одного-двух хороших примеров обычно хватает.",
+        example = "Пример",
+        solutionPlaceholder = "Как такую задачу нужно решить",
+        addExample = "Добавить пример",
+        removeExample = "Удалить пример",
+        exportTitle = "Экспорт шаблона",
+        delete = "Удалить шаблон",
+        lostChanges = "Изменения в шаблоне пропадут.",
+        deleteDetails = "Его примеры и фото удалятся с телефона.",
+    )
+    TemplateKind.LIBRARY -> EditorWords(
+        title = "Раздел базы задач",
+        newTitle = "Новый раздел",
+        nameLabel = "Тип задач",
+        namePlaceholder = "Например: кинематика, 9 класс",
+        examplesTitle = "Решённые задачи",
+        examplesHint = "Условие и решение — текстом, фото или документом. Поиск (клавиша 9 в режиме ИИ) находит " +
+            "их по числам и словам условия. Строка «Ответ: …» в решении попадёт на дисплей, пункты «1)», «2)» " +
+            "или абзацы — на цифры.",
+        example = "Задача",
+        solutionPlaceholder = "Решение, в конце — «Ответ: …»",
+        addExample = "Добавить задачу",
+        removeExample = "Удалить задачу",
+        exportTitle = "Экспорт раздела",
+        delete = "Удалить раздел",
+        lostChanges = "Изменения в разделе пропадут.",
+        deleteDetails = "Его задачи и фото удалятся с телефона.",
+    )
+}
+
 /**
  * Редактор шаблона заданий: название, требования к задачам этого типа и примеры решения —
- * условие и решение текстом, фото из галереи или документом.
+ * условие и решение текстом, фото из галереи или документом. С [kind] = LIBRARY — редактор раздела
+ * базы задач: тип задач и сами задачи, без требований для ИИ.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TemplateEditScreen(vm: SolutionViewModel, templateId: String?, onBack: () -> Unit) {
+fun TemplateEditScreen(
+    vm: SolutionViewModel,
+    templateId: String?,
+    onBack: () -> Unit,
+    kind: TemplateKind = TemplateKind.TEMPLATES,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val existing = remember { templateId?.let { id -> vm.templates.value.firstOrNull { it.id == id } } }
-    val transfer = rememberTemplateTransfer(vm)
+    val words = remember(kind) { wordsFor(kind) }
+    val existing = remember { templateId?.let { id -> vm.items(kind).value.firstOrNull { it.id == id } } }
+    val transfer = rememberTemplateTransfer(vm, kind)
 
     var name by remember { mutableStateOf(existing?.name.orEmpty()) }
     var requirements by remember { mutableStateOf(existing?.requirements.orEmpty()) }
@@ -167,7 +231,7 @@ fun TemplateEditScreen(vm: SolutionViewModel, templateId: String?, onBack: () ->
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
-            title = { Text(if (existing != null) "Шаблон заданий" else "Новый шаблон") },
+            title = { Text(if (existing != null) words.title else words.newTitle) },
             navigationIcon = {
                 IconButton(onClick = ::leave) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
@@ -187,30 +251,32 @@ fun TemplateEditScreen(vm: SolutionViewModel, templateId: String?, onBack: () ->
                     name = it
                     dirty = true
                 },
-                label = { Text("Название") },
-                placeholder = { Text("Например: устойчивость по Гурвицу") },
+                label = { Text(words.nameLabel) },
+                placeholder = { Text(words.namePlaceholder) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
-            OutlinedTextField(
-                value = requirements,
-                onValueChange = {
-                    requirements = it
-                    dirty = true
-                },
-                label = { Text("Требования к таким задачам") },
-                placeholder = { Text("Например: решать методом Гурвица, в конце — вывод об устойчивости") },
-                minLines = 3,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            // У базы требований нет: её задачи ищут, а не отправляют ИИ.
+            if (kind == TemplateKind.TEMPLATES) {
+                OutlinedTextField(
+                    value = requirements,
+                    onValueChange = {
+                        requirements = it
+                        dirty = true
+                    },
+                    label = { Text("Требования к таким задачам") },
+                    placeholder = { Text("Например: решать методом Гурвица, в конце — вывод об устойчивости") },
+                    minLines = 3,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             Text(
-                "Примеры решённых задач",
+                words.examplesTitle,
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
             )
             Text(
-                "Условие и решение — текстом, фото или документом. Всё это уходит ИИ вместе с каждой задачей " +
-                    "по шаблону, поэтому одного-двух хороших примеров обычно хватает.",
+                words.examplesHint,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -222,7 +288,7 @@ fun TemplateEditScreen(vm: SolutionViewModel, templateId: String?, onBack: () ->
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                "Пример ${index + 1}",
+                                "${words.example} ${index + 1}",
                                 style = MaterialTheme.typography.titleSmall,
                                 modifier = Modifier.weight(1f),
                             )
@@ -230,12 +296,12 @@ fun TemplateEditScreen(vm: SolutionViewModel, templateId: String?, onBack: () ->
                                 examples.removeAt(index)
                                 dirty = true
                             }) {
-                                Icon(Icons.Filled.Delete, contentDescription = "Удалить пример")
+                                Icon(Icons.Filled.Delete, contentDescription = words.removeExample)
                             }
                         }
                         Column(modifier = Modifier.padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Section("Условие", "Текст условия", example.condition)
-                            Section("Решение", "Как такую задачу нужно решить", example.solution)
+                            Section("Решение", words.solutionPlaceholder, example.solution)
                         }
                     }
                 }
@@ -246,12 +312,12 @@ fun TemplateEditScreen(vm: SolutionViewModel, templateId: String?, onBack: () ->
                     dirty = true
                 },
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Добавить пример") }
+            ) { Text(words.addExample) }
             Button(
                 onClick = {
                     saving = true
                     scope.launch {
-                        vm.saveTemplate(existing?.id, name, requirements, examples.map { it.toDraft() })
+                        vm.saveTemplate(existing?.id, name, requirements, examples.map { it.toDraft() }, kind)
                         onBack()
                     }
                 },
@@ -261,7 +327,7 @@ fun TemplateEditScreen(vm: SolutionViewModel, templateId: String?, onBack: () ->
             if (existing != null) {
                 // Экспортируется сохранённый шаблон — поэтому с несохранёнными правками кнопки ждут.
                 Text(
-                    if (dirty) "Экспорт — после сохранения изменений" else "Экспорт шаблона",
+                    if (dirty) "Экспорт — после сохранения изменений" else words.exportTitle,
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp),
@@ -279,7 +345,7 @@ fun TemplateEditScreen(vm: SolutionViewModel, templateId: String?, onBack: () ->
                     ) { Text("Отправить") }
                 }
                 OutlinedButton(onClick = { confirmDelete = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Удалить шаблон")
+                    Text(words.delete)
                 }
             }
         }
@@ -289,7 +355,7 @@ fun TemplateEditScreen(vm: SolutionViewModel, templateId: String?, onBack: () ->
         AlertDialog(
             onDismissRequest = { confirmExit = false },
             title = { Text("Выйти без сохранения?") },
-            text = { Text("Изменения в шаблоне пропадут.") },
+            text = { Text(words.lostChanges) },
             confirmButton = { TextButton(onClick = onBack) { Text("Выйти") } },
             dismissButton = { TextButton(onClick = { confirmExit = false }) { Text("Остаться") } },
         )
@@ -297,11 +363,11 @@ fun TemplateEditScreen(vm: SolutionViewModel, templateId: String?, onBack: () ->
     if (confirmDelete && existing != null) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
-            title = { Text("Удалить шаблон «${existing.name}»?") },
-            text = { Text("Его примеры и фото удалятся с телефона.") },
+            title = { Text("${words.delete} «${existing.name}»?") },
+            text = { Text(words.deleteDetails) },
             confirmButton = {
                 TextButton(onClick = {
-                    vm.deleteTemplate(existing.id)
+                    vm.deleteTemplate(existing.id, kind)
                     onBack()
                 }) { Text("Удалить") }
             },
