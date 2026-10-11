@@ -5,10 +5,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
 /** Visibility is a user choice; finishing a request must never change it. */
-internal class AssistantDisplay {
+internal class AssistantDisplay(initialUnread: Boolean = false) {
     data class State(val visible: Boolean = false, val unread: Boolean = false)
 
-    private val mutableState = MutableStateFlow(State())
+    private val mutableState = MutableStateFlow(State(unread = initialUnread))
     val state = mutableState.asStateFlow()
 
     fun start() { mutableState.value = State(visible = true) }

@@ -51,11 +51,13 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -84,6 +86,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartcalc.app.SolutionViewModel
+import com.smartcalc.app.data.session.CalculatorSession
 import com.smartcalc.app.data.DocumentReader
 import com.smartcalc.app.ui.math.MathMarkup
 import com.smartcalc.app.ui.math.MathText
@@ -142,16 +145,17 @@ fun CalculatorScreen(
     onOpenFormat: () -> Unit,
     onOpenTemplates: () -> Unit,
 ) {
-    // rememberSaveable: выражение и режим не теряются, пока открыты камера, история или настройки.
-    var expr by rememberSaveable { mutableStateOf("") }
-    var evaluated by rememberSaveable { mutableStateOf(false) }
+    // Файл сеанса переживает новый процесс; rememberSaveable сохраняет текущую композицию при навигации.
+    val savedCalculator = remember { vm.session.value.calculator }
+    var expr by rememberSaveable { mutableStateOf(savedCalculator.expression) }
+    var evaluated by rememberSaveable { mutableStateOf(savedCalculator.evaluated) }
     var aiKeys by rememberSaveable { mutableStateOf(false) }
     var editing by rememberSaveable { mutableStateOf(false) }
     // Строка ввода дописывает вопрос к ответу на дисплее, а не новую задачу.
     var followUp by rememberSaveable { mutableStateOf(false) }
     // Недописанное дополнение не пропадает, если клавиатуру закрыли.
-    var followUpDraft by rememberSaveable { mutableStateOf("") }
-    var taskDraft by rememberSaveable { mutableStateOf("") }
+    var followUpDraft by rememberSaveable { mutableStateOf(savedCalculator.followUpDraft) }
+    var taskDraft by rememberSaveable { mutableStateOf(savedCalculator.taskDraft) }
     var returnToAssistant by rememberSaveable { mutableStateOf(false) }
     var field by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -171,8 +175,34 @@ fun CalculatorScreen(
     val answerVisible = onDisplay && !solving && error == null && solution != null
     val canSwipeToRestore = swipeToRestore && !onDisplay && !editing && !aiKeys &&
         (solving || solution != null || error != null)
-    val answerScroll = rememberScrollState()
+    val answerScroll = key(solution?.id, solution?.followUps?.size) {
+        val initialScroll = remember { vm.session.value.reading.answerScroll }
+        rememberScrollState(initial = initialScroll)
+    }
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
+
+    // Сохраняем и незакрытый редактор: force-stop не обязан вызывать lifecycle callbacks.
+    LaunchedEffect(Unit) {
+        snapshotFlow {
+            val expressionEditing = editing && !followUp && !returnToAssistant &&
+                (field.text.isBlank() || isArithmetic(field.text))
+            CalculatorSession(
+                expression = if (expressionEditing) field.text else expr,
+                evaluated = if (expressionEditing) false else evaluated,
+                taskDraft = when {
+                    expressionEditing -> ""
+                    editing && !followUp -> field.text
+                    else -> taskDraft
+                },
+                followUpDraft = if (editing && followUp) field.text else followUpDraft,
+                followUpSolutionId = draftSolutionId,
+            )
+        }.collect(vm::saveCalculator)
+    }
+    LaunchedEffect(answerScroll, solution?.id, solution?.followUps?.size) {
+        val s = solution ?: return@LaunchedEffect
+        snapshotFlow { answerScroll.value }.collect { vm.saveAnswerScroll(s.id, s.followUps.size, it) }
+    }
 
     // Меню, редактор и экраны поверх калькулятора не означают, что результат прочитан.
     LaunchedEffect(display, solving, editing, aiKeys, lifecycle) {
@@ -279,6 +309,7 @@ fun CalculatorScreen(
             return
         }
         if (isArithmetic(text)) {
+            if (editing) taskDraft = ""
             stopEditing(saveDraft = false)
             expr = try {
                 ExpressionParser.format(ExpressionParser.evaluate(text))

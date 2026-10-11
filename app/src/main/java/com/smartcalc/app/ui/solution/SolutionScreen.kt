@@ -1,5 +1,6 @@
 package com.smartcalc.app.ui.solution
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,11 +32,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,6 +53,7 @@ import coil.compose.AsyncImage
 import com.smartcalc.app.SolutionViewModel
 import com.smartcalc.app.data.history.Solution
 import com.smartcalc.app.data.history.SolutionStep
+import com.smartcalc.app.data.session.ListPosition
 import com.smartcalc.app.ui.calculator.CalcKey
 import com.smartcalc.app.ui.math.MathMarkup
 import com.smartcalc.app.ui.math.MathText
@@ -68,6 +72,7 @@ fun SolutionScreen(
     onOpenCalculator: () -> Unit,
     onHideToCalculator: () -> Unit,
 ) {
+    BackHandler(onBack = onBack)
     val solution by vm.current.collectAsState()
     var copied by remember(solution?.id) { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
@@ -127,7 +132,18 @@ fun SolutionScreen(
             else 1 + (if (s.template != null || s.format != null) 1 else 0) + s.steps.size + 1 +
                 s.followUps.dropLast(1).sumOf { it.steps.size + 2 }
         }
-        val listState = rememberLazyListState(initialFirstVisibleItemIndex = latestStart)
+        val savedPosition = remember(s.id, s.followUps.size) {
+            vm.session.value.reading.takeIf { it.solutionId == s.id && it.followUpCount == s.followUps.size }
+                ?.solutionScroll ?: ListPosition(latestStart)
+        }
+        val listState = rememberLazyListState(
+            initialFirstVisibleItemIndex = savedPosition.index,
+            initialFirstVisibleItemScrollOffset = savedPosition.offset,
+        )
+        LaunchedEffect(listState, s.id, s.followUps.size) {
+            snapshotFlow { ListPosition(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) }
+                .collect { vm.saveSolutionScroll(s.id, s.followUps.size, it) }
+        }
 
         LazyColumn(
             state = listState,

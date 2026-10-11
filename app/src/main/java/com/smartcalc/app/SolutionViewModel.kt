@@ -26,6 +26,11 @@ import com.smartcalc.app.data.history.Solution
 import com.smartcalc.app.data.history.SolutionStep
 import com.smartcalc.app.data.settings.ApiSettings
 import com.smartcalc.app.data.settings.SettingsRepository
+import com.smartcalc.app.data.session.CalculatorSession
+import com.smartcalc.app.data.session.ListPosition
+import com.smartcalc.app.data.session.ReadingSession
+import com.smartcalc.app.data.session.ReadingTarget
+import com.smartcalc.app.data.session.restoredFor
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -38,6 +43,7 @@ import java.net.ConnectException
 import kotlin.coroutines.cancellation.CancellationException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import java.util.UUID
 
 class SolutionViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -50,6 +56,16 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
     val history = historyStore.items
     val format: StateFlow<SolutionFormat> = formatStore.format
     val templates: StateFlow<List<TaskTemplate>> = templateStore.items
+
+    private val sessionStore = (app as SmartCalcApplication).sessionStore
+    val session = sessionStore.state
+    private val restoredSession = session.value.restoredFor(history.value)
+    // Новый процесс не восстанавливает открытый экран помощника из Android savedInstanceState.
+    val sessionInstanceId: String = UUID.randomUUID().toString()
+
+    init {
+        sessionStore.update { restoredSession }
+    }
 
     /**
      * Шаблон, выбранный для следующей задачи. Действует на одну задачу: после ответа снимается,
@@ -77,7 +93,7 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
     val settings = settingsRepo.settings.stateIn(viewModelScope, SharingStarted.Eagerly, ApiSettings())
     val swipeToRestore = settingsRepo.swipeToRestore.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    private val _current = MutableStateFlow<Solution?>(null)
+    private val _current = MutableStateFlow(history.value.firstOrNull { it.id == restoredSession.reading.solutionId })
     val current: StateFlow<Solution?> = _current
 
     private val _solving = MutableStateFlow(false)
@@ -102,7 +118,7 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
      * Показывает ли калькулятор на дисплее работу ИИ (ход решения, ответ или ошибку) вместо своих
      * вычислений. Любое нажатие клавиши калькулятора возвращает его к обычному счёту.
      */
-    private val assistantDisplay = AssistantDisplay()
+    private val assistantDisplay = AssistantDisplay(initialUnread = restoredSession.unread)
     internal val display = assistantDisplay.state
 
     /**
@@ -179,7 +195,55 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
         if (_solving.value || _current.value != null || _error.value != null) assistantDisplay.show()
     }
 
-    fun markViewed() { assistantDisplay.markViewed() }
+    fun markViewed() {
+        assistantDisplay.markViewed()
+        if (!display.value.unread) sessionStore.update { it.copy(unread = false) }
+    }
+
+    fun saveCalculator(value: CalculatorSession) {
+        sessionStore.update { saved ->
+            val attached = value.followUpSolutionId != null && value.followUpSolutionId == saved.reading.solutionId
+            saved.copy(calculator = if (attached) value else value.copy(followUpDraft = "", followUpSolutionId = null))
+        }
+    }
+
+    fun setReadingTarget(target: ReadingTarget, step: Int = session.value.reading.selectedStep) {
+        val solution = current.value ?: return
+        updateReading(solution.id, solution.followUps.size) {
+            it.copy(target = target, selectedStep = step.coerceIn(0, solution.latestSteps.lastIndex.coerceAtLeast(0)))
+        }
+    }
+
+    fun saveStepScroll(id: String, revision: Int, index: Int, offset: Int) = updateReading(id, revision) {
+        it.copy(stepScroll = it.stepScroll + (index to offset.coerceAtLeast(0)))
+    }
+
+    fun saveSolutionScroll(id: String, revision: Int, position: ListPosition) = updateReading(id, revision) {
+        it.copy(solutionScroll = position)
+    }
+
+    fun saveAnswerScroll(id: String, revision: Int, offset: Int) = updateReading(id, revision) {
+        it.copy(answerScroll = offset.coerceAtLeast(0))
+    }
+
+    private fun updateReading(id: String, revision: Int, update: (ReadingSession) -> ReadingSession) {
+        sessionStore.update { saved ->
+            if (saved.reading.solutionId == id && saved.reading.followUpCount == revision) {
+                saved.copy(reading = update(saved.reading))
+            } else saved // Уходящий экран не должен перезаписывать состояние новой задачи.
+        }
+    }
+
+    private fun rememberSolution(solution: Solution?) {
+        sessionStore.update { saved ->
+            saved.copy(
+                reading = solution?.let { ReadingSession(it.id, it.followUps.size) } ?: ReadingSession(),
+                calculator = if (saved.calculator.followUpSolutionId == solution?.id) saved.calculator
+                    else saved.calculator.copy(followUpDraft = "", followUpSolutionId = null),
+                unread = false,
+            )
+        }
+    }
 
     private fun StepPayload.toStep() = SolutionStep(title, content, plot, svg)
 
@@ -231,6 +295,7 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
         job?.cancel()
         // Дополнение решается поверх прежнего ответа: если не получится, к нему можно вернуться.
         if (!followUp) _current.value = null
+        rememberSolution(_current.value)
         _error.value = null
         _pending.value = caption
         retryText = retry
@@ -239,8 +304,11 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
         assistantDisplay.start()
         _shown.value++
         job = viewModelScope.launch {
+            var completed = false
             try {
                 _current.value = work()
+                rememberSolution(_current.value)
+                completed = true
             } catch (e: CancellationException) {
                 throw e
             } catch (e: DocumentException) {
@@ -261,6 +329,8 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
                     _solving.value = false
                     // Экран не перехватываем; до просмотра результата остаётся только метка на ✦.
                     assistantDisplay.complete()
+                    // Ошибки пока живут только в текущем процессе; старый ответ не становится новым.
+                    sessionStore.update { it.copy(unread = completed) }
                 }
             }
         }
@@ -270,13 +340,21 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
         job?.cancel()
         _solving.value = false
         _current.value = solution
+        rememberSolution(solution)
         _error.value = null
         assistantDisplay.start()
         _shown.value++
     }
 
     fun deleteSolution(id: String) {
-        viewModelScope.launch { historyStore.delete(id) }
+        viewModelScope.launch {
+            historyStore.delete(id)
+            if (_current.value?.id == id) {
+                _current.value = null
+                assistantDisplay.hide()
+                rememberSolution(null)
+            }
+        }
     }
 
     suspend fun saveFormat(text: String, newSample: ByteArray?, keepSample: Boolean) =

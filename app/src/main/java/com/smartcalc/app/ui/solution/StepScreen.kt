@@ -1,5 +1,6 @@
 package com.smartcalc.app.ui.solution
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -27,11 +28,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,7 +56,10 @@ fun StepScreen(
     onIndexChange: (Int) -> Unit,
     onBack: () -> Unit,
     onHideToCalculator: () -> Unit,
+    initialScroll: Int,
+    onScrollChange: (Int, Int) -> Unit,
 ) {
+    BackHandler(onBack = onBack)
     val steps = solution.latestSteps
     val step = steps[index]
     val prefix = if (solution.followUps.isEmpty()) "" else "Дополнение · "
@@ -138,12 +144,16 @@ fun StepScreen(
                 }
             }
         } else stepState.SaveableStateProvider(index) {
+            val scroll = rememberScrollState(initial = initialScroll)
+            LaunchedEffect(scroll, index) {
+                snapshotFlow { scroll.value }.collect { onScrollChange(index, it) }
+            }
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
                     .padding(top = 12.dp)
-                    .verticalScroll(rememberScrollState()),
+                    .verticalScroll(scroll),
             ) {
                 if (step.content.isNotBlank()) MathText(step.content, fontSize = 17.sp)
                 step.plot?.let {

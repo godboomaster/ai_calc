@@ -5,6 +5,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AssistantDisplayTest {
+    @Test fun `restored unread answer stays hidden until explicitly requested`() {
+        val display = AssistantDisplay(initialUnread = true)
+        assertFalse(display.state.value.visible)
+        assertTrue(display.state.value.unread)
+        display.markViewed()
+        assertTrue(display.state.value.unread)
+        display.show()
+        display.markViewed()
+        assertFalse(display.state.value.unread)
+    }
+
     @Test fun `completion while calculating stays hidden until explicitly restored`() {
         val display = AssistantDisplay()
         display.start()
