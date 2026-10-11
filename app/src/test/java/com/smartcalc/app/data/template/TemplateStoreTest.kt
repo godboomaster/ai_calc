@@ -129,6 +129,63 @@ class TemplateStoreTest {
     }
 
     @Test
+    fun repositoryExamplesImport() = runBlocking {
+        // Образцы из examples/ — их скачивают и берут за основу, поэтому они должны импортироваться.
+        val examples = File("../examples").takeIf { it.exists() } ?: File("examples")
+        val fromZip = store()
+        assertEquals(ImportResult(added = 1, updated = 0), fromZip.import(File(examples, "example-template.zip").inputStream()))
+        val zipped = fromZip.items.value.single()
+        assertEquals("Устойчивость по Гурвицу", zipped.name)
+        assertEquals(2, zipped.examples.size)
+        assertEquals(1, zipped.examples[0].solutionImages.size)
+
+        // Markdown-образец — тот же шаблон, только без фото.
+        val fromMd = store()
+        fromMd.import(File(examples, "example-template.md").inputStream())
+        val md = fromMd.items.value.single()
+        assertEquals(zipped.name, md.name)
+        assertEquals(zipped.requirements, md.requirements)
+        assertEquals(zipped.examples.map { it.condition }, md.examples.map { it.condition })
+        assertEquals(zipped.examples.map { it.solution }, md.examples.map { it.solution })
+    }
+
+    @Test
+    fun everyRepositoryExampleImports() = runBlocking {
+        val examples = File("../examples").takeIf { it.exists() } ?: File("examples")
+        suspend fun import(name: String): List<TaskTemplate> {
+            val target = store()
+            target.import(File(examples, name).inputStream())
+            return target.items.value
+        }
+        // JSON с фото внутри — фото на месте.
+        val json = import("example-template.json").single()
+        assertEquals(1, json.examples[0].solutionImages.size)
+        // JSON без фото.
+        val text = import("example-template-text.json").single()
+        assertEquals("Устойчивость по Гурвицу (без фото)", text.name)
+        assertEquals(2, text.examples.size)
+        // Два шаблона в свободном Markdown.
+        val two = import("two-templates.md")
+        assertEquals(listOf("Критерий Рауса", "Квадратное уравнение"), two.map { it.name })
+        assertTrue(two[0].requirements.startsWith("Строить таблицу Рауса"))
+        assertTrue(two[0].examples.single().condition.startsWith("Исследовать устойчивость"))
+        assertTrue(two[0].examples.single().solution.contains("| \$s^3\$ | 1 | 3 |"))
+        assertEquals("Решите уравнение \$x^2 - 5x + 6 = 0\$.", two[1].examples.single().condition)
+    }
+
+    @Test
+    fun manifestAloneImportsAsJson() = runBlocking {
+        // manifest.json без архива — это JSON-файл шаблонов; фото по ссылке images/… в нём нет — пропускается.
+        val examples = File("../examples").takeIf { it.exists() } ?: File("examples")
+        val target = store()
+        assertEquals(ImportResult(added = 1, updated = 0), target.import(File(examples, "template-zip/manifest.json").inputStream()))
+        val t = target.items.value.single()
+        assertEquals("Устойчивость по Гурвицу", t.name)
+        assertEquals(2, t.examples.size)
+        assertTrue(t.examples.all { it.solutionImages.isEmpty() && it.conditionImages.isEmpty() })
+    }
+
+    @Test
     fun foreignAndBrokenFilesAreRejected() {
         val target = store()
         expectImportError(target, "просто текст".toByteArray(), "Это не файл шаблонов SmartCalc")
