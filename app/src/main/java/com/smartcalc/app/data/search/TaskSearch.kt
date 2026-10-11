@@ -2,6 +2,7 @@ package com.smartcalc.app.data.search
 
 import com.smartcalc.app.data.history.Solution
 import com.smartcalc.app.data.template.TaskTemplate
+import com.smartcalc.app.data.template.ExampleFingerprint
 import kotlin.math.ln
 
 /** Откуда решённая задача: база задач, пример шаблона или история решений. */
@@ -27,6 +28,8 @@ class SearchEntry(
     internal val conditionTerms = TaskSearch.terms(condition)
     internal val solutionTerms = TaskSearch.terms(solution)
     internal val typeTerms = TaskSearch.terms(type.orEmpty())
+    internal val conditionFormulas = FormulaSearch.extract(condition)
+    internal val solutionFormulas = FormulaSearch.extract(solution)
 }
 
 /** Найденная задача: [matched] — что из запроса в ней нашлось, в том виде, как это набрано. */
@@ -52,6 +55,8 @@ object TaskSearch {
     private val STOP_WORDS = setOf(
         "что", "как", "для", "это", "при", "или", "его", "она", "они", "так", "все", "чем", "если",
         "этот", "эта", "эти", "который", "которая", "которое", "которые", "and", "the",
+        "найти", "найди", "найдите", "решить", "реши", "вычислить", "определить", "пример",
+        "похожий", "похожую", "решенную", "решённую", "задачу", "задача",
     )
 
     /**
@@ -116,11 +121,20 @@ object TaskSearch {
     fun search(entries: List<SearchEntry>, query: String, type: String? = null): List<SearchHit> {
         val pool = if (type == null) entries else entries.filter { it.type == type }
         val terms = queryTerms(query)
-        if (terms.isEmpty()) return pool.map { SearchHit(it, 0.0, emptyList()) }
+        if (query.isBlank()) return pool.map { SearchHit(it, 0.0, emptyList()) }
+        val formulas = FormulaSearch.extract(query)
+        if (terms.isEmpty() && formulas.isEmpty()) return emptyList()
         val weights = pool.map { e -> IntArray(terms.size) { placeWeight(e, terms[it]) } }
         // В скольких задачах есть каждое слово запроса: частые весят меньше редких.
         val found = IntArray(terms.size) { i -> weights.count { it[i] > 0 } }
         return pool.indices.mapNotNull { k ->
+            val e = pool[k]
+            val formulaScore = maxOf(
+                FormulaSearch.similarity(formulas, e.conditionFormulas),
+                FormulaSearch.similarity(formulas, e.solutionFormulas) * 0.5,
+            )
+            // A textual question needs a subject match; incidental numbers alone are insufficient.
+            if (terms.any { !it.number } && terms.indices.none { !terms[it].number && weights[k][it] > 0 } && formulaScore == 0.0) return@mapNotNull null
             var score = 0.0
             val matched = mutableListOf<String>()
             terms.forEachIndexed { i, t ->
@@ -131,9 +145,10 @@ object TaskSearch {
                 score += place * rarity * (if (t.number) 1.5 else 1.0)
                 matched += t.shown
             }
-            if (matched.isEmpty()) return@mapNotNull null
+            if (matched.isEmpty() && formulaScore == 0.0) return@mapNotNull null
             // Задача, где нашлось всё набранное, выше той, где одно слово, но редкое.
-            SearchHit(pool[k], score * (0.5 + 0.5 * matched.size / terms.size), matched)
+            val coverage = if (terms.isEmpty()) 1.0 else matched.size.toDouble() / terms.size
+            SearchHit(e, formulaScore + score * (0.5 + 0.5 * coverage), matched)
         }.sortedByDescending { it.score }
     }
 
@@ -145,14 +160,15 @@ object TaskSearch {
     fun entries(base: List<TaskTemplate>, templates: List<TaskTemplate>, history: List<Solution>): List<SearchEntry> {
         val result = mutableListOf<SearchEntry>()
         val seen = HashSet<String>()
+        val savedById = history.associateBy { it.id }
         fun addAll(sections: List<TaskTemplate>, source: FoundSource) = sections.forEach { section ->
-            section.examples.forEachIndexed { i, ex ->
-                if (ex.isEmpty) return@forEachIndexed
-                // Задачи только из фото по тексту не сравнить — их ключ — место в разделе.
-                val key = if (ex.condition.isBlank() && ex.solution.isBlank()) "${source.name}:${section.id}:$i"
-                    else "text:${squeeze(ex.condition)}\u0000${squeeze(ex.solution)}"
+            section.examples.forEach { ex ->
+                if (ex.isEmpty) return@forEach
+                val key = ExampleFingerprint.key(ex)
                 if (seen.add(key)) {
-                    result += SearchEntry(key, source, section.name, ex.condition, ex.solution, ex.conditionImages, ex.solutionImages)
+                    val saved = savedById[FoundSolution.idOf(key)]
+                    val searchable = listOfNotNull(ex.solution, saved?.searchableText()).joinToString("\n")
+                    result += SearchEntry(key, source, section.name, ex.condition, searchable, ex.conditionImages, ex.solutionImages, history = saved)
                 }
             }
         }
@@ -160,19 +176,18 @@ object TaskSearch {
         addAll(templates, FoundSource.TEMPLATE)
         val opened = result.mapTo(HashSet()) { FoundSolution.idOf(it.key) }
         history.filter { it.id !in opened }.forEach { s ->
-            val solved = buildString {
-                s.steps.forEach { appendLine(it.title).appendLine(it.content) }
-                appendLine(s.answer)
-                s.followUps.forEach { f ->
-                    appendLine(f.question)
-                    f.steps.forEach { appendLine(it.title).appendLine(it.content) }
-                    appendLine(f.answer)
-                }
-            }
-            result += SearchEntry("history:${s.id}", FoundSource.HISTORY, s.template, s.problem, solved, history = s)
+            result += SearchEntry("history:${s.id}", FoundSource.HISTORY, s.template, s.problem, s.searchableText(), history = s)
         }
         return result
     }
 
-    private fun squeeze(text: String) = text.trim().replace(Regex("""\s+"""), " ")
+    private fun Solution.searchableText() = buildString {
+        steps.forEach { appendLine(it.title).appendLine(it.content) }
+        appendLine(answer)
+        followUps.forEach { f ->
+            appendLine(f.question)
+            f.steps.forEach { appendLine(it.title).appendLine(it.content) }
+            appendLine(f.answer)
+        }
+    }
 }
