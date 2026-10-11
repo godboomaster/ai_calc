@@ -1,6 +1,7 @@
 package com.smartcalc.app.data.api
 
 import com.smartcalc.app.data.history.Solution
+import com.smartcalc.app.data.DocumentException
 import com.smartcalc.app.data.history.SolutionStep
 import com.smartcalc.app.data.plot.Plot
 import com.smartcalc.app.data.settings.ApiSettings
@@ -29,6 +30,9 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.io.File
+import java.io.ByteArrayOutputStream
+import java.util.Base64
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -153,8 +157,8 @@ class OpenAiClient {
 
     /**
      * Дополнительный вопрос к решённой задаче: модель получает всю цепочку — исходную задачу, свой
-     * ответ, прежние дополнения с ответами — и новый вопрос. Фото задачи заново не отправляется:
-     * распознанное условие уже есть в первом ответе.
+     * ответ, прежние дополнения с ответами — и новый вопрос. Для готового примера из библиотеки
+     * передаются также фотографии: его условие и решение могли ещё не распознаваться моделью.
      */
     suspend fun followUp(
         settings: ApiSettings,
@@ -174,7 +178,7 @@ class OpenAiClient {
         template: TemplatePrompt? = null,
     ) = buildJsonArray {
         add(systemMessage(settings))
-        add(message("user", JsonPrimitive("Задача: ${base.problem}")))
+        add(message("user", followUpTaskContent(base)))
         add(message("assistant", JsonPrimitive(turnJson(base.problem, base.answer, base.steps))))
         base.followUps.forEach { f ->
             add(message("user", JsonPrimitive("Дополнение: ${f.question}")))
@@ -192,6 +196,51 @@ class OpenAiClient {
             }
         }
         add(message("user", content))
+    }
+
+    private fun followUpTaskContent(base: Solution): JsonElement {
+        val text = "Задача: ${base.problem}"
+        // Generated solutions already contain the recognized problem and steps in text.
+        if (base.source == null) return JsonPrimitive(text)
+        val attachments = buildList {
+            base.imagePath?.let { add("Фото условия" to it) }
+            base.steps.forEach { step -> step.images.forEach { add("Материал шага «${step.title}»" to it) } }
+            base.followUps.forEach { f ->
+                f.steps.forEach { step -> step.images.forEach { add("Дополнение «${f.question}», шаг «${step.title}»" to it) } }
+            }
+        }
+        if (attachments.isEmpty()) return JsonPrimitive(text)
+        // JSON + base64 duplicate bytes in memory. Reject excessive context explicitly before POST.
+        var remaining = 20L * 1024 * 1024
+        val seen = mutableSetOf<File>()
+        return buildJsonArray {
+            add(textPart(text))
+            attachments.forEach { (label, path) ->
+                try {
+                    val source = File(path).canonicalFile
+                    if (!seen.add(source)) return@forEach
+                    if (!source.isFile) throw IOException("Missing attachment")
+                    if (source.length() > remaining) throw DocumentException("Фотографии решения слишком велики для дополнения (больше 20 МБ). Уменьшите изображения или добавьте условие текстом.")
+                    val bytes = source.inputStream().buffered().use { input ->
+                        ByteArrayOutputStream().use { output ->
+                            val buffer = ByteArray(8192)
+                            while (true) {
+                                val read = input.read(buffer)
+                                if (read < 0) break
+                                remaining -= read
+                                if (remaining < 0) throw DocumentException("Фотографии решения слишком велики для дополнения (больше 20 МБ).")
+                                output.write(buffer, 0, read)
+                            }
+                            output.toByteArray()
+                        }
+                    }
+                    add(textPart(label))
+                    add(imagePart(Base64.getEncoder().encodeToString(bytes)))
+                } catch (_: IOException) {
+                    throw DocumentException("Не удалось прочитать фотографии решения. Восстановите вложения или добавьте условие текстом.")
+                }
+            }
+        }
     }
 
     /** Прежний ответ в том виде, в каком модель его прислала: так она продолжит в том же формате. */
