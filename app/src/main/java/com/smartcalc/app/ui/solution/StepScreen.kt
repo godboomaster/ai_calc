@@ -11,8 +11,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -48,7 +49,7 @@ import com.smartcalc.app.ui.math.MathText
 import com.smartcalc.app.ui.plot.PlotView
 import com.smartcalc.app.ui.scheme.SchemeView
 
-/** Отдельный экран шага текущего ответа, открываемый удержанием цифры на калькуляторе. */
+/** Шаги текущего ответа и завершающая страница итога; вход — удержанием цифры. */
 @Composable
 fun StepScreen(
     solution: Solution,
@@ -61,7 +62,7 @@ fun StepScreen(
 ) {
     BackHandler(onBack = onBack)
     val steps = solution.latestSteps
-    val step = steps[index]
+    val step = steps.getOrNull(index)
     val prefix = if (solution.followUps.isEmpty()) "" else "Дополнение · "
     var choosingStep by rememberSaveable(solution.id, solution.followUps.size) { mutableStateOf(false) }
     val stepState = rememberSaveableStateHolder()
@@ -80,7 +81,7 @@ fun StepScreen(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            StepNumber(index + 1)
+            ReadingPageMarker(if (step != null) index + 1 else null)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -91,7 +92,8 @@ fun StepScreen(
                     .heightIn(min = 48.dp),
             ) {
                 Text(
-                    if (solution.format == null) "${prefix}Шаг ${index + 1} из ${steps.size}"
+                    if (step == null) "${prefix}Ответ"
+                    else if (solution.format == null) "${prefix}Шаг ${index + 1} из ${steps.size}"
                     else "$prefix${index + 1} из ${steps.size}",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -104,7 +106,7 @@ fun StepScreen(
                 Icon(Icons.Filled.Calculate, contentDescription = "К калькулятору")
             }
         }
-        MathText(
+        if (step != null) MathText(
             step.title,
             fontSize = 20.sp,
             fontWeight = FontWeight.SemiBold,
@@ -117,7 +119,8 @@ fun StepScreen(
                 modifier = Modifier.weight(1f).padding(top = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                itemsIndexed(steps) { itemIndex, item ->
+                items(steps.size + 1) { itemIndex ->
+                    val item = steps.getOrNull(itemIndex)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
@@ -133,9 +136,9 @@ fun StepScreen(
                             }
                             .heightIn(min = 56.dp).padding(12.dp),
                     ) {
-                        StepNumber(itemIndex + 1)
+                        ReadingPageMarker(if (item != null) itemIndex + 1 else null)
                         MathText(
-                            item.title,
+                            item?.title ?: "Ответ",
                             fontSize = 16.sp,
                             maxLines = 3,
                             modifier = Modifier.weight(1f).padding(start = 12.dp),
@@ -155,11 +158,23 @@ fun StepScreen(
                     .padding(top = 12.dp)
                     .verticalScroll(scroll),
             ) {
-                if (step.content.isNotBlank()) MathText(step.content, fontSize = 17.sp)
-                step.plot?.let {
-                    PlotView(it, container = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(top = 12.dp))
+                if (step == null) {
+                    MathText(
+                        solution.latestAnswer,
+                        fontSize = 22.sp,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.fillMaxWidth()
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer)
+                            .padding(18.dp),
+                    )
+                } else {
+                    if (step.content.isNotBlank()) MathText(step.content, fontSize = 17.sp)
+                    step.plot?.let {
+                        PlotView(it, container = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(top = 12.dp))
+                    }
+                    step.svg?.let { SchemeView(it, modifier = Modifier.padding(top = 12.dp)) }
                 }
-                step.svg?.let { SchemeView(it, modifier = Modifier.padding(top = 12.dp)) }
             }
         }
         Row(
@@ -175,19 +190,31 @@ fun StepScreen(
                     onIndexChange(index - 1)
                 },
             ) {
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Предыдущий шаг")
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                    contentDescription = if (step == null) "К последнему шагу" else "Предыдущий шаг")
             }
             CalcKey(
                 MaterialTheme.colorScheme.surfaceVariant,
                 modifier = Modifier.height(56.dp),
-                enabled = index < steps.lastIndex,
+                enabled = index < steps.size,
                 onClick = {
                     choosingStep = false
                     onIndexChange(index + 1)
                 },
             ) {
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Следующий шаг")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (index == steps.lastIndex) Text("Ответ", fontSize = 17.sp, modifier = Modifier.padding(end = 8.dp))
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = if (index == steps.lastIndex) "Перейти к ответу" else "Следующий шаг")
+                }
             }
         }
     }
+}
+
+@Composable
+private fun ReadingPageMarker(number: Int?) {
+    if (number != null) StepNumber(number)
+    else Icon(Icons.Filled.Check, contentDescription = null,
+        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
 }

@@ -213,7 +213,7 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
     fun setReadingTarget(target: ReadingTarget, step: Int = session.value.reading.selectedStep) {
         val solution = current.value ?: return
         updateReading(solution.id, solution.followUps.size) {
-            it.copy(target = target, selectedStep = step.coerceIn(0, solution.latestSteps.lastIndex.coerceAtLeast(0)))
+            it.copy(target = target, selectedStep = step.coerceIn(0, solution.latestSteps.size))
         }
     }
 

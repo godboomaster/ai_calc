@@ -24,11 +24,9 @@ internal fun SessionState.restoredFor(history: List<Solution>): SessionState {
     return state.copy(
         calculator = calculator,
         reading = state.reading.forSolution(solution).copy(
-            target = if (solution.latestSteps.isEmpty() && state.reading.target == ReadingTarget.STEP) {
-                ReadingTarget.BRIEF
-            } else state.reading.target,
-            selectedStep = state.reading.selectedStep.coerceIn(0, solution.latestSteps.lastIndex.coerceAtLeast(0)),
-            stepScroll = state.reading.stepScroll.filterKeys { it in solution.latestSteps.indices },
+            // Index after the last step is the answer, including index 0 for a response without steps.
+            selectedStep = state.reading.selectedStep.coerceIn(0, solution.latestSteps.size),
+            stepScroll = state.reading.stepScroll.filterKeys { it in 0..solution.latestSteps.size },
             solutionScroll = position,
         ),
     )

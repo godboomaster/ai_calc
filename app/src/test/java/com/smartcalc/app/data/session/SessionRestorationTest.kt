@@ -52,14 +52,27 @@ class SessionRestorationTest {
             reading = ReadingSession("saved", target = ReadingTarget.STEP, selectedStep = 99,
                 stepScroll = mapOf(-1 to 50, 0 to -20, 1 to 70, 5 to 200), solutionScroll = ListPosition(999, 40)),
         ).restoredFor(listOf(solution))
-        assertEquals(1, state.reading.selectedStep)
+        assertEquals(2, state.reading.selectedStep)
         assertEquals(mapOf(0 to 0, 1 to 70), state.reading.stepScroll)
         assertEquals(ListPosition(4, 0), state.reading.solutionScroll)
         assertEquals("", state.calculator.followUpDraft)
     }
 
-    @Test fun `solution without steps restores brief answer instead of an empty step`() {
+    @Test fun `answer after last step restores its own scroll position`() {
+        val state = SessionState(reading = ReadingSession("saved", target = ReadingTarget.STEP,
+            selectedStep = 2, stepScroll = mapOf(1 to 60, 2 to 240)))
+        assertEquals(state, state.restoredFor(listOf(solution)))
+    }
+
+    @Test fun `followup answer position uses followup step count`() {
+        val updated = solution.copy(followUps = listOf(FollowUp("why", "because", listOf(SolutionStep("explain", "body")))))
+        val state = SessionState(reading = ReadingSession("saved", followUpCount = 1,
+            target = ReadingTarget.STEP, selectedStep = 1, stepScroll = mapOf(0 to 50, 1 to 210)))
+        assertEquals(state, state.restoredFor(listOf(updated)))
+    }
+
+    @Test fun `solution without steps restores the answer page`() {
         val state = SessionState(reading = ReadingSession("saved", target = ReadingTarget.STEP))
-        assertEquals(ReadingTarget.BRIEF, state.restoredFor(listOf(solution.copy(steps = emptyList()))).reading.target)
+        assertEquals(state, state.restoredFor(listOf(solution.copy(steps = emptyList()))))
     }
 }

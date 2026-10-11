@@ -214,14 +214,14 @@ private fun AppSession(vm: SolutionViewModel) {
                 arguments = listOf(navArgument("index") { type = NavType.IntType }),
             ) { entry ->
                 val s = solution
-                if (s != null && s.latestSteps.isNotEmpty()) {
+                if (s != null) {
                     AcknowledgeReading(vm)
                     val initialScroll = remember(s.id, s.followUps.size, selectedStep) {
                         vm.session.value.reading.stepScroll[selectedStep] ?: 0
                     }
                     StepScreen(
                         solution = s,
-                        index = selectedStep.coerceIn(s.latestSteps.indices),
+                        index = selectedStep.coerceIn(0, s.latestSteps.size),
                         onIndexChange = {
                             selectedStep = it
                             vm.setReadingTarget(ReadingTarget.STEP, it)

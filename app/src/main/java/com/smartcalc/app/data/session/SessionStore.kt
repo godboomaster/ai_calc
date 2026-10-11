@@ -47,6 +47,7 @@ data class ReadingSession(
     val solutionId: String? = null,
     val followUpCount: Int = 0,
     val target: ReadingTarget = ReadingTarget.BRIEF,
+    /** 0-based step index; latestSteps.size selects the final answer page. */
     val selectedStep: Int = 0,
     val stepScroll: Map<Int, Int> = emptyMap(),
     val solutionScroll: ListPosition? = null,
