@@ -11,6 +11,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
@@ -45,6 +47,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -53,6 +56,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -65,6 +69,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
@@ -74,6 +79,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -106,6 +112,9 @@ private class AiAction(
 
 /** Шаг решения, который открывается удержанием цифры: 1–9 — шаги с первого по девятый, 0 — десятый. */
 private fun stepIndex(digit: Char) = if (digit == '0') 9 else digit - '1'
+
+/** Высота задаётся только клавишам самого калькулятора; экраны шага и решения сохраняют свой размер. */
+private val LocalCalculatorKeyHeight = staticCompositionLocalOf<Dp?> { null }
 
 /** Задачи длиннее выражений: после шкалы калькулятора шрифт мельчает дальше. */
 private fun inputFontSize(length: Int): TextUnit = when {
@@ -326,273 +335,324 @@ fun CalculatorScreen(
     BackHandler(enabled = editing) { stopEditing() }
     BackHandler(enabled = aiKeys && !editing) { aiKeys = false }
 
-    Column(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .imePadding()
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            horizontalAlignment = Alignment.End,
-        ) {
-            // Помощник скрыт: на экране только калькулятор и неприметный значок в углу.
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.size(48.dp).clip(CircleShape).combinedClickable(
-                    role = Role.Button,
-                    onLongClickLabel = "Вернуться к ответу",
-                    onLongClick = ::restoreAssistant,
-                    onClick = {
-                        stopEditing()
-                        aiKeys = !aiKeys
-                    },
-                ),
-            ) {
-                Icon(
-                    if (aiKeys) Icons.Outlined.Calculate else Icons.Outlined.AutoAwesome,
-                    contentDescription = if (aiKeys) "К калькулятору" else "ИИ-помощник",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                )
-                if (display.unread) {
-                    Box(
-                        Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp)
-                            .size(5.dp).background(
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.7f), CircleShape,
-                            ),
-                    )
-                }
-            }
-            // Нажатие в любом месте дисплея — без ряби: калькулятор не должен выдавать, что строка «живая».
-            // Пока строка уже с клавиатурой, нажатия мимо неё ничего не сбрасывают.
+        val rowCount = if (editing) 1 else 6
+        val rowGaps = 8.dp * (rowCount - 1).toFloat()
+        val fontScale = LocalDensity.current.fontScale.coerceIn(1f, 1.5f)
+        // Крупному системному шрифту нужно больше места на условие и ответ. Если места совсем мало,
+        // клавиши остаются не ниже touch target и прокручиваются в своём окне.
+        val displayReserve = 48.dp + 128.dp * fontScale
+        val keypadBudget = (maxHeight - displayReserve).coerceAtLeast(48.dp)
+        val keyHeight = ((keypadBudget - rowGaps).coerceAtLeast(0.dp) / rowCount.toFloat())
+            .coerceIn(48.dp, 72.dp)
+        val keypadContentHeight = keyHeight * rowCount.toFloat() + rowGaps
+        val keypadViewportHeight = minOf(keypadContentHeight, keypadBudget)
+        val displayBodyHeight = (maxHeight - keypadViewportHeight - 48.dp).coerceAtLeast(0.dp)
+        val captionMaxLines = when {
+            displayBodyHeight < 160.dp * fontScale -> 1
+            displayBodyHeight < 240.dp * fontScale -> 2
+            else -> 3
+        }
+        val compactEditorContext = displayBodyHeight < 180.dp * fontScale
+        val keypadScroll = rememberScrollState()
+
+        Column(modifier = Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
-                    .swipeUpToRestore(enabled = canSwipeToRestore, onRestore = ::restoreAssistant)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        enabled = !editing && !(onDisplay && solving),
-                        onClick = ::tapDisplay,
-                    ),
-                verticalArrangement = Arrangement.Bottom,
+                    .weight(1f),
                 horizontalAlignment = Alignment.End,
             ) {
-                when {
-                    editing -> {
-                        val s = solution
-                        if (followUp && s != null) {
-                            // Дополнение пишется с прежним ответом перед глазами; ✕ — это новая задача.
-                            // С ним уйдёт выбранный шаблон или шаблон, по которому решалась задача.
-                            val withTemplate = template ?: s.templateId?.let { id -> templates.firstOrNull { it.id == id } }
-                            ContextCaption(
-                                "Дополнение к ответу" + (withTemplate?.let { " · шаблон «${it.name}»" } ?: ""),
-                                s.latestAnswer,
-                                onDrop = { followUp = false },
-                            )
-                        } else if (template != null) {
-                            // Задача уйдёт вместе с шаблоном; ✕ — решать без него.
-                            ContextCaption("Шаблон", template!!.name, onDrop = vm::disarmTemplate)
-                        } else if (format.isSet) {
-                            DisplayCaption("Формат: ${format.summary}", maxLines = 1)
-                        }
-                        InputField(
-                            field,
-                            placeholder = if (followUp) "Уточните или спросите ещё" else "Напишите задачу",
-                        ) {
-                            field = it
-                        }
+                // Помощник скрыт: на экране только калькулятор и неприметный значок в углу.
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.size(48.dp).clip(CircleShape).combinedClickable(
+                        role = Role.Button,
+                        onLongClickLabel = "Вернуться к ответу",
+                        onLongClick = ::restoreAssistant,
+                        onClick = {
+                            stopEditing()
+                            aiKeys = !aiKeys
+                        },
+                    ),
+                ) {
+                    Icon(
+                        if (aiKeys) Icons.Outlined.Calculate else Icons.Outlined.AutoAwesome,
+                        contentDescription = if (aiKeys) "К калькулятору" else "ИИ-помощник",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    )
+                    if (display.unread) {
+                        Box(
+                            Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp)
+                                .size(5.dp).background(
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.7f), CircleShape,
+                                ),
+                        )
                     }
-
-                    !onDisplay -> Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f, fill = false),
-                        horizontalAlignment = Alignment.End,
-                    ) {
-                        val shown = expr.ifEmpty { "0" }
-                        Text(
-                            text = shown,
-                            fontSize = inputFontSize(shown.length),
-                            lineHeight = inputFontSize(shown.length) * 1.15f,
-                            textAlign = TextAlign.End,
+                }
+                // Нажатие в любом месте дисплея — без ряби: калькулятор не должен выдавать, что строка «живая».
+                // Пока строка уже с клавиатурой, нажатия мимо неё ничего не сбрасывают.
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .swipeUpToRestore(enabled = canSwipeToRestore, onRestore = ::restoreAssistant)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            enabled = !editing && !(onDisplay && solving),
+                            onClick = ::tapDisplay,
+                        ),
+                    verticalArrangement = Arrangement.Bottom,
+                    horizontalAlignment = Alignment.End,
+                ) {
+                    when {
+                        editing -> Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .weight(1f, fill = false)
-                                .verticalScroll(rememberScrollState()),
-                        )
-                        Text(
-                            text = when {
-                                preview != null -> "= $preview"
-                                aiKeys && template != null -> "Шаблон «${template!!.name}»: прикрепите задачу"
-                                aiKeys -> "Нажмите на строку, чтобы написать задачу"
-                                else -> " "
-                            },
-                            fontSize = if (preview != null) 26.sp else 16.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.End,
+                                .weight(1f),
+                            horizontalAlignment = Alignment.End,
+                        ) {
+                            // Сначала измеряется редактор, а подпись получает только оставшуюся высоту.
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f),
+                                contentAlignment = Alignment.BottomEnd,
+                            ) {
+                                val s = solution
+                                if (followUp && s != null) {
+                                    // Дополнение пишется с прежним ответом перед глазами; ✕ — это новая задача.
+                                    // С ним уйдёт выбранный шаблон или шаблон, по которому решалась задача.
+                                    val withTemplate = template ?: s.templateId?.let { id ->
+                                        templates.firstOrNull { it.id == id }
+                                    }
+                                    ContextCaption(
+                                        "Дополнение к ответу" +
+                                            (withTemplate?.let { " · шаблон «${it.name}»" } ?: ""),
+                                        s.latestAnswer,
+                                        onDrop = { followUp = false },
+                                        compact = compactEditorContext,
+                                    )
+                                } else if (template != null) {
+                                    // Задача уйдёт вместе с шаблоном; ✕ — решать без него.
+                                    ContextCaption("Шаблон", template!!.name, onDrop = vm::disarmTemplate)
+                                } else if (format.isSet) {
+                                    DisplayCaption("Формат: ${format.summary}", maxLines = 1)
+                                }
+                            }
+                            InputField(
+                                field,
+                                placeholder = if (followUp) "Уточните или спросите ещё" else "Напишите задачу",
+                            ) {
+                                field = it
+                            }
+                        }
+
+                        !onDisplay -> Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 8.dp, bottom = 8.dp),
-                        )
-                    }
-
-                    solving -> {
-                        DisplayCaption(pending ?: "Задача с фото")
-                        SolvingDots()
-                    }
-
-                    error != null -> Column(horizontalAlignment = Alignment.End) {
-                        DisplayCaption(error.orEmpty(), maxLines = 4)
-                        Text(
-                            "Ошибка",
-                            fontSize = 52.sp,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
-                        )
-                    }
-
-                    solution != null -> Column(
-                        modifier = Modifier.weight(1f, fill = false),
-                        horizontalAlignment = Alignment.End,
-                    ) {
-                        val s = solution!!
-                        // У ответа на дополнение подпись — сам вопрос со стрелкой продолжения.
-                        DisplayCaption(if (s.followUps.isEmpty()) s.problem else "↳ ${s.latestQuestion}")
-                        // Длинный ответ не выталкивает клавиатуру, а прокручивается внутри дисплея.
-                        Column(
-                            modifier = Modifier
-                                .weight(1f, fill = false)
-                                .verticalScroll(answerScroll),
+                                .weight(1f, fill = false),
+                            horizontalAlignment = Alignment.End,
                         ) {
-                            val size = answerFontSize(MathMarkup.plain(s.latestAnswer).length)
-                            MathText(
-                                s.latestAnswer,
-                                fontSize = size,
+                            val shown = expr.ifEmpty { "0" }
+                            Text(
+                                text = shown,
+                                fontSize = inputFontSize(shown.length),
+                                lineHeight = inputFontSize(shown.length) * 1.15f,
                                 textAlign = TextAlign.End,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(top = 8.dp, bottom = 16.dp),
+                                    .weight(1f, fill = false)
+                                    .verticalScroll(rememberScrollState()),
                             )
+                            Text(
+                                text = when {
+                                    preview != null -> "= $preview"
+                                    aiKeys && template != null -> "Шаблон «${template!!.name}»: прикрепите задачу"
+                                    aiKeys -> "Нажмите на строку, чтобы написать задачу"
+                                    else -> " "
+                                },
+                                fontSize = if (preview != null) 26.sp else 16.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.End,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp, bottom = 8.dp),
+                            )
+                        }
+
+                        solving -> {
+                            DisplayCaption(pending ?: "Задача с фото", maxLines = captionMaxLines)
+                            SolvingDots()
+                        }
+
+                        error != null -> Column(horizontalAlignment = Alignment.End) {
+                            DisplayCaption(error.orEmpty(), maxLines = 4)
+                            Text(
+                                "Ошибка",
+                                fontSize = 52.sp,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
+                            )
+                        }
+
+                        solution != null -> Column(
+                            modifier = Modifier.weight(1f, fill = false),
+                            horizontalAlignment = Alignment.End,
+                        ) {
+                            val s = solution!!
+                            // У ответа на дополнение подпись — сам вопрос со стрелкой продолжения.
+                            DisplayCaption(
+                                if (s.followUps.isEmpty()) s.problem else "↳ ${s.latestQuestion}",
+                                maxLines = captionMaxLines,
+                            )
+                            // Длинный ответ не выталкивает клавиатуру, а прокручивается внутри дисплея.
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f, fill = false)
+                                    .verticalScroll(answerScroll),
+                            ) {
+                                val size = answerFontSize(MathMarkup.plain(s.latestAnswer).length)
+                                MathText(
+                                    s.latestAnswer,
+                                    fontSize = size,
+                                    textAlign = TextAlign.End,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 8.dp, bottom = 16.dp),
+                                )
+                            }
                         }
                     }
                 }
             }
-        }
 
-        val numberColor = MaterialTheme.colorScheme.surfaceVariant
-        val operatorColor = MaterialTheme.colorScheme.primaryContainer
-        val accentColor = MaterialTheme.colorScheme.primary
+            val numberColor = MaterialTheme.colorScheme.surfaceVariant
+            val operatorColor = MaterialTheme.colorScheme.primaryContainer
+            val accentColor = MaterialTheme.colorScheme.primary
 
-        // В режиме ИИ клавиатура та же, только цифры 1–8 становятся действиями: 1–4 — откуда взять
-        // задачу, 5–6 — история и настройки, 7–8 — шаблон и формат. 9, 0 и операции считают как обычно.
-        val aiActions: Map<Char, AiAction> = mapOf(
-            '1' to AiAction("Написать", Icons.Outlined.Edit, onClick = ::tapDisplay),
-            '2' to AiAction("Камера", Icons.Outlined.PhotoCamera, onClick = onOpenCamera),
-            '3' to AiAction("Галерея", Icons.Outlined.PhotoLibrary) {
-                galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-            },
-            '4' to AiAction("Документ", Icons.Outlined.Description) {
-                documentLauncher.launch(DocumentReader.mimeTypes)
-            },
-            '5' to AiAction("История", Icons.Outlined.History, onClick = onOpenHistory),
-            '6' to AiAction("Настройки", Icons.Outlined.Settings, onClick = onOpenSettings),
-            // Выбранный шаблон и заданный формат подсвечены: следующая задача пойдёт с ними.
-            '7' to AiAction("Шаблоны", Icons.Outlined.ContentCopy, highlighted = template != null, onClick = onOpenTemplates),
-            '8' to AiAction("Формат", Icons.Outlined.Tune, highlighted = format.isSet, onClick = onOpenFormat),
-        )
+            // В режиме ИИ клавиатура та же, только цифры 1–8 становятся действиями: 1–4 — откуда взять
+            // задачу, 5–6 — история и настройки, 7–8 — шаблон и формат. 9, 0 и операции считают как обычно.
+            val aiActions: Map<Char, AiAction> = mapOf(
+                '1' to AiAction("Написать", Icons.Outlined.Edit, onClick = ::tapDisplay),
+                '2' to AiAction("Камера", Icons.Outlined.PhotoCamera, onClick = onOpenCamera),
+                '3' to AiAction("Галерея", Icons.Outlined.PhotoLibrary) {
+                    galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                },
+                '4' to AiAction("Документ", Icons.Outlined.Description) {
+                    documentLauncher.launch(DocumentReader.mimeTypes)
+                },
+                '5' to AiAction("История", Icons.Outlined.History, onClick = onOpenHistory),
+                '6' to AiAction("Настройки", Icons.Outlined.Settings, onClick = onOpenSettings),
+                // Выбранный шаблон и заданный формат подсвечены: следующая задача пойдёт с ними.
+                '7' to AiAction("Шаблоны", Icons.Outlined.ContentCopy, highlighted = template != null, onClick = onOpenTemplates),
+                '8' to AiAction("Формат", Icons.Outlined.Tune, highlighted = format.isSet, onClick = onOpenFormat),
+            )
 
-        /**
-         * Цифра; удержание открывает шаг решения с этим номером, точка в углу подсказывает, что он есть.
-         * В режиме ИИ на месте цифры — действие.
-         */
-        @Composable
-        fun RowScope.DigitKey(digit: Char) {
-            val action = aiActions[digit]?.takeIf { aiKeys }
-            if (action != null) {
-                CalcKey(if (action.highlighted) operatorColor else numberColor, onClick = action.onClick) {
-                    // Иконка и подпись не выше цифры — клавиши не меняют размер при переключении.
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(action.icon, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Text(
-                            action.label,
-                            fontSize = 12.sp,
-                            lineHeight = 14.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 4.dp),
-                        )
+            /**
+             * Цифра; удержание открывает шаг решения с этим номером, точка в углу подсказывает, что он есть.
+             * В режиме ИИ на месте цифры — действие.
+             */
+            @Composable
+            fun RowScope.DigitKey(digit: Char) {
+                val action = aiActions[digit]?.takeIf { aiKeys }
+                if (action != null) {
+                    CalcKey(if (action.highlighted) operatorColor else numberColor, onClick = action.onClick) {
+                        // Иконка и подпись не выше цифры — клавиши не меняют размер при переключении.
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(action.icon, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Text(
+                                action.label,
+                                fontSize = 12.sp,
+                                lineHeight = 14.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 4.dp),
+                            )
+                        }
                     }
+                    return
                 }
-                return
-            }
-            val step = stepIndex(digit).takeIf { answerVisible && it < steps.size }
-            CalcKey(
-                digit.toString(),
-                numberColor,
-                marked = step != null,
-                onLongClick = step?.let { { onOpenStep(it) } },
-            ) { input(digit.toString()) }
-        }
-
-        when {
-            // Над системной клавиатурой — только «назад» и «=»: цифры и так на ней.
-            editing -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                CalcKey(numberColor, onClick = { stopEditing() }) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Убрать клавиатуру")
-                }
-                CalcKey(accentColor, weight = 3f, enabled = field.text.isNotBlank(), onClick = ::equals) {
-                    Text("=", fontSize = 26.sp, color = MaterialTheme.colorScheme.onPrimary)
-                }
+                val step = stepIndex(digit).takeIf { answerVisible && it < steps.size }
+                CalcKey(
+                    digit.toString(),
+                    numberColor,
+                    marked = step != null,
+                    onLongClick = step?.let { { onOpenStep(it) } },
+                ) { input(digit.toString()) }
             }
 
-            else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CalcKey("C", numberColor, MaterialTheme.colorScheme.error) { clear() }
-                    CalcKey("(", numberColor) { input("(") }
-                    CalcKey(")", numberColor) { input(")") }
-                    CalcKey("÷", operatorColor) { input("÷") }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DigitKey('7')
-                    DigitKey('8')
-                    DigitKey('9')
-                    CalcKey("×", operatorColor) { input("×") }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DigitKey('4')
-                    DigitKey('5')
-                    DigitKey('6')
-                    CalcKey("−", operatorColor) { input("−") }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DigitKey('1')
-                    DigitKey('2')
-                    DigitKey('3')
-                    CalcKey("+", operatorColor) { input("+") }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CalcKey("%", numberColor) { input("%") }
-                    DigitKey('0')
-                    CalcKey(".", numberColor) { input(".") }
-                    CalcKey("⌫", numberColor, onLongClick = { clear() }) {
-                        leaveAi()
-                        if (expr == "Ошибка") expr = ""
-                        if (expr.isNotEmpty()) expr = expr.dropLast(1)
-                        evaluated = false
+            CompositionLocalProvider(LocalCalculatorKeyHeight provides keyHeight) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(keypadViewportHeight)
+                        .verticalScroll(keypadScroll),
+                ) {
+                    when {
+                        // Над системной клавиатурой — только «назад» и «=»: цифры и так на ней.
+                        editing -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            CalcKey(numberColor, onClick = { stopEditing() }) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Убрать клавиатуру")
+                            }
+                            CalcKey(accentColor, weight = 3f, enabled = field.text.isNotBlank(), onClick = ::equals) {
+                                Text("=", fontSize = 26.sp, color = MaterialTheme.colorScheme.onPrimary)
+                            }
+                        }
+
+                        else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                CalcKey("C", numberColor, MaterialTheme.colorScheme.error) { clear() }
+                                CalcKey("(", numberColor) { input("(") }
+                                CalcKey(")", numberColor) { input(")") }
+                                CalcKey("÷", operatorColor) { input("÷") }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                DigitKey('7')
+                                DigitKey('8')
+                                DigitKey('9')
+                                CalcKey("×", operatorColor) { input("×") }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                DigitKey('4')
+                                DigitKey('5')
+                                DigitKey('6')
+                                CalcKey("−", operatorColor) { input("−") }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                DigitKey('1')
+                                DigitKey('2')
+                                DigitKey('3')
+                                CalcKey("+", operatorColor) { input("+") }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                CalcKey("%", numberColor) { input("%") }
+                                DigitKey('0')
+                                CalcKey(".", numberColor) { input(".") }
+                                CalcKey("⌫", numberColor, onLongClick = { clear() }) {
+                                    leaveAi()
+                                    if (expr == "Ошибка") expr = ""
+                                    if (expr.isNotEmpty()) expr = expr.dropLast(1)
+                                    evaluated = false
+                                }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                // Удержание «=» — всё решение целиком.
+                                CalcKey(
+                                    "=",
+                                    accentColor,
+                                    MaterialTheme.colorScheme.onPrimary,
+                                    onLongClick = if (answerVisible) onOpenSolution else null,
+                                ) { equals() }
+                            }
+                        }
                     }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Удержание «=» — всё решение целиком.
-                    CalcKey(
-                        "=",
-                        accentColor,
-                        MaterialTheme.colorScheme.onPrimary,
-                        onLongClick = if (answerVisible) onOpenSolution else null,
-                    ) { equals() }
                 }
             }
         }
@@ -605,7 +665,12 @@ fun CalculatorScreen(
  * без этого, просто новой задачей.
  */
 @Composable
-private fun ContextCaption(title: String, text: String, onDrop: () -> Unit) {
+private fun ContextCaption(
+    title: String,
+    text: String,
+    onDrop: () -> Unit,
+    compact: Boolean = false,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.End,
@@ -616,8 +681,22 @@ private fun ContextCaption(title: String, text: String, onDrop: () -> Unit) {
                 title,
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            DisplayCaption(text, maxLines = 2)
+            if (compact) {
+                Text(
+                    MathMarkup.plain(text),
+                    fontSize = 16.sp,
+                    lineHeight = 20.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.End,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            } else {
+                DisplayCaption(text, maxLines = 2)
+            }
         }
         IconButton(onClick = onDrop) {
             Icon(
@@ -730,16 +809,21 @@ internal fun RowScope.CalcKey(
     onClick: () -> Unit,
     content: @Composable () -> Unit,
 ) {
+    val keyHeight = LocalCalculatorKeyHeight.current
     Box(
         modifier = modifier
             .weight(weight)
+            .then(if (keyHeight != null) Modifier.height(keyHeight) else Modifier)
             .alpha(if (enabled) 1f else 0.4f)
             .clip(RoundedCornerShape(24.dp))
             .background(container)
             .combinedClickable(enabled = enabled, onClick = onClick, onLongClick = onLongClick),
         contentAlignment = Alignment.Center,
     ) {
-        Box(modifier = Modifier.padding(vertical = 18.dp), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = if (keyHeight == null) Modifier.padding(vertical = 18.dp) else Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
             content()
         }
         // Неприметная метка: у клавиши есть действие на удержание.
