@@ -33,7 +33,10 @@ import com.smartcalc.app.ui.math.MathText
 import com.smartcalc.app.ui.plot.PlotView
 import com.smartcalc.app.ui.scheme.SchemeView
 
-/** Один шаг решения поверх калькулятора — открывается удержанием цифры с номером шага. */
+/**
+ * Один шаг решения поверх калькулятора — открывается удержанием цифры с номером шага. Шаги — того
+ * ответа, что на дисплее: после дополнения это шаги ответа на него.
+ */
 @Composable
 fun StepDialog(
     solution: Solution,
@@ -41,7 +44,9 @@ fun StepDialog(
     onIndexChange: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val step = solution.steps[index]
+    val steps = solution.latestSteps
+    val step = steps[index]
+    val prefix = if (solution.followUps.isEmpty()) "" else "Дополнение · "
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -63,8 +68,8 @@ fun StepDialog(
                 ) {
                     Text(
                         // В формате пользователя шаги — его разделы («Дано», «Решение»), без слова «шаг».
-                        if (solution.format == null) "Шаг ${index + 1} из ${solution.steps.size}"
-                        else "${index + 1} из ${solution.steps.size}",
+                        if (solution.format == null) "${prefix}Шаг ${index + 1} из ${steps.size}"
+                        else "$prefix${index + 1} из ${steps.size}",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -103,7 +108,7 @@ fun StepDialog(
                 }
                 CalcKey(
                     MaterialTheme.colorScheme.surfaceVariant,
-                    enabled = index < solution.steps.lastIndex,
+                    enabled = index < steps.lastIndex,
                     onClick = { onIndexChange(index + 1) },
                 ) {
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Следующий шаг")

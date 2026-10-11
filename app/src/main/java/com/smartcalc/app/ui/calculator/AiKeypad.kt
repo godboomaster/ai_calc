@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.History
@@ -31,13 +32,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * Клавиши ИИ на месте цифр — калькулятор переключается на них значком в углу. [heightPx] — высота
+ * Клавиши ИИ на месте цифр — калькулятор переключается на них значком в углу; среди них — шаблоны
+ * заданий и формат решения. [heightPx] — высота
  * цифровой клавиатуры: клавиши ИИ занимают ровно её место, и дисплей не прыгает.
  */
 @Composable
 internal fun AiKeypad(
     heightPx: Int,
     formatSummary: String?,
+    templateName: String?,
     onWrite: () -> Unit,
     onPhoto: () -> Unit,
     onGallery: () -> Unit,
@@ -45,6 +48,7 @@ internal fun AiKeypad(
     onHistory: () -> Unit,
     onSettings: () -> Unit,
     onFormat: () -> Unit,
+    onTemplates: () -> Unit,
 ) {
     val fixed = heightPx > 0
     val height = with(LocalDensity.current) { heightPx.toDp() }
@@ -79,10 +83,19 @@ internal fun AiKeypad(
             MenuKey(key, Icons.Outlined.Settings, "Настройки", numberColor, onClick = onSettings)
         }
         Row(row, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Выбранный шаблон подсвечен: следующая задача пойдёт по нему.
+            MenuKey(
+                key,
+                Icons.Outlined.ContentCopy,
+                templateName?.let { "Шаблон: $it" } ?: "Шаблоны",
+                if (templateName != null) accentColor else numberColor,
+                if (templateName != null) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                onClick = onTemplates,
+            )
             MenuKey(
                 key,
                 Icons.Outlined.Tune,
-                formatSummary?.let { "Формат: $it" } ?: "Формат решения",
+                formatSummary?.let { "Формат: $it" } ?: "Формат",
                 if (formatSummary != null) operatorColor else numberColor,
                 onClick = onFormat,
             )

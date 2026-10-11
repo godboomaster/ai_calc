@@ -1,5 +1,7 @@
 package com.smartcalc.app.data.api
 
+import com.smartcalc.app.data.history.Solution
+import com.smartcalc.app.data.history.SolutionStep
 import com.smartcalc.app.data.plot.Plot
 import com.smartcalc.app.data.settings.ApiSettings
 import kotlinx.coroutines.Dispatchers
@@ -73,6 +75,16 @@ data class StepPayload(
     val svg: String? = null,
 )
 
+/** Шаблон заданий в запросе: требования и примеры, картинки уже в base64. */
+class TemplatePrompt(val name: String, val requirements: String, val examples: List<Example>) {
+    class Example(
+        val condition: String,
+        val conditionImages: List<String>,
+        val solution: String,
+        val solutionImages: List<String>,
+    )
+}
+
 data class SolutionPayload(
     val problem: String,
     val answer: String,
@@ -109,7 +121,7 @@ class OpenAiClient {
 
     /**
      * [formatText] и [formatSampleBase64] — формат решения, заданный пользователем
-     * (требования текстом и/или фото образца оформления).
+     * (требования текстом и/или фото образца оформления); [template] — шаблон заданий.
      */
     suspend fun solve(
         settings: ApiSettings,
@@ -117,51 +129,144 @@ class OpenAiClient {
         text: String?,
         formatText: String? = null,
         formatSampleBase64: String? = null,
+        template: TemplatePrompt? = null,
     ): SolutionPayload =
         withContext(Dispatchers.IO) {
-            val hasFormat = !formatText.isNullOrBlank() || formatSampleBase64 != null
-            val userContent: JsonArray = buildJsonArray {
-                if (hasFormat) {
-                    add(textPart(formatInstructions(formatText, formatSampleBase64 != null)))
-                    if (formatSampleBase64 != null) add(imagePart(formatSampleBase64))
-                }
-                val task = when {
-                    text != null -> if (hasFormat) "Задача: $text" else text
-                    images.size > 1 -> "Реши задачу со страниц документа на следующих изображениях."
-                    // Рядом с образцом нужно явно указать, какое фото — задача.
-                    formatSampleBase64 != null -> "Задача, которую нужно решить, — на следующем фото."
-                    else -> "Реши задачу на фото."
-                }
-                add(textPart(task))
-                images.forEach { add(imagePart(it)) }
-            }
+            val userContent = taskContent(images, text, formatText, formatSampleBase64, template)
             val messages = buildJsonArray {
-                add(buildJsonObject {
-                    put("role", "system")
-                    put(
-                        "content",
-                        listOf(settings.systemPrompt.trimEnd(), FORMULA_RULE, PLOT_RULE, SCHEME_RULE).joinToString("\n"),
-                    )
-                })
-                add(buildJsonObject {
-                    put("role", "user")
-                    put("content", userContent)
-                })
+                add(systemMessage(settings))
+                add(message("user", userContent))
             }
-            fun body(jsonMode: Boolean) = buildJsonObject {
-                put("model", settings.model)
-                put("messages", messages)
-                // Сервер сам гарантирует валидный JSON (OpenAI, Ollama, DeepSeek, Qwen это умеют).
-                if (jsonMode) put("response_format", buildJsonObject { put("type", "json_object") })
-            }
-            val raw = try {
-                execute(settings, body(jsonMode = true))
-            } catch (e: ApiException) {
-                // Не все OpenAI-совместимые серверы знают response_format — повторяем без него.
-                if (e.httpCode == 400 || e.httpCode == 422) execute(settings, body(jsonMode = false)) else throw e
-            }
-            parseSolution(raw)
+            complete(settings, messages)
         }
+
+    /**
+     * Дополнительный вопрос к решённой задаче: модель получает всю цепочку — исходную задачу, свой
+     * ответ, прежние дополнения с ответами — и новый вопрос. Фото задачи заново не отправляется:
+     * распознанное условие уже есть в первом ответе.
+     */
+    suspend fun followUp(settings: ApiSettings, base: Solution, question: String): SolutionPayload =
+        withContext(Dispatchers.IO) {
+            complete(settings, followUpMessages(settings, base, question))
+        }
+
+    internal fun followUpMessages(settings: ApiSettings, base: Solution, question: String) = buildJsonArray {
+        add(systemMessage(settings))
+        add(message("user", JsonPrimitive("Задача: ${base.problem}")))
+        add(message("assistant", JsonPrimitive(turnJson(base.problem, base.answer, base.steps))))
+        base.followUps.forEach { f ->
+            add(message("user", JsonPrimitive("Дополнение: ${f.question}")))
+            add(message("assistant", JsonPrimitive(turnJson(f.question, f.answer, f.steps))))
+        }
+        add(
+            message(
+                "user",
+                JsonPrimitive(
+                    "Дополнение: $question\n" +
+                        "Ответь тем же JSON-объектом: answer — ответ именно на это дополнение, steps — его решение " +
+                        "(то, что уже решено выше, не повторяй), problem — коротко, о чём дополнение.",
+                ),
+            ),
+        )
+    }
+
+    /** Прежний ответ в том виде, в каком модель его прислала: так она продолжит в том же формате. */
+    private fun turnJson(problem: String, answer: String, steps: List<SolutionStep>) = buildJsonObject {
+        put("problem", problem)
+        put("answer", answer)
+        putJsonArray("steps") {
+            steps.forEach { step ->
+                add(buildJsonObject {
+                    put("title", step.title)
+                    // Код схемы большой, а для продолжения разговора хватит упоминания.
+                    put("content", if (step.svg != null) step.content + "\n[схема]" else step.content)
+                })
+            }
+        }
+    }.toString()
+
+    private fun systemMessage(settings: ApiSettings) = message(
+        "system",
+        JsonPrimitive(listOf(settings.systemPrompt.trimEnd(), FORMULA_RULE, PLOT_RULE, SCHEME_RULE).joinToString("\n")),
+    )
+
+    private fun message(role: String, content: JsonElement) = buildJsonObject {
+        put("role", role)
+        put("content", content)
+    }
+
+    private fun complete(settings: ApiSettings, messages: JsonArray): SolutionPayload {
+        fun body(jsonMode: Boolean) = buildJsonObject {
+            put("model", settings.model)
+            put("messages", messages)
+            // Сервер сам гарантирует валидный JSON (OpenAI, Ollama, DeepSeek, Qwen это умеют).
+            if (jsonMode) put("response_format", buildJsonObject { put("type", "json_object") })
+        }
+        val raw = try {
+            execute(settings, body(jsonMode = true))
+        } catch (e: ApiException) {
+            // Не все OpenAI-совместимые серверы знают response_format — повторяем без него.
+            if (e.httpCode == 400 || e.httpCode == 422) execute(settings, body(jsonMode = false)) else throw e
+        }
+        return parseSolution(raw)
+    }
+
+    /**
+     * Сообщение с задачей: сначала шаблон (требования и примеры), потом формат, потом сама задача.
+     * Рядом с картинками примеров и образца явно сказано, какое фото — новая задача.
+     */
+    internal fun taskContent(
+        images: List<String>,
+        text: String?,
+        formatText: String?,
+        formatSampleBase64: String?,
+        template: TemplatePrompt?,
+    ): JsonArray = buildJsonArray {
+        if (template != null) {
+            templateParts(template).forEach { add(it) }
+        }
+        val hasFormat = !formatText.isNullOrBlank() || formatSampleBase64 != null
+        if (hasFormat) {
+            add(textPart(formatInstructions(formatText, formatSampleBase64 != null)))
+            if (formatSampleBase64 != null) add(imagePart(formatSampleBase64))
+        }
+        val hasContext = hasFormat || template != null
+        val task = when {
+            text != null -> if (hasContext) "Новая задача: $text" else text
+            images.size > 1 -> "Реши задачу со страниц документа на следующих изображениях."
+            // Рядом с образцами нужно явно указать, какое фото — задача.
+            hasContext -> "Новая задача, которую нужно решить, — на следующем фото."
+            else -> "Реши задачу на фото."
+        }
+        add(textPart(task))
+        images.forEach { add(imagePart(it)) }
+    }
+
+    private fun templateParts(t: TemplatePrompt): List<JsonObject> = buildList {
+        add(
+            textPart(
+                buildString {
+                    append("Это задача по шаблону «${t.name}». Реши её тем же способом и оформи так же, ")
+                    append("как в примерах ниже; примеры решать не нужно.")
+                    if (t.requirements.isNotBlank()) {
+                        append("\n\nТребования к таким задачам:\n")
+                        append(t.requirements)
+                    }
+                },
+            ),
+        )
+        t.examples.forEachIndexed { i, ex ->
+            val n = i + 1
+            if (ex.condition.isNotBlank() || ex.conditionImages.isNotEmpty()) {
+                add(textPart("Пример $n. Условие:" + if (ex.condition.isNotBlank()) "\n${ex.condition}" else " на фото ниже."))
+                ex.conditionImages.forEach { add(imagePart(it)) }
+            }
+            if (ex.solution.isNotBlank() || ex.solutionImages.isNotEmpty()) {
+                add(textPart("Пример $n. Решение:" + if (ex.solution.isNotBlank()) "\n${ex.solution}" else " на фото ниже."))
+                ex.solutionImages.forEach { add(imagePart(it)) }
+            }
+        }
+    }
 
     private fun textPart(text: String) = buildJsonObject {
         put("type", "text")

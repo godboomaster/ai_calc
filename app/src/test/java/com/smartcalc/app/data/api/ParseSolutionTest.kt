@@ -1,6 +1,15 @@
 package com.smartcalc.app.data.api
 
+import com.smartcalc.app.data.history.FollowUp
+import com.smartcalc.app.data.history.Solution
+import com.smartcalc.app.data.history.SolutionStep
+import com.smartcalc.app.data.settings.ApiSettings
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ParseSolutionTest {
@@ -81,6 +90,54 @@ class ParseSolutionTest {
         // Схема вне шагов становится отдельным шагом.
         assertEquals("Схема", s.steps[2].title)
         assertEquals("<svg viewBox='0 0 1 1'></svg>", s.steps[2].svg)
+    }
+
+    @Test
+    fun followUpSendsWholeThread() {
+        val base = Solution(
+            problem = "Решите ${'$'}x^2 = 4${'$'}",
+            answer = "${'$'}x = \\pm 2${'$'}",
+            steps = listOf(SolutionStep("Корни", "Извлекаем корень", svg = "<svg>большой код</svg>")),
+            followUps = listOf(FollowUp("А если ${'$'}x^2 = 9${'$'}?", "${'$'}x = \\pm 3${'$'}")),
+        )
+        val messages = client.followUpMessages(ApiSettings(), base, "Почему два корня?")
+        val roles = messages.map { it.jsonObject["role"]!!.jsonPrimitive.content }
+        assertEquals(listOf("system", "user", "assistant", "user", "assistant", "user"), roles)
+        fun content(i: Int) = messages[i].jsonObject["content"]!!.jsonPrimitive.content
+        assertEquals("Задача: Решите ${'$'}x^2 = 4${'$'}", content(1))
+        // Прежний ответ — тем же JSON, что прислала модель, но без кода схемы.
+        val first = Json.parseToJsonElement(content(2)).jsonObject
+        assertEquals("${'$'}x = \\pm 2${'$'}", first["answer"]!!.jsonPrimitive.content)
+        assertEquals("Извлекаем корень\n[схема]", first["steps"]!!.jsonArray[0].jsonObject["content"]!!.jsonPrimitive.content)
+        assertEquals("Дополнение: А если ${'$'}x^2 = 9${'$'}?", content(3))
+        assertTrue(content(5).startsWith("Дополнение: Почему два корня?"))
+    }
+
+    @Test
+    fun templateGoesBeforeTheNewTask() {
+        val template = TemplatePrompt(
+            name = "Гурвиц",
+            requirements = "Вывод об устойчивости в конце",
+            examples = listOf(
+                TemplatePrompt.Example("Условие примера", emptyList(), "", listOf("SOLUTION_IMG")),
+            ),
+        )
+        val parts = client.taskContent(listOf("TASK_IMG"), null, null, null, template)
+        fun describe(p: kotlinx.serialization.json.JsonElement): String {
+            val o = p.jsonObject
+            return if (o["type"]!!.jsonPrimitive.content == "text") o["text"]!!.jsonPrimitive.content
+            else "IMG:" + o["image_url"]!!.jsonObject["url"]!!.jsonPrimitive.content.substringAfter("base64,")
+        }
+        val described = parts.map(::describe)
+        assertTrue(described[0].startsWith("Это задача по шаблону «Гурвиц»"))
+        assertTrue(described[0].endsWith("Вывод об устойчивости в конце"))
+        assertEquals("Пример 1. Условие:\nУсловие примера", described[1])
+        assertEquals("Пример 1. Решение: на фото ниже.", described[2])
+        assertEquals("IMG:SOLUTION_IMG", described[3])
+        // Новая задача — последней и с явной пометкой, чтобы модель не перепутала её с примером.
+        assertEquals("Новая задача, которую нужно решить, — на следующем фото.", described[4])
+        assertEquals("IMG:TASK_IMG", described[5])
+        assertEquals(6, described.size)
     }
 
     @Test(expected = ApiException::class)

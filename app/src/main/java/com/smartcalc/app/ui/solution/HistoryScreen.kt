@@ -157,8 +157,18 @@ private fun HistoryEntry(
                 textAlign = TextAlign.End,
                 maxLines = 2,
             )
+            if (solution.followUps.isNotEmpty()) {
+                MathText(
+                    "↳ ${solution.latestQuestion}",
+                    fontSize = 15.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                    textAlign = TextAlign.End,
+                    maxLines = 1,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
             MathText(
-                "= ${solution.answer}",
+                "= ${solution.latestAnswer}",
                 fontSize = 24.sp,
                 textAlign = TextAlign.End,
                 maxLines = 2,

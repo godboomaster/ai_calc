@@ -14,11 +14,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AddComment
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
@@ -45,6 +48,8 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.smartcalc.app.SolutionViewModel
 import com.smartcalc.app.data.history.Solution
+import com.smartcalc.app.data.history.SolutionStep
+import com.smartcalc.app.ui.calculator.CalcKey
 import com.smartcalc.app.ui.math.MathMarkup
 import com.smartcalc.app.ui.math.MathText
 import com.smartcalc.app.ui.plot.PlotView
@@ -59,7 +64,7 @@ import java.io.File
 fun SolutionScreen(
     vm: SolutionViewModel,
     onBack: () -> Unit,
-    onEditProblem: () -> Unit,
+    onOpenCalculator: () -> Unit,
 ) {
     val solution by vm.current.collectAsState()
     var copied by remember(solution?.id) { mutableStateOf(false) }
@@ -111,8 +116,16 @@ fun SolutionScreen(
         }
         // В формате пользователя шаги — это его разделы («Дано», «Решение»…): без номеров.
         val numbered = s.format == null
+        // После дополнения экран открывается на нём: исходное решение — выше, прокруткой.
+        val latestStart = remember(s.id, s.followUps.size) {
+            if (s.followUps.isEmpty()) 0
+            else 1 + (if (s.template != null || s.format != null) 1 else 0) + s.steps.size + 1 +
+                s.followUps.dropLast(1).sumOf { it.steps.size + 2 }
+        }
+        val listState = rememberLazyListState(initialFirstVisibleItemIndex = latestStart)
 
         LazyColumn(
+            state = listState,
             contentPadding = PaddingValues(vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -121,8 +134,8 @@ fun SolutionScreen(
                     label = "Условие",
                     action = {
                         IconButton(onClick = {
-                            vm.editRequest = MathMarkup.plain(s.problem)
-                            onEditProblem()
+                            vm.editRequest = SolutionViewModel.EditRequest(MathMarkup.plain(s.problem), followUp = false)
+                            onOpenCalculator()
                         }) {
                             Icon(
                                 Icons.Filled.Edit,
@@ -148,34 +161,76 @@ fun SolutionScreen(
                     MathText(s.problem, fontSize = 17.sp)
                 }
             }
-            if (s.format != null) {
+            if (s.template != null || s.format != null) {
                 item {
                     Text(
-                        "В вашем формате · ${s.format}",
+                        listOfNotNull(
+                            s.template?.let { "По шаблону «$it»" },
+                            s.format?.let { "В вашем формате · $it" },
+                        ).joinToString(" · "),
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                     )
                 }
             }
-            itemsIndexed(s.steps) { index, step ->
-                SolutionBlock(number = if (numbered) index + 1 else null, title = step.title) {
-                    if (step.content.isNotBlank()) MathText(step.content, fontSize = 16.sp)
-                    step.plot?.let {
-                        PlotView(it, container = MaterialTheme.colorScheme.surface, modifier = Modifier.padding(top = 12.dp))
+            stepsAndAnswer(s.steps, s.answer, numbered)
+            s.followUps.forEach { f ->
+                item {
+                    SolutionBlock(label = "Дополнение") {
+                        MathText(f.question, fontSize = 17.sp)
                     }
-                    step.svg?.let { SchemeView(it, modifier = Modifier.padding(top = 12.dp)) }
                 }
+                stepsAndAnswer(f.steps, f.answer, numbered)
             }
             item {
-                SolutionBlock(
-                    label = "Ответ",
-                    container = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                ) {
-                    MathText(s.answer, fontSize = 24.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                // Вопрос к этому решению — в строке калькулятора, ответ — на его дисплее.
+                Row(modifier = Modifier.padding(top = 4.dp)) {
+                    CalcKey(
+                        MaterialTheme.colorScheme.primary,
+                        onClick = {
+                            vm.editRequest = SolutionViewModel.EditRequest("", followUp = true)
+                            onOpenCalculator()
+                        },
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Filled.AddComment,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                            )
+                            Text(
+                                "Дополнить",
+                                fontSize = 18.sp,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.padding(start = 8.dp),
+                            )
+                        }
+                    }
                 }
             }
+        }
+    }
+}
+
+/** Шаги одного ответа (исходного или на дополнение) и сам ответ отдельным блоком. */
+private fun LazyListScope.stepsAndAnswer(steps: List<SolutionStep>, answer: String, numbered: Boolean) {
+    itemsIndexed(steps) { index, step ->
+        SolutionBlock(number = if (numbered) index + 1 else null, title = step.title) {
+            if (step.content.isNotBlank()) MathText(step.content, fontSize = 16.sp)
+            step.plot?.let {
+                PlotView(it, container = MaterialTheme.colorScheme.surface, modifier = Modifier.padding(top = 12.dp))
+            }
+            step.svg?.let { SchemeView(it, modifier = Modifier.padding(top = 12.dp)) }
+        }
+    }
+    item {
+        SolutionBlock(
+            label = "Ответ",
+            container = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        ) {
+            MathText(answer, fontSize = 24.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
         }
     }
 }
@@ -244,6 +299,22 @@ private fun SolutionBlock(
 
 private fun copyText(solution: Solution): String {
     fun plain(s: String) = MathMarkup.plain(s)
+    val followUps = buildString {
+        solution.followUps.forEach { f ->
+            appendLine()
+            appendLine("Дополнение: ${plain(f.question)}")
+            appendLine("Ответ: ${plain(f.answer)}")
+            f.steps.forEachIndexed { i, s ->
+                appendLine()
+                appendLine("${i + 1}. ${plain(s.title)}")
+                appendLine(plain(s.content))
+            }
+        }
+    }
+    return mainText(solution, ::plain) + followUps.trimEnd()
+}
+
+private fun mainText(solution: Solution, plain: (String) -> String): String {
     return if (solution.format != null) {
         buildString {
             solution.steps.forEach { s ->

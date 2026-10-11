@@ -25,6 +25,15 @@ data class SolutionStep(
     val svg: String? = null,
 )
 
+/** Дополнительный вопрос к решённой задаче и ответ на него. */
+@Serializable
+data class FollowUp(
+    val question: String,
+    val answer: String,
+    val steps: List<SolutionStep> = emptyList(),
+    val timestamp: Long = System.currentTimeMillis(),
+)
+
 @Serializable
 data class Solution(
     val id: String = UUID.randomUUID().toString(),
@@ -35,7 +44,20 @@ data class Solution(
     val timestamp: Long = System.currentTimeMillis(),
     /** Подпись формата решения, если задача решалась в формате пользователя. */
     val format: String? = null,
-)
+    /** Название шаблона заданий, если задача решалась по нему. */
+    val template: String? = null,
+    /** Дополнения по порядку: каждое — вопрос после ответа и ответ на него. */
+    val followUps: List<FollowUp> = emptyList(),
+) {
+    /** Последний вопрос в цепочке — исходная задача или последнее дополнение. */
+    val latestQuestion: String get() = followUps.lastOrNull()?.question ?: problem
+
+    /** Ответ, который показывает дисплей: на последний вопрос. */
+    val latestAnswer: String get() = followUps.lastOrNull()?.answer ?: answer
+
+    /** Шаги последнего ответа — их открывают цифры калькулятора. */
+    val latestSteps: List<SolutionStep> get() = followUps.lastOrNull()?.steps ?: steps
+}
 
 class HistoryStore(private val context: Context) {
 
@@ -56,6 +78,15 @@ class HistoryStore(private val context: Context) {
     suspend fun add(solution: Solution) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val updated = listOf(solution) + _items.value
+            file.writeText(json.encodeToString(updated))
+            _items.value = updated
+        }
+    }
+
+    /** Решение с новым дополнением: заменяет старую запись и поднимается наверх истории. */
+    suspend fun update(solution: Solution) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val updated = listOf(solution) + _items.value.filterNot { it.id == solution.id }
             file.writeText(json.encodeToString(updated))
             _items.value = updated
         }

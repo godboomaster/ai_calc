@@ -29,6 +29,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Calculate
 import androidx.compose.material3.Icon
@@ -112,6 +113,7 @@ fun CalculatorScreen(
     onOpenHistory: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenFormat: () -> Unit,
+    onOpenTemplates: () -> Unit,
 ) {
     // rememberSaveable: выражение и режим не теряются, пока открыты камера, история или настройки.
     var expr by rememberSaveable { mutableStateOf("") }
@@ -119,6 +121,10 @@ fun CalculatorScreen(
     var openedStep by rememberSaveable { mutableStateOf<Int?>(null) }
     var aiKeys by rememberSaveable { mutableStateOf(false) }
     var editing by rememberSaveable { mutableStateOf(false) }
+    // Строка ввода дописывает вопрос к ответу на дисплее, а не новую задачу.
+    var followUp by rememberSaveable { mutableStateOf(false) }
+    // Недописанное дополнение не пропадает, если клавиатуру закрыли.
+    var followUpDraft by rememberSaveable { mutableStateOf("") }
     var field by remember { mutableStateOf(TextFieldValue()) }
     // Высота цифровой клавиатуры — для клавиш ИИ; переживает уход в настройки и обратно.
     var keypadHeight by rememberSaveable { mutableIntStateOf(0) }
@@ -130,7 +136,8 @@ fun CalculatorScreen(
     val pending by vm.pending.collectAsState()
     val solution by vm.current.collectAsState()
     val format by vm.format.collectAsState()
-    val steps = solution?.steps.orEmpty()
+    val template by vm.armedTemplate.collectAsState()
+    val steps = solution?.latestSteps.orEmpty()
 
     val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         uri?.let(vm::solveGalleryImage)
@@ -152,31 +159,41 @@ fun CalculatorScreen(
     fun leaveAi() {
         if (!onDisplay) return
         vm.hideFromDisplay()
-        val number = solution?.answer?.let { MathMarkup.plain(it) }?.takeIf { PLAIN_NUMBER.matches(it) }
+        val number = solution?.latestAnswer?.let { MathMarkup.plain(it) }?.takeIf { PLAIN_NUMBER.matches(it) }
         expr = number.orEmpty()
         evaluated = number != null
     }
 
-    fun startEditing(text: String) {
+    fun startEditing(text: String, asFollowUp: Boolean = false) {
         vm.hideFromDisplay()
         expr = text
         evaluated = false
         field = TextFieldValue(text, TextRange(text.length))
+        followUp = asFollowUp
         editing = true
     }
 
+    /** Клавиатура убрана без отправки: недописанное дополнение откладывается, ответ возвращается на дисплей. */
     fun stopEditing() {
         keyboard?.hide()
         editing = false
+        if (followUp) {
+            followUp = false
+            followUpDraft = expr
+            vm.showOnDisplay()
+        }
     }
 
-    /** Нажатие на строку ввода: продолжить выражение, поправить задачу после ошибки или начать новую. */
+    /**
+     * Нажатие на строку ввода: продолжить выражение, поправить задачу после ошибки или, если на дисплее
+     * ответ ИИ, задать к нему дополнительный вопрос. Новая задача вместо дополнения — после «C».
+     */
     fun tapDisplay() {
         when {
             !onDisplay -> startEditing(if (evaluated && !isArithmetic(expr)) "" else expr)
             solving -> Unit
-            error != null -> startEditing(vm.retryText.orEmpty())
-            else -> startEditing("")
+            error != null -> startEditing(vm.retryText.orEmpty(), asFollowUp = vm.retryIsFollowUp && solution != null)
+            else -> startEditing(followUpDraft, asFollowUp = true)
         }
     }
 
@@ -200,6 +217,15 @@ fun CalculatorScreen(
         if (onDisplay) return
         val text = expr.trim()
         if (text.isEmpty()) return
+        if (editing && followUp) {
+            // Дополнение уходит ИИ целиком, даже если похоже на выражение: «а если 2+3?».
+            followUp = false
+            followUpDraft = ""
+            stopEditing()
+            vm.askFollowUp(text)
+            expr = ""
+            return
+        }
         if (isArithmetic(text)) {
             stopEditing()
             expr = try {
@@ -225,15 +251,16 @@ fun CalculatorScreen(
             seenShown = shown
             aiKeys = false
             editing = false
+            followUp = false
         }
     }
-    // «Изменить условие» на экране решения: условие встаёт в строку ввода.
+    // «Изменить условие» и «Дополнить» на экране решения: строка ввода открывается с условием или пустой.
     val editRequest = vm.editRequest
     LaunchedEffect(editRequest) {
         if (editRequest != null) {
             vm.editRequest = null
             aiKeys = false
-            startEditing(editRequest)
+            startEditing(editRequest.text, asFollowUp = editRequest.followUp && solution != null)
         }
     }
     // Клавиатуру убрали жестом или «назад» — строка снова обычная, на месте снова клавиши.
@@ -243,7 +270,7 @@ fun CalculatorScreen(
         when {
             !editing -> imeShown = false
             imeVisible -> imeShown = true
-            imeShown -> editing = false
+            imeShown -> stopEditing()
         }
     }
     BackHandler(enabled = editing) { stopEditing() }
@@ -272,23 +299,37 @@ fun CalculatorScreen(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                 )
             }
-            // Нажатие на дисплей — без ряби: калькулятор не должен выдавать, что строка «живая».
-            val tap = Modifier.clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = ::tapDisplay,
-            )
+            // Нажатие в любом месте дисплея — без ряби: калькулятор не должен выдавать, что строка «живая».
+            // Пока строка уже с клавиатурой, нажатия мимо неё ничего не сбрасывают.
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
+                    .weight(1f)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        enabled = !editing && !solving,
+                        onClick = ::tapDisplay,
+                    ),
                 verticalArrangement = Arrangement.Bottom,
                 horizontalAlignment = Alignment.End,
             ) {
                 when {
                     editing -> {
-                        if (format.isSet) DisplayCaption("Формат: ${format.summary}", maxLines = 1)
-                        InputField(field) {
+                        val s = solution
+                        if (followUp && s != null) {
+                            // Дополнение пишется с прежним ответом перед глазами; ✕ — это новая задача.
+                            ContextCaption("Дополнение к ответу", s.latestAnswer, onDrop = { followUp = false })
+                        } else if (template != null) {
+                            // Задача уйдёт вместе с шаблоном; ✕ — решать без него.
+                            ContextCaption("Шаблон", template!!.name, onDrop = vm::disarmTemplate)
+                        } else if (format.isSet) {
+                            DisplayCaption("Формат: ${format.summary}", maxLines = 1)
+                        }
+                        InputField(
+                            field,
+                            placeholder = if (followUp) "Уточните или спросите ещё" else "Напишите задачу",
+                        ) {
                             field = it
                             expr = it.text
                             evaluated = false
@@ -298,8 +339,7 @@ fun CalculatorScreen(
                     !onDisplay -> Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f, fill = false)
-                            .then(tap),
+                            .weight(1f, fill = false),
                         horizontalAlignment = Alignment.End,
                     ) {
                         val shown = expr.ifEmpty { "0" }
@@ -316,6 +356,7 @@ fun CalculatorScreen(
                         Text(
                             text = when {
                                 preview != null -> "= $preview"
+                                aiKeys && template != null -> "Шаблон «${template!!.name}»: прикрепите задачу"
                                 aiKeys -> "Нажмите на строку, чтобы написать задачу"
                                 else -> " "
                             },
@@ -333,7 +374,7 @@ fun CalculatorScreen(
                         SolvingDots()
                     }
 
-                    error != null -> Column(modifier = Modifier.then(tap), horizontalAlignment = Alignment.End) {
+                    error != null -> Column(horizontalAlignment = Alignment.End) {
                         DisplayCaption(error.orEmpty(), maxLines = 4)
                         Text(
                             "Ошибка",
@@ -344,22 +385,21 @@ fun CalculatorScreen(
                     }
 
                     solution != null -> Column(
-                        modifier = Modifier
-                            .weight(1f, fill = false)
-                            .then(tap),
+                        modifier = Modifier.weight(1f, fill = false),
                         horizontalAlignment = Alignment.End,
                     ) {
                         val s = solution!!
-                        DisplayCaption(s.problem)
+                        // У ответа на дополнение подпись — сам вопрос со стрелкой продолжения.
+                        DisplayCaption(if (s.followUps.isEmpty()) s.problem else "↳ ${s.latestQuestion}")
                         // Длинный ответ не выталкивает клавиатуру, а прокручивается внутри дисплея.
                         Column(
                             modifier = Modifier
                                 .weight(1f, fill = false)
                                 .verticalScroll(rememberScrollState()),
                         ) {
-                            val size = answerFontSize(MathMarkup.plain(s.answer).length)
+                            val size = answerFontSize(MathMarkup.plain(s.latestAnswer).length)
                             MathText(
-                                s.answer,
+                                s.latestAnswer,
                                 fontSize = size,
                                 textAlign = TextAlign.End,
                                 modifier = Modifier
@@ -402,7 +442,8 @@ fun CalculatorScreen(
             aiKeys -> AiKeypad(
                 heightPx = keypadHeight,
                 formatSummary = format.summary.takeIf { format.isSet },
-                onWrite = { startEditing(if (onDisplay || evaluated) "" else expr) },
+                templateName = template?.name,
+                onWrite = ::tapDisplay,
                 onPhoto = onOpenCamera,
                 onGallery = {
                     galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
@@ -411,6 +452,7 @@ fun CalculatorScreen(
                 onHistory = onOpenHistory,
                 onSettings = onOpenSettings,
                 onFormat = onOpenFormat,
+                onTemplates = onOpenTemplates,
             )
 
             else -> Column(
@@ -467,7 +509,7 @@ fun CalculatorScreen(
 
     val s = solution
     val index = openedStep
-    if (s != null && index != null && index in s.steps.indices) {
+    if (s != null && index != null && index in s.latestSteps.indices) {
         StepDialog(
             solution = s,
             index = index,
@@ -478,8 +520,37 @@ fun CalculatorScreen(
 }
 
 /** Строка ввода с системной клавиатурой: текст справа и того же размера, что выражение на дисплее. */
+/**
+ * Над строкой ввода — с чем уйдёт задача: прежний ответ (дополнение) или шаблон. ✕ — отправить
+ * без этого, просто новой задачей.
+ */
 @Composable
-private fun InputField(value: TextFieldValue, onValueChange: (TextFieldValue) -> Unit) {
+private fun ContextCaption(title: String, text: String, onDrop: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f, fill = false), horizontalAlignment = Alignment.End) {
+            Text(
+                title,
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            DisplayCaption(text, maxLines = 2)
+        }
+        IconButton(onClick = onDrop) {
+            Icon(
+                Icons.Filled.Close,
+                contentDescription = "Отправить без этого — новой задачей",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun InputField(value: TextFieldValue, placeholder: String, onValueChange: (TextFieldValue) -> Unit) {
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
     val size = inputFontSize(value.text.length)
@@ -497,7 +568,7 @@ private fun InputField(value: TextFieldValue, onValueChange: (TextFieldValue) ->
             Box(contentAlignment = Alignment.CenterEnd) {
                 if (value.text.isEmpty()) {
                     Text(
-                        "Напишите задачу",
+                        placeholder,
                         fontSize = size,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                         textAlign = TextAlign.End,
