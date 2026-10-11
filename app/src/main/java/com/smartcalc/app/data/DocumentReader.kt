@@ -12,6 +12,8 @@ import java.nio.charset.CharacterCodingException
 import java.nio.charset.Charset
 import java.nio.charset.CodingErrorAction
 import java.nio.ByteBuffer
+import java.io.InputStream
+import java.io.ByteArrayOutputStream
 import java.util.zip.ZipInputStream
 import kotlin.math.roundToInt
 
@@ -57,8 +59,23 @@ object DocumentReader {
         }
 
     private fun readBytes(context: Context, uri: Uri): ByteArray =
-        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+        context.contentResolver.openInputStream(uri)?.use { readTextBytes(it) }
             ?: throw DocumentException("Не удалось открыть файл")
+
+    internal fun readTextBytes(input: InputStream): ByteArray = readLimited(input, 2 * 1024 * 1024)
+
+    private fun readLimited(input: InputStream, limit: Int): ByteArray {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        var total = 0
+        while (true) {
+            val count = input.read(buffer, 0, minOf(buffer.size, limit - total + 1))
+            if (count < 0) return output.toByteArray()
+            total += count
+            if (total > limit) throw DocumentException("Текст документа слишком большой. Выберите файл меньшего размера.")
+            output.write(buffer, 0, count)
+        }
+    }
 
     private fun pdfPages(context: Context, uri: Uri): List<ByteArray> {
         val descriptor = context.contentResolver.openFileDescriptor(uri, "r")
@@ -74,10 +91,12 @@ object DocumentReader {
                             (page.height * scale).roundToInt(),
                             Bitmap.Config.ARGB_8888,
                         )
-                        // Страницы PDF прозрачные: без белого фона JPEG получится чёрным.
-                        bitmap.eraseColor(Color.WHITE)
-                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                        ImageUtils.compressBitmap(bitmap)
+                        try {
+                            // Страницы PDF прозрачные: без белого фона JPEG получится чёрным.
+                            bitmap.eraseColor(Color.WHITE)
+                            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            ImageUtils.compressBitmap(bitmap)
+                        } finally { bitmap.recycle() }
                     }
                 }
             }
@@ -85,11 +104,15 @@ object DocumentReader {
     }
 
     private fun readZipEntry(context: Context, uri: Uri): String {
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            ZipInputStream(input).use { zip ->
-                generateSequence { zip.nextEntry }.forEach { entry ->
-                    if (entry.name == "word/document.xml") return zip.readBytes().toString(Charsets.UTF_8)
-                }
+        val input = context.contentResolver.openInputStream(uri)
+            ?: throw DocumentException("Не удалось открыть файл")
+        return readDocxXml(input)
+    }
+
+    internal fun readDocxXml(input: InputStream): String {
+        ZipInputStream(input).use { zip ->
+            generateSequence { zip.nextEntry }.forEach { entry ->
+                if (entry.name == "word/document.xml") return readLimited(zip, 8 * 1024 * 1024).toString(Charsets.UTF_8)
             }
         }
         throw DocumentException("Не удалось прочитать DOCX")
