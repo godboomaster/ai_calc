@@ -20,17 +20,20 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Calculate
@@ -69,16 +72,18 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.Role
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
@@ -120,6 +125,7 @@ private fun stepIndex(digit: Char) = if (digit == '0') 9 else digit - '1'
 
 /** Высота задаётся только клавишам самого калькулятора; экраны шага и решения сохраняют свой размер. */
 private val LocalCalculatorKeyHeight = staticCompositionLocalOf<Dp?> { null }
+private val LocalCalculatorKeysEditing = staticCompositionLocalOf { false }
 
 /** Задачи длиннее выражений: после шкалы калькулятора шрифт мельчает дальше. */
 private fun inputFontSize(length: Int): TextUnit = when {
@@ -159,7 +165,7 @@ fun CalculatorScreen(
     var followUpDraft by rememberSaveable { mutableStateOf(savedCalculator.followUpDraft) }
     var taskDraft by rememberSaveable { mutableStateOf(savedCalculator.taskDraft) }
     var returnToAssistant by rememberSaveable { mutableStateOf(false) }
-    var field by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
+    var field by rememberSaveable(stateSaver = TextFieldState.Saver) { mutableStateOf(TextFieldState()) }
     val keyboard = LocalSoftwareKeyboardController.current
 
     val display by vm.display.collectAsState()
@@ -187,17 +193,18 @@ fun CalculatorScreen(
     // Сохраняем и незакрытый редактор: force-stop не обязан вызывать lifecycle callbacks.
     LaunchedEffect(Unit) {
         snapshotFlow {
+            val draft = field.text.toString()
             val expressionEditing = editing && !followUp && !returnToAssistant &&
-                (field.text.isBlank() || isArithmetic(field.text))
+                (draft.isBlank() || isArithmetic(draft))
             CalculatorSession(
-                expression = if (expressionEditing) field.text else expr,
+                expression = if (expressionEditing) draft else expr,
                 evaluated = if (expressionEditing) false else evaluated,
                 taskDraft = when {
                     expressionEditing -> ""
-                    editing && !followUp -> field.text
+                    editing && !followUp -> draft
                     else -> taskDraft
                 },
-                followUpDraft = if (editing && followUp) field.text else followUpDraft,
+                followUpDraft = if (editing && followUp) draft else followUpDraft,
                 followUpSolutionId = draftSolutionId,
             )
         }.collect(vm::saveCalculator)
@@ -239,7 +246,8 @@ fun CalculatorScreen(
     fun startEditing(text: String, asFollowUp: Boolean = false) {
         returnToAssistant = onDisplay
         vm.hideFromDisplay()
-        field = TextFieldValue(text, TextRange(text.length))
+        aiKeys = false
+        field = TextFieldState(text, TextRange(text.length))
         followUp = asFollowUp
         editing = true
     }
@@ -250,14 +258,15 @@ fun CalculatorScreen(
         if (!editing) return
         editing = false
         if (saveDraft) {
+            val draft = field.text.toString()
             if (followUp) {
-                followUpDraft = field.text
-            } else if (!returnToAssistant && (field.text.isBlank() || isArithmetic(field.text))) {
-                expr = field.text
+                followUpDraft = draft
+            } else if (!returnToAssistant && (draft.isBlank() || isArithmetic(draft))) {
+                expr = draft
                 evaluated = false
                 taskDraft = ""
             } else {
-                taskDraft = field.text
+                taskDraft = draft
             }
             if (returnToAssistant) vm.showOnDisplay()
         }
@@ -300,7 +309,7 @@ fun CalculatorScreen(
     }
 
     fun equals() {
-        val text = (if (editing) field.text else expr).trim()
+        val text = (if (editing) field.text.toString() else expr).trim()
         if (!editing) leaveAi()
         if (text.isEmpty()) return
         if (editing && followUp) {
@@ -356,7 +365,7 @@ fun CalculatorScreen(
             startEditing(editRequest.text, asFollowUp = editRequest.followUp && solution != null)
         }
     }
-    // Клавиатуру убрали жестом или «назад» — строка снова обычная, на месте снова клавиши.
+    // Клавиатуру убрали жестом или «назад» — сохранить черновик и вернуть обычный дисплей.
     val imeVisible = WindowInsets.isImeVisible
     var imeShown by remember { mutableStateOf(false) }
     LaunchedEffect(imeVisible, editing) {
@@ -372,10 +381,10 @@ fun CalculatorScreen(
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .imePadding()
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        val rowCount = if (editing) 1 else 6
+        // Сетка сохраняет свою геометрию, даже когда системная клавиатура лежит поверх неё.
+        val rowCount = 6
         val rowGaps = 8.dp * (rowCount - 1).toFloat()
         val fontScale = LocalDensity.current.fontScale.coerceIn(1f, 1.5f)
         // Крупному системному шрифту нужно больше места на условие и ответ. Если места совсем мало,
@@ -387,12 +396,21 @@ fun CalculatorScreen(
         val keypadContentHeight = keyHeight * rowCount.toFloat() + rowGaps
         val keypadViewportHeight = minOf(keypadContentHeight, keypadBudget)
         val displayBodyHeight = (maxHeight - keypadViewportHeight - 48.dp).coerceAtLeast(0.dp)
+        val density = LocalDensity.current
+        val keyboardHeight = with(density) {
+            (WindowInsets.ime.getBottom(this) - WindowInsets.navigationBars.getBottom(this)).coerceAtLeast(0).toDp()
+        }
+        // На низком экране двигаем только поле, не клавиши и не весь экран.
+        val editorLift = (keyboardHeight - keypadViewportHeight).coerceIn(0.dp, displayBodyHeight)
+        val editorLineHeight = with(density) { 26.sp.toDp() }
+        val editorMaxLines = ((displayBodyHeight - editorLift - 16.dp) / editorLineHeight)
+            .toInt().coerceIn(1, 6)
         val captionMaxLines = when {
             displayBodyHeight < 160.dp * fontScale -> 1
             displayBodyHeight < 240.dp * fontScale -> 2
             else -> 3
         }
-        val compactEditorContext = displayBodyHeight < 180.dp * fontScale
+        val compactEditorContext = displayBodyHeight - editorLift < 180.dp * fontScale
         val keypadScroll = rememberScrollState()
 
         Column(modifier = Modifier.fillMaxSize()) {
@@ -449,7 +467,8 @@ fun CalculatorScreen(
                         editing -> Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .weight(1f),
+                                .weight(1f)
+                                .padding(bottom = editorLift),
                             horizontalAlignment = Alignment.End,
                         ) {
                             // Сначала измеряется редактор, а подпись получает только оставшуюся высоту.
@@ -483,9 +502,9 @@ fun CalculatorScreen(
                             InputField(
                                 field,
                                 placeholder = if (followUp) "Уточните или спросите ещё" else "Напишите задачу",
-                            ) {
-                                field = it
-                            }
+                                maxLines = editorMaxLines,
+                                onSubmit = ::equals,
+                            )
                         }
 
                         !onDisplay -> Column(
@@ -633,69 +652,60 @@ fun CalculatorScreen(
                 ) { input(digit.toString()) }
             }
 
-            CompositionLocalProvider(LocalCalculatorKeyHeight provides keyHeight) {
+            CompositionLocalProvider(
+                LocalCalculatorKeyHeight provides keyHeight,
+                LocalCalculatorKeysEditing provides editing,
+            ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(keypadViewportHeight)
                         .verticalScroll(keypadScroll),
                 ) {
-                    when {
-                        // Над системной клавиатурой — только «назад» и «=»: цифры и так на ней.
-                        editing -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            CalcKey(numberColor, onClick = { stopEditing() }) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Убрать клавиатуру")
-                            }
-                            CalcKey(accentColor, weight = 3f, enabled = field.text.isNotBlank(), onClick = ::equals) {
-                                Text("=", fontSize = 26.sp, color = MaterialTheme.colorScheme.onPrimary)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            CalcKey("C", numberColor, MaterialTheme.colorScheme.error) { clear() }
+                            CalcKey("(", numberColor) { input("(") }
+                            CalcKey(")", numberColor) { input(")") }
+                            CalcKey("÷", operatorColor) { input("÷") }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            DigitKey('7')
+                            DigitKey('8')
+                            DigitKey('9')
+                            CalcKey("×", operatorColor) { input("×") }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            DigitKey('4')
+                            DigitKey('5')
+                            DigitKey('6')
+                            CalcKey("−", operatorColor) { input("−") }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            DigitKey('1')
+                            DigitKey('2')
+                            DigitKey('3')
+                            CalcKey("+", operatorColor) { input("+") }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            CalcKey("%", numberColor) { input("%") }
+                            DigitKey('0')
+                            CalcKey(".", numberColor) { input(".") }
+                            CalcKey("⌫", numberColor, onLongClick = { clear() }) {
+                                leaveAi()
+                                if (expr == "Ошибка") expr = ""
+                                if (expr.isNotEmpty()) expr = expr.dropLast(1)
+                                evaluated = false
                             }
                         }
-
-                        else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                CalcKey("C", numberColor, MaterialTheme.colorScheme.error) { clear() }
-                                CalcKey("(", numberColor) { input("(") }
-                                CalcKey(")", numberColor) { input(")") }
-                                CalcKey("÷", operatorColor) { input("÷") }
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                DigitKey('7')
-                                DigitKey('8')
-                                DigitKey('9')
-                                CalcKey("×", operatorColor) { input("×") }
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                DigitKey('4')
-                                DigitKey('5')
-                                DigitKey('6')
-                                CalcKey("−", operatorColor) { input("−") }
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                DigitKey('1')
-                                DigitKey('2')
-                                DigitKey('3')
-                                CalcKey("+", operatorColor) { input("+") }
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                CalcKey("%", numberColor) { input("%") }
-                                DigitKey('0')
-                                CalcKey(".", numberColor) { input(".") }
-                                CalcKey("⌫", numberColor, onLongClick = { clear() }) {
-                                    leaveAi()
-                                    if (expr == "Ошибка") expr = ""
-                                    if (expr.isNotEmpty()) expr = expr.dropLast(1)
-                                    evaluated = false
-                                }
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                // Удержание «=» — всё решение целиком.
-                                CalcKey(
-                                    "=",
-                                    accentColor,
-                                    MaterialTheme.colorScheme.onPrimary,
-                                    onLongClick = if (answerVisible) onOpenSolution else null,
-                                ) { equals() }
-                            }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // Удержание «=» — всё решение целиком.
+                            CalcKey(
+                                "=",
+                                accentColor,
+                                MaterialTheme.colorScheme.onPrimary,
+                                onLongClick = if (answerVisible) onOpenSolution else null,
+                            ) { equals() }
                         }
                     }
                 }
@@ -704,7 +714,6 @@ fun CalculatorScreen(
     }
 }
 
-/** Строка ввода с системной клавиатурой: текст справа и того же размера, что выражение на дисплее. */
 /**
  * Над строкой ввода — с чем уйдёт задача: прежний ответ (дополнение) или шаблон. ✕ — отправить
  * без этого, просто новой задачей.
@@ -753,24 +762,44 @@ private fun ContextCaption(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun InputField(value: TextFieldValue, placeholder: String, onValueChange: (TextFieldValue) -> Unit) {
+private fun InputField(
+    state: TextFieldState, placeholder: String, maxLines: Int, onSubmit: () -> Unit,
+) {
     val focus = remember { FocusRequester() }
+    val scroll = rememberScrollState()
+    var viewportHeight by remember { mutableIntStateOf(0) }
+    var textLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
     LaunchedEffect(Unit) { focus.requestFocus() }
-    val size = inputFontSize(value.text.length)
+    // Compose 1.7 сам следует за курсором при вводе, но не при уменьшении высоты из-за IME.
+    LaunchedEffect(viewportHeight, textLayout) {
+        val layout = textLayout ?: return@LaunchedEffect
+        if (viewportHeight <= 0) return@LaunchedEffect
+        val cursor = layout.getCursorRect(state.selection.end.coerceIn(0, layout.layoutInput.text.length))
+        when {
+            cursor.bottom > scroll.value + viewportHeight ->
+                scroll.scrollTo(kotlin.math.ceil(cursor.bottom).toInt() - viewportHeight)
+            cursor.top < scroll.value -> scroll.scrollTo(cursor.top.toInt())
+        }
+    }
     BasicTextField(
-        value = value,
-        onValueChange = onValueChange,
+        state = state,
         textStyle = TextStyle(
-            fontSize = size,
-            lineHeight = size * 1.15f,
+            fontSize = 20.sp,
+            lineHeight = 26.sp,
             color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.End,
         ),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-        decorationBox = { inner ->
+        lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = maxLines),
+        scrollState = scroll,
+        onTextLayout = { getResult -> textLayout = getResult() },
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+        onKeyboardAction = { onSubmit() },
+        decorator = { inner ->
             Box(contentAlignment = Alignment.CenterEnd) {
-                if (value.text.isEmpty()) {
+                if (state.text.isEmpty()) {
                     Text(
                         placeholder,
                         fontSize = 20.sp,
@@ -786,6 +815,7 @@ private fun InputField(value: TextFieldValue, placeholder: String, onValueChange
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp)
+            .onSizeChanged { viewportHeight = it.height }
             .focusRequester(focus),
     )
 }
@@ -862,7 +892,8 @@ internal fun RowScope.CalcKey(
             .alpha(if (enabled) 1f else 0.4f)
             .clip(RoundedCornerShape(24.dp))
             .background(container)
-            .combinedClickable(enabled = enabled, onClick = onClick, onLongClick = onLongClick),
+            .combinedClickable(enabled = enabled && !LocalCalculatorKeysEditing.current,
+                onClick = onClick, onLongClick = onLongClick),
         contentAlignment = Alignment.Center,
     ) {
         Box(
