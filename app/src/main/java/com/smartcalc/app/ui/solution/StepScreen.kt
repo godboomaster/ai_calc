@@ -18,11 +18,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Calculate
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -73,6 +73,13 @@ fun StepScreen(
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Назад",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             StepNumber(index + 1)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -95,13 +102,6 @@ fun StepScreen(
             }
             IconButton(onClick = onHideToCalculator) {
                 Icon(Icons.Filled.Calculate, contentDescription = "К калькулятору")
-            }
-            IconButton(onClick = onBack) {
-                Icon(
-                    Icons.Filled.Close,
-                    contentDescription = "Закрыть",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
         MathText(

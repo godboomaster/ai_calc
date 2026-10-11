@@ -1,5 +1,7 @@
 package com.smartcalc.app.ui
 
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
@@ -129,6 +131,10 @@ private fun AppSession(vm: SolutionViewModel) {
         NavHost(
             navController = nav,
             startDestination = Routes.CALCULATOR,
+            enterTransition = { EnterTransition.None },
+            exitTransition = { ExitTransition.None },
+            popEnterTransition = { EnterTransition.None },
+            popExitTransition = { ExitTransition.None },
             // consumeWindowInsets: калькулятор поднимает «=» над системной клавиатурой без лишнего отступа.
             modifier = Modifier
                 .padding(padding)
