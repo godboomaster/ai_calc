@@ -16,7 +16,9 @@ import com.smartcalc.app.data.api.OpenAiClient
 import com.smartcalc.app.data.api.StepPayload
 import com.smartcalc.app.data.api.TemplatePrompt
 import com.smartcalc.app.data.template.ExampleDraft
+import com.smartcalc.app.data.template.ImportResult
 import com.smartcalc.app.data.template.TaskTemplate
+import com.smartcalc.app.data.template.TemplateFormat
 import com.smartcalc.app.data.template.TemplateStore
 import com.smartcalc.app.data.format.FormatStore
 import com.smartcalc.app.data.format.SolutionFormat
@@ -34,6 +36,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.io.InputStream
+import java.io.OutputStream
 import java.net.ConnectException
 import kotlin.coroutines.cancellation.CancellationException
 import java.net.SocketTimeoutException
@@ -44,7 +48,7 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
     val settingsRepo = SettingsRepository(app)
     private val historyStore = HistoryStore(app)
     private val formatStore = FormatStore(app)
-    private val templateStore = TemplateStore(app)
+    private val templateStore = TemplateStore(app.filesDir)
     private val client = OpenAiClient()
 
     val history = historyStore.items
@@ -74,6 +78,12 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
     fun deleteTemplate(id: String) {
         viewModelScope.launch { templateStore.delete(id) }
     }
+
+    /** Файл шаблонов с [ids] (null — все) — для сохранения или отправки. */
+    suspend fun exportTemplates(ids: Collection<String>?, out: OutputStream, format: TemplateFormat): Int =
+        templateStore.export(ids, out, format)
+
+    suspend fun importTemplates(input: InputStream): ImportResult = templateStore.import(input)
     val settings = settingsRepo.settings.stateIn(viewModelScope, SharingStarted.Eagerly, ApiSettings())
 
     private val _current = MutableStateFlow<Solution?>(null)
