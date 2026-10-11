@@ -9,6 +9,9 @@ import androidx.exifinterface.media.ExifInterface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.IOException
+import java.io.InputStream
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -18,32 +21,55 @@ object ImageUtils {
     private const val JPEG_QUALITY = 85
 
     suspend fun compressFile(path: String): ByteArray = withContext(Dispatchers.IO) {
-        val bitmap = BitmapFactory.decodeFile(path)
-            ?: throw IllegalStateException("Не удалось прочитать фото")
-        val rotated = applyExifRotation(path, bitmap)
-        compressBitmap(rotated)
+        compressSource { File(path).inputStream() }
     }
 
     suspend fun compressUri(context: Context, uri: Uri): ByteArray = withContext(Dispatchers.IO) {
-        val bitmap = context.contentResolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it)
-        } ?: throw IllegalStateException("Не удалось открыть изображение")
-        compressBitmap(bitmap)
+        compressSource {
+            context.contentResolver.openInputStream(uri)
+                ?: throw DocumentException("Не удалось открыть изображение")
+        }
     }
 
-    private fun applyExifRotation(path: String, bitmap: Bitmap): Bitmap {
-        val rotation = when (
-            ExifInterface(path).getAttributeInt(
-                ExifInterface.TAG_ORIENTATION,
-                ExifInterface.ORIENTATION_NORMAL,
-            )
-        ) {
-            ExifInterface.ORIENTATION_ROTATE_90 -> 90f
-            ExifInterface.ORIENTATION_ROTATE_180 -> 180f
-            ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+    private fun compressSource(open: () -> InputStream): ByteArray {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        open().use { BitmapFactory.decodeStream(it, null, bounds) }
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = imageDecodeSampleSize(bounds.outWidth, bounds.outHeight, MAX_SIDE)
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val orientation = try {
+            open().use { ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL) }
+        } catch (_: IOException) {
+            // Some decodable formats do not have an EXIF block.
+            ExifInterface.ORIENTATION_NORMAL
+        }
+        val bitmap = open().use { BitmapFactory.decodeStream(it, null, options) }
+            ?: throw DocumentException("Не удалось прочитать изображение")
+        try {
+            val oriented = applyExifOrientation(bitmap, orientation)
+            try {
+                return compressBitmap(oriented)
+            } finally {
+                if (oriented !== bitmap) oriented.recycle()
+            }
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    private fun applyExifOrientation(bitmap: Bitmap, orientation: Int): Bitmap {
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.setScale(-1f, 1f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.setRotate(180f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.setScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> { matrix.setRotate(90f); matrix.postScale(-1f, 1f) }
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.setRotate(90f)
+            ExifInterface.ORIENTATION_TRANSVERSE -> { matrix.setRotate(270f); matrix.postScale(-1f, 1f) }
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.setRotate(270f)
             else -> return bitmap
         }
-        val matrix = Matrix().apply { postRotate(rotation) }
         return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
     }
 
@@ -54,15 +80,21 @@ object ImageUtils {
             val scale = MAX_SIDE.toFloat() / largest
             Bitmap.createScaledBitmap(
                 bitmap,
-                (bitmap.width * scale).roundToInt(),
-                (bitmap.height * scale).roundToInt(),
+                (bitmap.width * scale).roundToInt().coerceAtLeast(1),
+                (bitmap.height * scale).roundToInt().coerceAtLeast(1),
                 true,
             )
         } else {
             bitmap
         }
-        val out = ByteArrayOutputStream()
-        scaled.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
-        return out.toByteArray()
+        try {
+            val out = ByteArrayOutputStream()
+            if (!scaled.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)) {
+                throw DocumentException("Не удалось подготовить изображение")
+            }
+            return out.toByteArray()
+        } finally {
+            if (scaled !== bitmap) scaled.recycle()
+        }
     }
 }
