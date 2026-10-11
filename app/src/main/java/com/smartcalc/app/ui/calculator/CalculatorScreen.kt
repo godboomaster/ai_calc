@@ -62,6 +62,9 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
@@ -78,7 +81,6 @@ import com.smartcalc.app.SolutionViewModel
 import com.smartcalc.app.data.DocumentReader
 import com.smartcalc.app.ui.math.MathMarkup
 import com.smartcalc.app.ui.math.MathText
-import com.smartcalc.app.ui.solution.StepDialog
 import kotlinx.coroutines.delay
 
 /** Шрифт уменьшается с ростом выражения, а не уезжает за край экрана. */
@@ -88,9 +90,6 @@ internal fun displayFontSize(length: Int): TextUnit = when {
     length <= 20 -> 34.sp
     else -> 28.sp
 }
-
-/** Ответ ИИ — простое число: тогда с ним можно продолжить считать, как с результатом «=». */
-private val PLAIN_NUMBER = Regex("""-?\d+([.,]\d+)?""")
 
 /** Символы обычного выражения. Всё остальное (буквы, «=», «^») значит, что это задача для ИИ. */
 private const val ARITHMETIC = "0123456789.,+-−×÷*/()%E∞"
@@ -121,11 +120,12 @@ private fun inputFontSize(length: Int): TextUnit = when {
  * открывает системную клавиатуру — задачу можно написать прямо на дисплее. «=» считает выражение,
  * а всё, что выражением не является, отправляет ИИ; ход решения и ответ появляются на этом же дисплее.
  */
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun CalculatorScreen(
     vm: SolutionViewModel,
     onOpenSolution: () -> Unit,
+    onOpenStep: (Int) -> Unit,
     onOpenCamera: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -135,25 +135,38 @@ fun CalculatorScreen(
     // rememberSaveable: выражение и режим не теряются, пока открыты камера, история или настройки.
     var expr by rememberSaveable { mutableStateOf("") }
     var evaluated by rememberSaveable { mutableStateOf(false) }
-    var openedStep by rememberSaveable { mutableStateOf<Int?>(null) }
     var aiKeys by rememberSaveable { mutableStateOf(false) }
     var editing by rememberSaveable { mutableStateOf(false) }
     // Строка ввода дописывает вопрос к ответу на дисплее, а не новую задачу.
     var followUp by rememberSaveable { mutableStateOf(false) }
     // Недописанное дополнение не пропадает, если клавиатуру закрыли.
     var followUpDraft by rememberSaveable { mutableStateOf("") }
-    var field by remember { mutableStateOf(TextFieldValue()) }
+    var taskDraft by rememberSaveable { mutableStateOf("") }
+    var returnToAssistant by rememberSaveable { mutableStateOf(false) }
+    var field by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
     val keyboard = LocalSoftwareKeyboardController.current
 
-    val onDisplay by vm.onDisplay.collectAsState()
+    val display by vm.display.collectAsState()
+    val onDisplay = display.visible
     val solving by vm.solving.collectAsState()
     val error by vm.error.collectAsState()
     val pending by vm.pending.collectAsState()
     val solution by vm.current.collectAsState()
+    var draftSolutionId by rememberSaveable { mutableStateOf(solution?.id) }
     val format by vm.format.collectAsState()
     val template by vm.armedTemplate.collectAsState()
     val templates by vm.templates.collectAsState()
     val steps = solution?.latestSteps.orEmpty()
+    val answerVisible = onDisplay && !solving && error == null && solution != null
+    val answerScroll = rememberScrollState()
+    val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
+
+    // Меню, редактор и экраны поверх калькулятора не означают, что результат прочитан.
+    LaunchedEffect(display, solving, editing, aiKeys, lifecycle) {
+        if (onDisplay && !solving && !editing && !aiKeys && lifecycle == Lifecycle.State.RESUMED) {
+            vm.markViewed()
+        }
+    }
 
     val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         uri?.let(vm::solveGalleryImage)
@@ -173,31 +186,42 @@ fun CalculatorScreen(
 
     /** Клавиша нажата, пока на дисплее ИИ: калькулятор возвращается к обычному счёту. */
     fun leaveAi() {
-        if (!onDisplay) return
+        aiKeys = false
         vm.hideFromDisplay()
-        val number = solution?.latestAnswer?.let { MathMarkup.plain(it) }?.takeIf { PLAIN_NUMBER.matches(it) }
-        expr = number.orEmpty()
-        evaluated = number != null
     }
 
     fun startEditing(text: String, asFollowUp: Boolean = false) {
+        returnToAssistant = onDisplay
         vm.hideFromDisplay()
-        expr = text
-        evaluated = false
         field = TextFieldValue(text, TextRange(text.length))
         followUp = asFollowUp
         editing = true
     }
 
     /** Клавиатура убрана без отправки: недописанное дополнение откладывается, ответ возвращается на дисплей. */
-    fun stopEditing() {
+    fun stopEditing(saveDraft: Boolean = true) {
         keyboard?.hide()
+        if (!editing) return
         editing = false
-        if (followUp) {
-            followUp = false
-            followUpDraft = expr
-            vm.showOnDisplay()
+        if (saveDraft) {
+            if (followUp) {
+                followUpDraft = field.text
+            } else if (!returnToAssistant && (field.text.isBlank() || isArithmetic(field.text))) {
+                expr = field.text
+                evaluated = false
+                taskDraft = ""
+            } else {
+                taskDraft = field.text
+            }
+            if (returnToAssistant) vm.showOnDisplay()
         }
+        followUp = false
+    }
+
+    fun restoreAssistant() {
+        stopEditing()
+        aiKeys = false
+        vm.showOnDisplay()
     }
 
     /**
@@ -206,7 +230,7 @@ fun CalculatorScreen(
      */
     fun tapDisplay() {
         when {
-            !onDisplay -> startEditing(if (evaluated && !isArithmetic(expr)) "" else expr)
+            !onDisplay -> startEditing(taskDraft.ifEmpty { if (evaluated && !isArithmetic(expr)) "" else expr })
             solving -> Unit
             error != null -> startEditing(vm.retryText.orEmpty(), asFollowUp = vm.retryIsFollowUp && solution != null)
             else -> startEditing(followUpDraft, asFollowUp = true)
@@ -223,38 +247,37 @@ fun CalculatorScreen(
     }
 
     fun clear() {
-        vm.hideFromDisplay()
+        leaveAi()
+        if (onDisplay) return
         expr = ""
         evaluated = false
     }
 
     fun equals() {
-        // Ответ ИИ на дисплее уже и есть результат.
-        if (onDisplay) return
-        val text = expr.trim()
+        val text = (if (editing) field.text else expr).trim()
+        if (!editing) leaveAi()
         if (text.isEmpty()) return
         if (editing && followUp) {
             // Дополнение уходит ИИ целиком, даже если похоже на выражение: «а если 2+3?».
             followUp = false
             followUpDraft = ""
-            stopEditing()
+            stopEditing(saveDraft = false)
             vm.askFollowUp(text)
-            expr = ""
             return
         }
         if (isArithmetic(text)) {
-            stopEditing()
+            stopEditing(saveDraft = false)
             expr = try {
                 ExpressionParser.format(ExpressionParser.evaluate(text))
             } catch (e: Exception) {
                 "Ошибка"
             }
             evaluated = true
-        } else if (!evaluated) {
+        } else if (editing || !evaluated) {
             // «Ошибка» и «Не число» — результаты, а не задачи: их ИИ не отправляем.
-            stopEditing()
+            stopEditing(saveDraft = false)
             vm.solveText(text)
-            expr = ""
+            taskDraft = ""
         }
     }
 
@@ -268,6 +291,13 @@ fun CalculatorScreen(
             aiKeys = false
             editing = false
             followUp = false
+        }
+    }
+    // Возврат с экрана шага заново создаёт композицию, но не меняет задачу и её черновик.
+    LaunchedEffect(solution?.id) {
+        if (draftSolutionId != solution?.id) {
+            followUpDraft = ""
+            draftSolutionId = solution?.id
         }
     }
     // «Изменить условие» и «Дополнить» на экране решения: строка ввода открывается с условием или пустой.
@@ -305,15 +335,31 @@ fun CalculatorScreen(
             horizontalAlignment = Alignment.End,
         ) {
             // Помощник скрыт: на экране только калькулятор и неприметный значок в углу.
-            IconButton(onClick = {
-                stopEditing()
-                aiKeys = !aiKeys
-            }) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(48.dp).clip(CircleShape).combinedClickable(
+                    role = Role.Button,
+                    onLongClickLabel = "Вернуться к ответу",
+                    onLongClick = ::restoreAssistant,
+                    onClick = {
+                        stopEditing()
+                        aiKeys = !aiKeys
+                    },
+                ),
+            ) {
                 Icon(
                     if (aiKeys) Icons.Outlined.Calculate else Icons.Outlined.AutoAwesome,
                     contentDescription = if (aiKeys) "К калькулятору" else "ИИ-помощник",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                 )
+                if (display.unread) {
+                    Box(
+                        Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp)
+                            .size(5.dp).background(
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.7f), CircleShape,
+                            ),
+                    )
+                }
             }
             // Нажатие в любом месте дисплея — без ряби: калькулятор не должен выдавать, что строка «живая».
             // Пока строка уже с клавиатурой, нажатия мимо неё ничего не сбрасывают.
@@ -324,7 +370,7 @@ fun CalculatorScreen(
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                        enabled = !editing && !solving,
+                        enabled = !editing && !(onDisplay && solving),
                         onClick = ::tapDisplay,
                     ),
                 verticalArrangement = Arrangement.Bottom,
@@ -353,8 +399,6 @@ fun CalculatorScreen(
                             placeholder = if (followUp) "Уточните или спросите ещё" else "Напишите задачу",
                         ) {
                             field = it
-                            expr = it.text
-                            evaluated = false
                         }
                     }
 
@@ -417,7 +461,7 @@ fun CalculatorScreen(
                         Column(
                             modifier = Modifier
                                 .weight(1f, fill = false)
-                                .verticalScroll(rememberScrollState()),
+                                .verticalScroll(answerScroll),
                         ) {
                             val size = answerFontSize(MathMarkup.plain(s.latestAnswer).length)
                             MathText(
@@ -480,22 +524,22 @@ fun CalculatorScreen(
                 }
                 return
             }
-            val step = stepIndex(digit).takeIf { it < steps.size }
+            val step = stepIndex(digit).takeIf { answerVisible && it < steps.size }
             CalcKey(
                 digit.toString(),
                 numberColor,
-                marked = onDisplay && step != null,
-                onLongClick = step?.let { { openedStep = it } },
+                marked = step != null,
+                onLongClick = step?.let { { onOpenStep(it) } },
             ) { input(digit.toString()) }
         }
 
         when {
             // Над системной клавиатурой — только «назад» и «=»: цифры и так на ней.
             editing -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                CalcKey(numberColor, onClick = ::stopEditing) {
+                CalcKey(numberColor, onClick = { stopEditing() }) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Убрать клавиатуру")
                 }
-                CalcKey(accentColor, weight = 3f, enabled = expr.isNotBlank(), onClick = ::equals) {
+                CalcKey(accentColor, weight = 3f, enabled = field.text.isNotBlank(), onClick = ::equals) {
                     Text("=", fontSize = 26.sp, color = MaterialTheme.colorScheme.onPrimary)
                 }
             }
@@ -542,22 +586,11 @@ fun CalculatorScreen(
                         "=",
                         accentColor,
                         MaterialTheme.colorScheme.onPrimary,
-                        onLongClick = if (solution != null) onOpenSolution else null,
+                        onLongClick = if (answerVisible) onOpenSolution else null,
                     ) { equals() }
                 }
             }
         }
-    }
-
-    val s = solution
-    val index = openedStep
-    if (s != null && index != null && index in s.latestSteps.indices) {
-        StepDialog(
-            solution = s,
-            index = index,
-            onIndexChange = { openedStep = it },
-            onDismiss = { openedStep = null },
-        )
     }
 }
 
@@ -611,8 +644,9 @@ private fun InputField(value: TextFieldValue, placeholder: String, onValueChange
                 if (value.text.isEmpty()) {
                     Text(
                         placeholder,
-                        fontSize = size,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                        fontSize = 20.sp,
+                        lineHeight = 26.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
                         textAlign = TextAlign.End,
                         modifier = Modifier.fillMaxWidth(),
                     )

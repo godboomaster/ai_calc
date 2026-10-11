@@ -101,8 +101,8 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
      * Показывает ли калькулятор на дисплее работу ИИ (ход решения, ответ или ошибку) вместо своих
      * вычислений. Любое нажатие клавиши калькулятора возвращает его к обычному счёту.
      */
-    private val _onDisplay = MutableStateFlow(false)
-    val onDisplay: StateFlow<Boolean> = _onDisplay
+    private val assistantDisplay = AssistantDisplay()
+    internal val display = assistantDisplay.state
 
     /**
      * Растёт, когда на дисплей выводится новая задача (отправлена или открыта из истории): калькулятор
@@ -170,13 +170,15 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
         armedTemplate.value ?: base?.templateId?.let { id -> templates.value.firstOrNull { it.id == id } }
 
     fun hideFromDisplay() {
-        _onDisplay.value = false
+        assistantDisplay.hide()
     }
 
     /** Передумали дописывать дополнение — на дисплей возвращается прежний ответ (или ошибка). */
     fun showOnDisplay() {
-        if (_current.value != null || _error.value != null) _onDisplay.value = true
+        if (_solving.value || _current.value != null || _error.value != null) assistantDisplay.show()
     }
+
+    fun markViewed() { assistantDisplay.markViewed() }
 
     private fun StepPayload.toStep() = SolutionStep(title, content, plot, svg)
 
@@ -233,7 +235,7 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
         retryText = retry
         retryIsFollowUp = followUp
         _solving.value = true
-        _onDisplay.value = true
+        assistantDisplay.start()
         _shown.value++
         job = viewModelScope.launch {
             try {
@@ -256,8 +258,8 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
                 // Отменённое решение уже заменено новым — его состояние не трогаем.
                 if (isActive) {
                     _solving.value = false
-                    // Ответ (или ошибка) возвращается на дисплей, даже если пока ждали, считали на калькуляторе.
-                    _onDisplay.value = true
+                    // Экран не перехватываем; до просмотра результата остаётся только метка на ✦.
+                    assistantDisplay.complete()
                 }
             }
         }
@@ -268,7 +270,7 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
         _solving.value = false
         _current.value = solution
         _error.value = null
-        _onDisplay.value = true
+        assistantDisplay.start()
         _shown.value++
     }
 

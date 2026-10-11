@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -27,6 +28,8 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
@@ -279,19 +282,31 @@ private fun MathBlock(latex: String, fontSize: TextUnit, color: Color, alignment
         Text(MathMarkup.toPlain(latex), fontSize = fontSize, color = color, modifier = Modifier.fillMaxWidth())
         return
     }
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        contentAlignment = when (alignment) {
-            // Формула отдельной строкой — по центру, как в учебнике; на дисплее калькулятора — справа.
-            Alignment.End -> Alignment.CenterEnd
-            else -> Alignment.Center
-        },
-    ) {
-        Box(Modifier.horizontalScroll(rememberScrollState())) {
-            with(density) {
-                FormulaCanvas(formula, Modifier.size(formula.width.toDp(), formula.height.toDp()))
+    val scroll = rememberScrollState()
+    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = when (alignment) {
+                // Формула отдельной строкой — по центру, как в учебнике; на дисплее калькулятора — справа.
+                Alignment.End -> Alignment.CenterEnd
+                else -> Alignment.Center
+            },
+        ) {
+            Box(Modifier.horizontalScroll(scroll)) {
+                with(density) {
+                    FormulaCanvas(formula, Modifier.size(formula.width.toDp(), formula.height.toDp()))
+                }
+            }
+        }
+        if (scroll.maxValue > 0) {
+            Row(
+                modifier = Modifier.fillMaxWidth().semantics {
+                    contentDescription = "Формула прокручивается по горизонтали"
+                },
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(if (scroll.canScrollBackward) "‹" else "", fontSize = 16.sp, color = color.copy(alpha = 0.5f))
+                Text(if (scroll.canScrollForward) "›" else "", fontSize = 16.sp, color = color.copy(alpha = 0.5f))
             }
         }
     }
