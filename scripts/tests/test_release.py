@@ -133,12 +133,19 @@ class ReleaseTests(unittest.TestCase):
                     self.assertNotIn('LOCAL_RELEASE_STORE_PASSWORD', env)
                     self.assertNotIn('LOCAL_RELEASE_KEY_PASSWORD', env)
 
-    def publisher(self, *, published=False, remote_sha=None, upload_error=False, api_error=False, absent=False, annotated=False, foreign=False, versions=()):
+    def publisher(self, *, published=False, remote_sha=None, upload_error=False, api_error=False, absent=False, annotated=False, foreign=False, versions=(), branch='main', main_sha=SHA):
         # GitHub is an external side-effect boundary; record the real publisher's commands.
         calls = []
         class FakeRunner:
             def run(inner, args, **kwargs):
                 calls.append(args)
+                if args == ['git', 'branch', '--show-current']:
+                    return subprocess.CompletedProcess(args, 0, branch + '\n', '')
+                if args == ['git', 'rev-parse', 'HEAD']:
+                    return subprocess.CompletedProcess(args, 0, SHA + '\n', '')
+                if args == ['git', 'ls-remote', '--heads', 'origin', 'refs/heads/main']:
+                    return subprocess.CompletedProcess(args, 0, '' if main_sha is None else
+                        main_sha + '\trefs/heads/main\n', '')
                 if args[:3] == ['git', 'ls-remote', '--tags']:
                     return subprocess.CompletedProcess(args, 0, '' if remote_sha is None else
                         ('d'*40 + '\trefs/tags/v1.1.0\n' + remote_sha + '\trefs/tags/v1.1.0^{}\n'
@@ -157,6 +164,21 @@ class ReleaseTests(unittest.TestCase):
                     raise self.release.ReleaseError('upload interrupted')
                 return subprocess.CompletedProcess(args, 0, '', '')
         return FakeRunner(), calls
+
+    def test_publish_requires_main_at_pushed_commit(self):
+        for options in [{'branch': 'codex/feature'}, {'branch': ''},
+                        {'main_sha': 'f'*40}, {'main_sha': None}]:
+            with self.subTest(options=options):
+                runner, calls = self.publisher(absent=True, **options)
+                with self.assertRaises(self.release.ReleaseError):
+                    self.release.publish(runner, 'owner/project', 'v1.1.0', SHA, Path('out/Calculator.apk'))
+                self.assertFalse(any(c[:2] == ['git', 'push'] or c[:2] == ['gh', 'release'] for c in calls))
+
+    def test_publish_rejects_checkout_changed_during_build(self):
+        runner, calls = self.publisher(absent=True)
+        with self.assertRaises(self.release.ReleaseError):
+            self.release.publish(runner, 'owner/project', 'v1.1.0', 'e'*40, Path('out/Calculator.apk'))
+        self.assertFalse(any(c[:2] == ['git', 'push'] or c[:2] == ['gh', 'release'] for c in calls))
 
     def test_new_release_pushes_exact_commit_and_uploads_before_publishing(self):
         runner, calls = self.publisher(absent=True)

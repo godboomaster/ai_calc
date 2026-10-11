@@ -69,6 +69,16 @@ def clean_head(runner):
     return runner.run(['git', 'rev-parse', 'HEAD']).stdout.strip()
 
 
+def require_pushed_main(runner, head):
+    if runner.run(['git', 'branch', '--show-current']).stdout.strip() != 'main':
+        raise ReleaseError('Releases are allowed only from the main branch')
+    if runner.run(['git', 'rev-parse', 'HEAD']).stdout.strip() != head:
+        raise ReleaseError('HEAD changed during the release; start again from main')
+    remote = runner.run(['git', 'ls-remote', '--heads', 'origin', 'refs/heads/main']).stdout.split()
+    if remote != [head, 'refs/heads/main']:
+        raise ReleaseError('HEAD must match origin/main; integrate and push main before releasing')
+
+
 def archive_source(runner, head, dest):
     data = runner.run(['git', 'archive', '--format=tar', head], binary=True).stdout
     with tarfile.open(fileobj=io.BytesIO(data)) as archive:
@@ -146,6 +156,7 @@ def check_target(runner, repo, tag, head):
 
 def publish(runner, repo, tag, head, apk):
     # Recheck after the build. Never overwrite another commit's tag or published release.
+    require_pushed_main(runner, head)
     remote, state = check_target(runner, repo, tag, head)
     if remote is None:
         runner.run(['git', 'push', 'origin', f'{head}:refs/tags/{tag}'])
@@ -155,6 +166,7 @@ def publish(runner, repo, tag, head, apk):
     runner.run(['gh', 'release', 'upload', tag, str(apk), str(apk.with_suffix('.apk.sha256')),
                 '--repo', repo, '--clobber'])
     # An upload failure raises above, leaving the draft unpublished for a later retry.
+    require_pushed_main(runner, head)
     runner.run(['gh', 'release', 'edit', tag, '--repo', repo, '--draft=false'])
 
 
@@ -246,6 +258,7 @@ def main(argv=None):
         build_and_sign(runner, root, output, args.version, config, args.offline)
         return 0
     head = clean_head(runner)
+    require_pushed_main(runner, head)
     repo = github_repo(runner.run(['git', 'remote', 'get-url', 'origin']).stdout)
     tag = 'v' + args.version
     local = runner.run(['git', 'rev-parse', '--verify', f'refs/tags/{tag}^{{commit}}'], check=False)
