@@ -41,10 +41,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -70,6 +72,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.File
 import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 @Composable
 fun CameraScreen(
@@ -104,23 +107,41 @@ fun CameraScreen(
             .build()
     }
     var camera by remember { mutableStateOf<Camera?>(null) }
+    var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+    var cameraError by remember { mutableStateOf<String?>(null) }
+    var cameraAttempt by remember { mutableIntStateOf(0) }
     var flashOn by remember { mutableStateOf(false) }
     // Пока фото снимается и сжимается, второй снимок не нужен.
     var busy by remember { mutableStateOf(false) }
 
-    LaunchedEffect(hasPermission) {
+    DisposableEffect(lifecycleOwner) {
+        onDispose { cameraProvider?.unbindAll() }
+    }
+
+    LaunchedEffect(hasPermission, lifecycleOwner, cameraAttempt) {
+        camera = null
+        cameraError = null
         if (!hasPermission) return@LaunchedEffect
-        val provider = context.getCameraProvider()
-        val preview = Preview.Builder().build().also {
-            it.setSurfaceProvider(previewView.surfaceProvider)
+        val result = initializeCamera {
+            val provider = context.getCameraProvider()
+            cameraProvider = provider
+            val selector = when (preferredCamera(
+                provider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA),
+                provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA),
+            )) {
+                CameraFacing.BACK -> CameraSelector.DEFAULT_BACK_CAMERA
+                CameraFacing.FRONT -> CameraSelector.DEFAULT_FRONT_CAMERA
+                null -> throw IllegalStateException("No available camera")
+            }
+            val preview = Preview.Builder().build().also {
+                it.setSurfaceProvider(previewView.surfaceProvider)
+            }
+            provider.unbindAll()
+            provider.bindToLifecycle(lifecycleOwner, selector, preview, imageCapture)
         }
-        provider.unbindAll()
-        camera = provider.bindToLifecycle(
-            lifecycleOwner,
-            CameraSelector.DEFAULT_BACK_CAMERA,
-            preview,
-            imageCapture,
-        )
+        result.onSuccess { camera = it }.onFailure {
+            cameraError = "Камера недоступна. Выберите фото из галереи или попробуйте ещё раз."
+        }
     }
 
     /** Решение идёт в фоне, а ответ появится на дисплее калькулятора. */
@@ -146,7 +167,7 @@ fun CameraScreen(
     }
 
     fun capture() {
-        if (busy) return
+        if (busy || camera == null) return
         busy = true
         val file = File(context.cacheDir, "capture_${System.currentTimeMillis()}.jpg")
         val options = ImageCapture.OutputFileOptions.Builder(file).build()
@@ -175,12 +196,12 @@ fun CameraScreen(
         )
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        if (hasPermission) {
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        if (hasPermission && cameraError == null) {
             AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
             ScanFrameOverlay(Modifier.align(Alignment.Center))
             Text(
-                "Наведите камеру на задачу",
+                if (camera == null) "Подключение камеры…" else "Наведите камеру на задачу",
                 color = Color.White,
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier
@@ -197,11 +218,13 @@ fun CameraScreen(
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text("Для сканирования задач нужен доступ к камере")
+                Text(cameraError ?: "Для сканирования задач нужен доступ к камере", color = Color.White)
                 Button(
-                    onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) },
+                    onClick = {
+                        if (hasPermission) cameraAttempt++ else permissionLauncher.launch(Manifest.permission.CAMERA)
+                    },
                     modifier = Modifier.padding(top = 16.dp),
-                ) { Text("Разрешить") }
+                ) { Text(if (hasPermission) "Повторить" else "Разрешить") }
             }
         }
 
@@ -232,7 +255,7 @@ fun CameraScreen(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = {
+                IconButton(enabled = !busy && camera?.cameraInfo?.hasFlashUnit() == true, onClick = {
                     flashOn = !flashOn
                     imageCapture.flashMode =
                         if (flashOn) ImageCapture.FLASH_MODE_ON else ImageCapture.FLASH_MODE_OFF
@@ -282,7 +305,7 @@ fun CameraScreen(
                     .padding(6.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                IconButton(onClick = { capture() }, enabled = !busy, modifier = Modifier.fillMaxSize()) {
+                IconButton(onClick = { capture() }, enabled = !busy && camera != null, modifier = Modifier.fillMaxSize()) {
                     if (busy) {
                         CircularProgressIndicator()
                     } else {
@@ -382,7 +405,12 @@ private suspend fun Context.getCameraProvider(): ProcessCameraProvider =
     suspendCancellableCoroutine { cont ->
         val future = ProcessCameraProvider.getInstance(this)
         future.addListener(
-            { cont.resume(future.get()) },
+            {
+                if (cont.isActive) {
+                    try { cont.resume(future.get()) }
+                    catch (error: Exception) { cont.resumeWithException(error.cause ?: error) }
+                }
+            },
             ContextCompat.getMainExecutor(this),
         )
     }
