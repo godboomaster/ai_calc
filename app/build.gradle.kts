@@ -5,21 +5,46 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+// Stable tags map to increasing Android version codes, independently of CI run numbers.
+val appVersion = providers.gradleProperty("appVersion").get()
+require(Regex("""(0|[1-9]\d{0,3})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})""").matches(appVersion)) {
+    "appVersion must be MAJOR.MINOR.PATCH without leading zeros or prerelease suffixes"
+}
+val (major, minor, patch) = appVersion.split('.').map(String::toInt)
+val appVersionCode = major * 1_000_000 + minor * 1_000 + patch
+require(major <= 2099 && appVersionCode > 0) { "appVersion is outside Android's versionCode range" }
+val signingFile = providers.environmentVariable("ANDROID_KEYSTORE_PATH").orNull
+fun signingValue(name: String): String = providers.environmentVariable(name).orNull
+    ?.takeIf { it.isNotBlank() } ?: error("Missing signing environment variable: $name")
+
 android {
     namespace = "com.smartcalc.app"
     compileSdk = 35
+    buildToolsVersion = "35.0.0"
 
     defaultConfig {
         applicationId = "com.smartcalc.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = appVersionCode
+        versionName = appVersion
+    }
+
+    signingConfigs {
+        if (signingFile != null) {
+            create("distribution") {
+                storeFile = file(signingFile)
+                storePassword = signingValue("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = signingValue("ANDROID_KEY_ALIAS")
+                keyPassword = signingValue("ANDROID_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (signingFile != null) signingConfig = signingConfigs.getByName("distribution")
         }
     }
 

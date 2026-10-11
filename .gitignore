@@ -16,9 +16,8 @@
 # Локальный путь к Android SDK — у каждого свой
 /local.properties
 
-# Готовые сборки и ключи подписи не храним в репозитории — кроме APK для скачивания в apk/
+# Готовые сборки публикуются в GitHub Releases; ключи подписи остаются вне Git.
 *.apk
-!/apk/SmartCalc.apk
 *.aab
 *.jks
 *.keystore
