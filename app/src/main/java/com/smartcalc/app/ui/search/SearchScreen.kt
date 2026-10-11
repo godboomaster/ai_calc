@@ -36,6 +36,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -56,7 +57,9 @@ import com.smartcalc.app.data.search.SearchHit
 import com.smartcalc.app.data.search.TaskSearch
 import com.smartcalc.app.ui.math.MathText
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -83,9 +86,13 @@ fun SearchScreen(
     var query by rememberSaveable { mutableStateOf(initialQuery) }
     var type by rememberSaveable { mutableStateOf<String?>(null) }
     var hits by remember { mutableStateOf<List<SearchHit>?>(null) }
+    var openError by rememberSaveable { mutableStateOf<String?>(null) }
+    // The scope is cancelled with this composition, so its in-flight marker must have the same life.
+    var openingKey by remember { mutableStateOf<String?>(null) }
     val types = remember(entries) { entries.orEmpty().mapNotNull { it.type }.distinct() }
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = remember { FocusRequester() }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(entries, query, type) {
         val all = entries ?: return@LaunchedEffect
@@ -146,6 +153,14 @@ fun SearchScreen(
                 }
             }
         }
+        openError?.let { message ->
+            Text(
+                message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
         val found = hits
         when {
             found == null -> Unit
@@ -170,10 +185,22 @@ fun SearchScreen(
                     }
                 }
                 items(found, key = { it.entry.key }) { hit ->
-                    HitCard(hit) {
+                    HitCard(hit, enabled = openingKey == null) {
                         keyboard?.hide()
-                        vm.openFound(hit.entry)
-                        onOpenSolution()
+                        openError = null
+                        openingKey = hit.entry.key
+                        scope.launch {
+                            try {
+                                vm.openFound(hit.entry)
+                                onOpenSolution()
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                openError = "Не удалось сохранить задачу. Проверьте, что фотографии доступны, и попробуйте ещё раз."
+                            } finally {
+                                openingKey = null
+                            }
+                        }
                     }
                 }
             }
@@ -202,7 +229,7 @@ private fun EmptyBase(onOpenLibrary: () -> Unit) {
 
 /** Найденная задача: откуда и какого типа, условие, ответ и что из запроса совпало. */
 @Composable
-private fun HitCard(hit: SearchHit, onClick: () -> Unit) {
+private fun HitCard(hit: SearchHit, enabled: Boolean, onClick: () -> Unit) {
     val e = hit.entry
     val answer = remember(e) { FoundSolution.of(e).latestAnswer }
     Column(
@@ -210,7 +237,7 @@ private fun HitCard(hit: SearchHit, onClick: () -> Unit) {
             .fillMaxWidth()
             .clip(RoundedCornerShape(24.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         Text(

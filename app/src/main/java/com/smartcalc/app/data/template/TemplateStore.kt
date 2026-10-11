@@ -272,37 +272,37 @@ class TemplateStore(private val root: File) {
     suspend fun attach(templateId: String, examples: List<TemplateExample>): Int = withContext(Dispatchers.IO) {
         mutex.withLock {
             val template = _items.value.firstOrNull { it.id == templateId } ?: return@withLock 0
-            val known = template.examples.mapTo(mutableSetOf()) { it.sameTaskKey() }
+            val references = examples.flatMap { it.conditionImages + it.solutionImages }
+            references.forEach { path ->
+                require(File(path).isFile) { "Referenced image does not exist: $path" }
+            }
+            val known = template.examples.mapTo(mutableSetOf(), ExampleFingerprint::key)
             val created = mutableListOf<File>()
-            fun copy(paths: List<String>) = paths.mapNotNull { path ->
-                File(path).takeIf { it.exists() }?.let { source ->
-                    File(imagesDir, "${UUID.randomUUID()}.jpg").also { source.copyTo(it); created += it }.absolutePath
+            val copies = mutableMapOf<File, String>()
+            fun copy(paths: List<String>) = paths.map { path ->
+                val source = File(path).canonicalFile
+                copies.getOrPut(source) {
+                    File(imagesDir, "${UUID.randomUUID()}.jpg").also { target ->
+                        created += target
+                        writeImage(target, source.readBytes())
+                    }.absolutePath
                 }
             }
-            val added = try {
-                examples.filter { !it.isEmpty && known.add(it.sameTaskKey()) }.map {
+            try {
+                val added = examples.filter { !it.isEmpty && known.add(ExampleFingerprint.key(it)) }.map {
                     it.copy(conditionImages = copy(it.conditionImages), solutionImages = copy(it.solutionImages))
                 }
-            } catch (e: Exception) {
+                if (added.isEmpty()) return@withLock 0
+                val changed = template.copy(examples = template.examples + added, updated = System.currentTimeMillis())
+                val updated = listOf(changed) + _items.value.filterNot { it.id == templateId }
+                publish(updated, created)
+                added.size
+            } catch (error: Exception) {
                 created.forEach { it.delete() }
-                throw e
+                throw error
             }
-            if (added.isEmpty()) return@withLock 0
-            val changed = template.copy(examples = template.examples + added, updated = System.currentTimeMillis())
-            val updated = listOf(changed) + _items.value.filterNot { it.id == templateId }
-            file.writeText(json.encodeToString(updated))
-            _items.value = updated
-            added.size
         }
     }
-
-    /** Одна и та же задача: тот же текст и фото того же размера (у копии фото другое имя файла). */
-    private fun TemplateExample.sameTaskKey() = listOf(
-        condition.trim(),
-        solution.trim(),
-        conditionImages.map { File(it).length() },
-        solutionImages.map { File(it).length() },
-    ).toString()
 
     private fun bundleOf(text: String): TemplateBundle {
         val bundle = json.decodeFromString<TemplateBundle>(text).takeIf { it.format == BUNDLE_FORMAT }

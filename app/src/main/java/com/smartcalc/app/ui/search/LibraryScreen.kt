@@ -56,6 +56,7 @@ import com.smartcalc.app.data.template.TaskTemplate
 import com.smartcalc.app.data.template.TemplateExample
 import com.smartcalc.app.data.template.TemplateKind
 import com.smartcalc.app.ui.template.rememberTemplateTransfer
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /** Что прикрепить к шаблону, пока открыто окно выбора: загружаемый файл или раздел базы. */
@@ -87,16 +88,28 @@ fun LibraryScreen(
 
     suspend fun attach(templateId: String, examples: List<TemplateExample>) {
         val name = vm.templates.value.firstOrNull { it.id == templateId }?.name ?: return
-        val added = vm.attachToTemplate(templateId, examples)
-        val text = if (added == 0) "Эти задачи уже есть в шаблоне «$name»"
-            else "Прикреплено к шаблону «$name»: $added ${tasksWord(added)}"
-        Toast.makeText(context, text, Toast.LENGTH_LONG).show()
+        try {
+            val added = vm.attachToTemplate(templateId, examples)
+            val text = if (added == 0) "Эти задачи уже есть в шаблоне «$name»"
+                else "Прикреплено к шаблону «$name»: $added ${tasksWord(added)}"
+            Toast.makeText(context, text, Toast.LENGTH_LONG).show()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            Toast.makeText(
+                context,
+                "Не удалось прикрепить задачи к шаблону. Задачи остались в базе. " +
+                    "Проверьте, что фотографии доступны, и попробуйте ещё раз.",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
     }
 
     val transfer = rememberTemplateTransfer(vm, TemplateKind.LIBRARY) { result ->
         val target = importInto ?: return@rememberTemplateTransfer
         importInto = null
-        attach(target, result.items.flatMap { it.examples })
+        // Attach in this screen's scope so cancellation is not consumed by the transfer import catch.
+        scope.launch { attach(target, result.items.flatMap { it.examples }) }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {

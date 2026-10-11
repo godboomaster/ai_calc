@@ -92,9 +92,26 @@ class HistoryStore internal constructor(private val filesDir: File) {
         emptyList()
     }
 
-    suspend fun add(solution: Solution) = withContext(Dispatchers.IO) {
+    /**
+     * Publishes [solution] after copying every external image into history storage. The returned
+     * value is the exact snapshot that was persisted and is therefore safe to display.
+     */
+    suspend fun add(solution: Solution): Solution = withContext(Dispatchers.IO) {
         mutex.withLock {
-            upsert(solution)
+            // Found solutions have stable IDs. A second opener must see the history-owned snapshot,
+            // including any follow-ups added since the first open.
+            if (solution.source != null) {
+                _items.value.firstOrNull { it.id == solution.id }?.let { return@withLock it }
+            }
+            val created = mutableListOf<File>()
+            try {
+                val saved = localizeImages(solution, created)
+                upsert(saved)
+                saved
+            } catch (error: Exception) {
+                created.forEach { it.delete() }
+                throw error
+            }
         }
     }
 
@@ -109,11 +126,11 @@ class HistoryStore internal constructor(private val filesDir: File) {
 
     suspend fun delete(id: String) = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val imagePath = _items.value.firstOrNull { it.id == id }?.imagePath
+            val removedImages = _items.value.firstOrNull { it.id == id }?.let(::imagesOf).orEmpty()
             val updated = _items.value.filterNot { it.id == id }
             writeAtomically(updated)
             _items.value = updated
-            imagePath?.let(::ownedImage)?.delete()
+            cleanupImages(removedImages, updated)
         }
     }
 
@@ -129,17 +146,60 @@ class HistoryStore internal constructor(private val filesDir: File) {
     suspend fun removeImageIfUnreferenced(path: String) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val image = ownedImage(path) ?: return@withLock
-            val referenced = _items.value.any { solution ->
-                solution.imagePath?.let { runCatching { File(it).canonicalFile == image }.getOrDefault(false) } == true
+            val referenced = _items.value.asSequence().flatMap { imagesOf(it).asSequence() }.any {
+                runCatching { File(it).canonicalFile == image }.getOrDefault(false)
             }
             if (!referenced) image.delete()
         }
     }
 
     private fun upsert(solution: Solution) {
+        val replacedImages = _items.value.firstOrNull { it.id == solution.id }?.let(::imagesOf).orEmpty()
         val updated = listOf(solution) + _items.value.filterNot { it.id == solution.id }
         writeAtomically(updated)
         _items.value = updated
+        cleanupImages(replacedImages, updated)
+    }
+
+    /** External references are copied once per canonical source path; history-owned files are reused. */
+    private fun localizeImages(solution: Solution, created: MutableList<File>): Solution {
+        val localized = mutableMapOf<File, String>()
+        fun localize(path: String): String {
+            val source = File(path).canonicalFile
+            require(source.isFile) { "Referenced image does not exist: $path" }
+            ownedImage(source.absolutePath)?.let { return it.absolutePath }
+            return localized.getOrPut(source) {
+                val target = File(imagesDir, "${UUID.randomUUID()}.jpg")
+                created += target
+                writeAtomically(target, File(imagesDir, "${target.name}.tmp"), source.readBytes())
+                target.absolutePath
+            }
+        }
+        fun steps(items: List<SolutionStep>) = items.map { step ->
+            step.copy(images = step.images.map(::localize))
+        }
+        return solution.copy(
+            imagePath = solution.imagePath?.let(::localize),
+            steps = steps(solution.steps),
+            followUps = solution.followUps.map { followUp -> followUp.copy(steps = steps(followUp.steps)) },
+        )
+    }
+
+    private fun imagesOf(solution: Solution): Set<String> = buildSet {
+        solution.imagePath?.let(::add)
+        solution.steps.forEach { addAll(it.images) }
+        solution.followUps.forEach { followUp -> followUp.steps.forEach { addAll(it.images) } }
+    }
+
+    /** Metadata is already durable when cleanup begins, so cleanup errors must not roll it back. */
+    private fun cleanupImages(candidates: Collection<String>, updated: List<Solution>) {
+        runCatching {
+            val referenced = updated.asSequence()
+                .flatMap { imagesOf(it).asSequence() }
+                .mapNotNull(::ownedImage)
+                .toSet()
+            candidates.mapNotNull(::ownedImage).distinct().filter { it !in referenced }.forEach { it.delete() }
+        }
     }
 
     private fun writeAtomically(updated: List<Solution>) {

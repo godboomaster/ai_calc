@@ -5,6 +5,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -132,6 +134,8 @@ class SessionStoreTest {
             store.flush()
 
             assertNotEquals(firstBytes.toList(), file.readBytes().toList())
+            // A queued background save may still own its temporary file after flush returns.
+            scope.coroutineContext[Job]!!.cancelAndJoin()
             assertEquals(listOf("session.json"), directory.list()?.sorted())
 
             val readScope = testScope()

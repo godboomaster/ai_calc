@@ -29,6 +29,80 @@ class HistoryStoreTest {
     }
 
     @Test
+    fun addLocalizesEveryImageAndDeduplicatesRepeatedReferences() = runBlocking {
+        val directory = temporaryFolder.newFolder("localize-all")
+        val sources = temporaryFolder.newFolder("library-images")
+        val condition = File(sources, "condition.jpg").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        val step = File(sources, "step.jpg").apply { writeBytes(byteArrayOf(4, 5, 6)) }
+        val followUp = File(sources, "follow-up.jpg").apply { writeBytes(byteArrayOf(7, 8, 9)) }
+        val store = HistoryStore(directory)
+        val original = solution("found", "answer").copy(
+            imagePath = condition.absolutePath,
+            source = "База · Геометрия",
+            steps = listOf(SolutionStep("step", "details", images = listOf(condition.absolutePath, step.absolutePath))),
+            followUps = listOf(
+                FollowUp(
+                    "why?",
+                    "because",
+                    steps = listOf(SolutionStep("follow-up", "details", images = listOf(step.absolutePath, followUp.absolutePath))),
+                    timestamp = 20L,
+                ),
+            ),
+        )
+
+        store.add(original)
+
+        val saved = store.items.value.single()
+        val localized = listOfNotNull(saved.imagePath) + saved.steps.flatMap { it.images } +
+            saved.followUps.flatMap { item -> item.steps.flatMap { it.images } }
+        val ownedDirectory = File(directory, "images").canonicalFile
+        assertTrue(localized.all { File(it).canonicalFile.parentFile == ownedDirectory })
+        assertEquals("Repeated source paths must reuse one history-owned copy", 3, localized.distinct().size)
+        assertArrayEquals(condition.readBytes(), File(saved.imagePath!!).readBytes())
+        assertArrayEquals(step.readBytes(), File(saved.steps.single().images.last()).readBytes())
+        assertArrayEquals(followUp.readBytes(), File(saved.followUps.single().steps.single().images.last()).readBytes())
+        assertTrue("Opening a found solution must not consume the library image", condition.exists())
+        assertTrue(step.exists())
+        assertTrue(followUp.exists())
+    }
+
+    @Test
+    fun addWithMissingImageFailsWithoutPublishingOrLeavingCopies() = runBlocking {
+        val directory = temporaryFolder.newFolder("missing-source")
+        val sources = temporaryFolder.newFolder("missing-source-images")
+        val present = File(sources, "present.jpg").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        val missing = File(sources, "missing.jpg")
+        val store = HistoryStore(directory)
+        val candidate = solution("missing", "answer").copy(
+            imagePath = present.absolutePath,
+            source = "База",
+            steps = listOf(SolutionStep("step", "details", images = listOf(missing.absolutePath))),
+        )
+
+        val failure = runCatching { store.add(candidate) }.exceptionOrNull()
+
+        assertNotNull("A missing referenced image must fail the save", failure)
+        assertTrue(store.items.value.isEmpty())
+        assertTrue(File(directory, "images").listFiles().isNullOrEmpty())
+        assertTrue(present.exists())
+    }
+
+    @Test
+    fun reopeningFoundSolutionPreservesExistingFollowUps() = runBlocking {
+        val directory = temporaryFolder.newFolder("reopen-found")
+        val store = HistoryStore(directory)
+        val opened = solution("found", "answer").copy(source = "База")
+        val followedUp = opened.copy(
+            followUps = listOf(FollowUp("why?", "because", timestamp = 20L)),
+        )
+        store.add(followedUp)
+
+        store.add(opened)
+
+        assertEquals(followedUp, store.items.value.single())
+    }
+
+    @Test
     fun replayingFollowUpUpdateDoesNotDuplicateSolutionOrFollowUp() = runBlocking {
         val store = HistoryStore(temporaryFolder.newFolder("follow-up"))
         val base = solution("stable", "base answer")
@@ -90,6 +164,83 @@ class HistoryStoreTest {
 
         assertTrue("History must not delete files outside its images directory", externalImage.exists())
         assertTrue(store.items.value.isEmpty())
+    }
+
+    @Test
+    fun deleteCleansAllUnreferencedNestedImagesButPreservesSharedImages() = runBlocking {
+        val directory = temporaryFolder.newFolder("delete-nested")
+        val store = HistoryStore(directory)
+        val shared = store.saveImage(byteArrayOf(1), "123e4567-e89b-12d3-a456-426614174010")
+        val privateStep = store.saveImage(byteArrayOf(2), "123e4567-e89b-12d3-a456-426614174011")
+        val privateFollowUp = store.saveImage(byteArrayOf(3), "123e4567-e89b-12d3-a456-426614174012")
+        store.add(
+            solution("removed", "answer").copy(
+                imagePath = shared,
+                steps = listOf(SolutionStep("step", "details", images = listOf(privateStep))),
+                followUps = listOf(
+                    FollowUp(
+                        "next",
+                        "result",
+                        steps = listOf(SolutionStep("follow", "details", images = listOf(privateFollowUp))),
+                        timestamp = 20L,
+                    ),
+                ),
+            ),
+        )
+        store.add(
+            solution("survivor", "answer").copy(
+                followUps = listOf(
+                    FollowUp(
+                        "shared",
+                        "result",
+                        steps = listOf(SolutionStep("follow", "details", images = listOf(shared))),
+                        timestamp = 30L,
+                    ),
+                ),
+            ),
+        )
+
+        store.delete("removed")
+
+        assertTrue("A surviving nested reference owns the shared image", File(shared).exists())
+        assertFalse("Deleted solution step images must be cleaned", File(privateStep).exists())
+        assertFalse("Deleted solution follow-up images must be cleaned", File(privateFollowUp).exists())
+    }
+
+    @Test
+    fun updateCleansRemovedNestedImageAfterPublishingMetadata() = runBlocking {
+        val directory = temporaryFolder.newFolder("update-cleanup")
+        val store = HistoryStore(directory)
+        val removed = store.saveImage(byteArrayOf(1), "123e4567-e89b-12d3-a456-426614174013")
+        val kept = store.saveImage(byteArrayOf(2), "123e4567-e89b-12d3-a456-426614174014")
+        val original = solution("updated", "answer").copy(
+            steps = listOf(SolutionStep("step", "details", images = listOf(removed, kept))),
+        )
+        store.add(original)
+
+        store.update(original.copy(steps = listOf(SolutionStep("step", "details", images = listOf(kept)))))
+
+        assertFalse(File(removed).exists())
+        assertTrue(File(kept).exists())
+        assertEquals(listOf(kept), store.items.value.single().steps.single().images)
+        assertEquals(store.items.value, HistoryStore(directory).items.value)
+    }
+
+    @Test
+    fun failedLocalizedAddLeavesNoCopiesOrPublishedState() = runBlocking {
+        val directory = temporaryFolder.newFolder("failed-localized-add")
+        val source = temporaryFolder.newFile("localized-source.jpg").apply { writeBytes(byteArrayOf(7, 8, 9)) }
+        val store = HistoryStore(directory)
+        File(directory, "history.json.tmp").mkdir()
+
+        val failure = runCatching {
+            store.add(solution("failed", "answer").copy(imagePath = source.absolutePath, source = "База"))
+        }.exceptionOrNull()
+
+        assertNotNull(failure)
+        assertTrue(store.items.value.isEmpty())
+        assertTrue(File(directory, "images").listFiles().isNullOrEmpty())
+        assertTrue(source.exists())
     }
 
     @Test
@@ -163,6 +314,33 @@ class HistoryStoreTest {
         store.removeImageIfUnreferenced(path)
 
         assertTrue(File(path).exists())
+    }
+
+    @Test
+    fun retainsImageReferencedByStepOrFollowUp() = runBlocking {
+        val directory = temporaryFolder.newFolder("retain-nested-references")
+        val store = HistoryStore(directory)
+        val stepPath = store.saveImage(byteArrayOf(1), "123e4567-e89b-12d3-a456-426614174015")
+        val followUpPath = store.saveImage(byteArrayOf(2), "123e4567-e89b-12d3-a456-426614174016")
+        store.add(
+            solution("nested-images", "answer").copy(
+                steps = listOf(SolutionStep("step", "details", images = listOf(stepPath))),
+                followUps = listOf(
+                    FollowUp(
+                        "next",
+                        "result",
+                        steps = listOf(SolutionStep("follow", "details", images = listOf(followUpPath))),
+                        timestamp = 20L,
+                    ),
+                ),
+            ),
+        )
+
+        store.removeImageIfUnreferenced(stepPath)
+        store.removeImageIfUnreferenced(followUpPath)
+
+        assertTrue(File(stepPath).exists())
+        assertTrue(File(followUpPath).exists())
     }
 
     @Test

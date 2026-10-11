@@ -64,7 +64,8 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
         combine(libraryStore.items, templateStore.items, historyStore.items) { base, templates, solved ->
             TaskSearch.entries(base, templates, solved)
         }
-            .flowOn(Dispatchers.Default)
+            // Building fingerprints reads local example images; keep that work off the CPU pool.
+            .flowOn(Dispatchers.IO)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val sessionStore = applicationState.sessionStore
@@ -133,12 +134,13 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
      * сохраняется в историю: к ней можно задать дополнение ИИ, и она переживёт перезапуск. Открытая
      * повторно, она берётся из истории — вместе с дополнениями.
      */
-    fun openFound(entry: SearchEntry) {
+    suspend fun openFound(entry: SearchEntry) {
         entry.history?.let { return open(it) }
         val solution = FoundSolution.of(entry)
         history.value.firstOrNull { it.id == solution.id }?.let { return open(it) }
-        open(solution)
-        viewModelScope.launch { historyStore.add(solution) }
+        // HistoryStore returns the localized, durable snapshot. Do not expose external library paths
+        // or show a solution whose metadata write has failed.
+        open(historyStore.add(solution))
     }
     val settings = settingsRepo.settings.stateIn(viewModelScope, SharingStarted.Eagerly, ApiSettings())
     val swipeToRestore = settingsRepo.swipeToRestore.stateIn(viewModelScope, SharingStarted.Eagerly, false)

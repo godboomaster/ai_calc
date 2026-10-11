@@ -3,6 +3,7 @@ package com.smartcalc.app.data.template
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
 import org.junit.Assert.fail
@@ -81,6 +82,80 @@ class TemplateStoreTest {
         library.delete(library.items.value.single().id)
         assertArrayEquals(byteArrayOf(9, 9), File(attached.solutionImages.single()).readBytes())
         assertEquals(2, templates.items.value.single().examples.size)
+    }
+
+    @Test
+    fun attachTreatsSameLengthDifferentImageContentAsDifferentTask() = runBlocking {
+        val templates = store()
+        val template = templates.addSample()
+        val different = tmp.newFile("different-same-length.jpg").apply { writeBytes(byteArrayOf(9, 8, 7, 6, 5)) }
+        val candidate = TemplateExample(
+            condition = "Условие",
+            solution = "Решение",
+            solutionImages = listOf(different.absolutePath),
+        )
+
+        assertEquals(1, templates.attach(template.id, listOf(candidate)))
+
+        assertEquals(2, templates.items.value.single().examples.size)
+        assertArrayEquals(different.readBytes(), File(templates.items.value.single().examples.last().solutionImages.single()).readBytes())
+    }
+
+    @Test
+    fun attachDeduplicatesSameImageContentFromDifferentPaths() = runBlocking {
+        val templates = store()
+        val template = templates.addSample()
+        val sameContent = tmp.newFile("same-content.jpg").apply { writeBytes(photo) }
+        val candidate = TemplateExample(
+            condition = "Условие",
+            solution = "Решение",
+            solutionImages = listOf(sameContent.absolutePath),
+        )
+
+        assertEquals(0, templates.attach(template.id, listOf(candidate)))
+
+        assertEquals(1, templates.items.value.single().examples.size)
+        assertEquals(1, File(template.examples.single().solutionImages.single()).parentFile!!.listFiles()!!.size)
+    }
+
+    @Test
+    fun attachMissingReferencedImageFailsWithoutChangingTemplate() = runBlocking {
+        val root = tmp.newFolder("attach-missing")
+        val templates = TemplateStore(root)
+        val original = templates.addSample()
+        val originalJson = File(root, "templates.json").readText()
+        val originalImages = File(root, "templates").listFiles()!!.map { it.name }.sorted()
+        val missing = File(root, "does-not-exist.jpg")
+        val candidate = TemplateExample("new", listOf(missing.absolutePath), "solution")
+
+        val failure = runCatching { templates.attach(original.id, listOf(candidate)) }.exceptionOrNull()
+
+        assertNotNull("A missing attached image must fail instead of being silently dropped", failure)
+        assertEquals(listOf(original), templates.items.value)
+        assertEquals(originalJson, File(root, "templates.json").readText())
+        assertEquals(originalImages, File(root, "templates").listFiles()!!.map { it.name }.sorted())
+    }
+
+    @Test
+    fun failedAttachPublicationCleansStagedPhotosAndKeepsMemory() = runBlocking {
+        val root = tmp.newFolder("failed-attach")
+        val templates = TemplateStore(root)
+        val original = templates.addSample()
+        val originalImages = File(root, "templates").listFiles()!!.map { it.name }.sorted()
+        val metadata = File(root, "templates.json")
+        val previousMetadata = File(root, "templates.previous")
+        assertTrue(metadata.renameTo(previousMetadata))
+        assertTrue(metadata.mkdir())
+        val source = tmp.newFile("attach-source.jpg").apply { writeBytes(byteArrayOf(9, 9, 9)) }
+        val candidate = TemplateExample("new", emptyList(), "solution", listOf(source.absolutePath))
+
+        val failure = runCatching { templates.attach(original.id, listOf(candidate)) }.exceptionOrNull()
+
+        assertNotNull(failure)
+        assertEquals(listOf(original), templates.items.value)
+        assertEquals(originalImages, File(root, "templates").listFiles()!!.map { it.name }.sorted())
+        assertTrue(previousMetadata.readText().contains(original.id))
+        assertTrue(source.exists())
     }
 
     @Test
