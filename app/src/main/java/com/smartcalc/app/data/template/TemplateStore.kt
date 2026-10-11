@@ -12,8 +12,11 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.OutputStream
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.Base64
 import java.util.UUID
 import java.util.zip.ZipEntry
@@ -88,9 +91,11 @@ enum class TemplateFormat(val extension: String, val mime: String) {
 /** Шаблоны хранятся в [root]: список в templates.json, картинки в templates/. */
 class TemplateStore(private val root: File) {
 
-    private val json = Json { ignoreUnknownKeys = true }
+    // Time-dependent defaults must be written too: omitting updated changes it on every reload.
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val exportJson = Json {
         ignoreUnknownKeys = true
+        encodeDefaults = true
         prettyPrint = true
     }
     private val file get() = File(root, "templates.json")
@@ -113,33 +118,37 @@ class TemplateStore(private val root: File) {
     suspend fun save(id: String?, name: String, requirements: String, examples: List<ExampleDraft>) =
         withContext(Dispatchers.IO) {
             mutex.withLock {
-                fun store(images: List<ImageDraft>) = images.mapNotNull { img ->
-                    img.path ?: img.bytes?.let { bytes ->
-                        File(imagesDir, "${UUID.randomUUID()}.jpg").apply { writeBytes(bytes) }.absolutePath
+                val created = mutableListOf<File>()
+                try {
+                    fun store(images: List<ImageDraft>) = images.mapNotNull { img ->
+                        img.path ?: img.bytes?.let { bytes ->
+                            File(imagesDir, "${UUID.randomUUID()}.jpg").also {
+                                created += it
+                                writeImage(it, bytes)
+                            }.absolutePath
+                        }
                     }
+                    val template = TaskTemplate(
+                        id = id ?: UUID.randomUUID().toString(),
+                        name = name.trim(),
+                        requirements = requirements.trim(),
+                        examples = examples.map {
+                            TemplateExample(it.condition.trim(), store(it.conditionImages), it.solution.trim(), store(it.solutionImages))
+                        }.filterNot { it.isEmpty },
+                    )
+                    val updated = listOf(template) + _items.value.filterNot { it.id == template.id }
+                    publish(updated, created)
+                } catch (error: Exception) {
+                    created.forEach { it.delete() }
+                    throw error
                 }
-                val template = TaskTemplate(
-                    id = id ?: UUID.randomUUID().toString(),
-                    name = name.trim(),
-                    requirements = requirements.trim(),
-                    examples = examples.map {
-                        TemplateExample(it.condition.trim(), store(it.conditionImages), it.solution.trim(), store(it.solutionImages))
-                    }.filterNot { it.isEmpty },
-                )
-                val old = _items.value.firstOrNull { it.id == template.id }
-                old?.let { deleteImages(it, keep = imagesOf(template)) }
-                val updated = listOf(template) + _items.value.filterNot { it.id == template.id }
-                file.writeText(json.encodeToString(updated))
-                _items.value = updated
             }
         }
 
     suspend fun delete(id: String) = withContext(Dispatchers.IO) {
         mutex.withLock {
-            _items.value.firstOrNull { it.id == id }?.let { deleteImages(it, keep = emptySet()) }
             val updated = _items.value.filterNot { it.id == id }
-            file.writeText(json.encodeToString(updated))
-            _items.value = updated
+            publish(updated)
         }
     }
 
@@ -152,14 +161,16 @@ class TemplateStore(private val root: File) {
         out: OutputStream,
         format: TemplateFormat = TemplateFormat.ZIP,
     ): Int = withContext(Dispatchers.IO) {
-        val chosen = _items.value.filter { ids == null || it.id in ids }
-        when (format) {
-            TemplateFormat.ZIP -> exportZip(chosen, out)
-            TemplateFormat.JSON -> out.write(exportJson.encodeToString(withImages(chosen) { dataUri(it) }).toByteArray())
-            TemplateFormat.MARKDOWN -> out.write(TemplateMarkdown.write(chosen).toByteArray())
+        mutex.withLock {
+            val chosen = _items.value.filter { ids == null || it.id in ids }
+            when (format) {
+                TemplateFormat.ZIP -> exportZip(chosen, out)
+                TemplateFormat.JSON -> out.write(exportJson.encodeToString(withImages(chosen) { dataUri(it) }).toByteArray())
+                TemplateFormat.MARKDOWN -> out.write(TemplateMarkdown.write(chosen).toByteArray())
+            }
+            out.flush()
+            chosen.size
         }
-        out.flush()
-        chosen.size
     }
 
     /** Те же шаблоны, но вместо путей к фото — то, что вернёт [ref] (имя в архиве, data URI); нет файла — фото пропадает. */
@@ -230,23 +241,25 @@ class TemplateStore(private val root: File) {
                 created.forEach { it.delete() }
                 throw TemplateImportException("В файле нет шаблонов")
             }
-            // Фото, на которые не ссылается ни один пример, не нужны.
-            val used = imported.flatMap { t -> t.examples.flatMap { it.conditionImages + it.solutionImages } }.toSet()
-            created.filter { it.absolutePath !in used }.forEach { it.delete() }
-
             val unique = imported.distinctBy { it.id }
             val replaced = _items.value.filter { old -> unique.any { it.id == old.id } }
-            replaced.forEach { deleteImages(it, keep = emptySet()) }
             val updated = unique + _items.value.filterNot { old -> unique.any { it.id == old.id } }
-            file.writeText(json.encodeToString(updated))
-            _items.value = updated
+            try {
+                publish(updated, created)
+            } catch (error: Exception) {
+                created.forEach { it.delete() }
+                throw error
+            }
             ImportResult(added = unique.size - replaced.size, updated = replaced.size)
         }
     }
 
-    private fun bundleOf(text: String): TemplateBundle =
-        json.decodeFromString<TemplateBundle>(text).takeIf { it.format == BUNDLE_FORMAT }
+    private fun bundleOf(text: String): TemplateBundle {
+        val bundle = json.decodeFromString<TemplateBundle>(text).takeIf { it.format == BUNDLE_FORMAT }
             ?: throw TemplateImportException("Это не файл шаблонов SmartCalc")
+        if (bundle.version != 1) throw TemplateImportException("Эта версия файла шаблонов не поддерживается")
+        return bundle
+    }
 
     /** Фото из ссылок шаблона в свои файлы; [load] возвращает байты по ссылке или null. */
     private fun localize(
@@ -258,12 +271,13 @@ class TemplateStore(private val root: File) {
         fun local(refs: List<String>) = refs.mapNotNull { ref ->
             saved[ref] ?: load(ref)?.let { bytes ->
                 if (bytes.size > MAX_IMAGE_BYTES) throw TemplateImportException("Фото в файле шаблонов слишком большое")
-                val f = File(imagesDir, "${UUID.randomUUID()}.jpg").apply { writeBytes(bytes) }
+                val f = File(imagesDir, "${UUID.randomUUID()}.jpg")
                 created += f
+                writeImage(f, bytes)
                 f.absolutePath.also { saved[ref] = it }
             }
         }
-        return templates.map { t ->
+        return templates.distinctBy { it.id }.map { t ->
             t.copy(
                 examples = t.examples.map { ex ->
                     ex.copy(conditionImages = local(ex.conditionImages), solutionImages = local(ex.solutionImages))
@@ -331,7 +345,40 @@ class TemplateStore(private val root: File) {
 
     private fun imagesOf(t: TaskTemplate) = t.examples.flatMap { it.conditionImages + it.solutionImages }.toSet()
 
-    private fun deleteImages(t: TaskTemplate, keep: Set<String>) {
-        (imagesOf(t) - keep).forEach { File(it).delete() }
+    /** Publish metadata first. Shared images belong to the whole library, not one template. */
+    private fun publish(updated: List<TaskTemplate>, created: List<File> = emptyList()) {
+        val candidates = _items.value.flatMap(::imagesOf) + created.map { it.absolutePath }
+        val keep = updated.flatMap(::imagesOf).toSet()
+        val temporary = File(root, "templates.json.tmp")
+        try {
+            FileOutputStream(temporary).use { output ->
+                output.write(json.encodeToString(updated).toByteArray(Charsets.UTF_8))
+                output.flush()
+                output.fd.sync()
+            }
+            Files.move(
+                temporary.toPath(), file.toPath(),
+                StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING,
+            )
+        } finally {
+            if (temporary.isFile) temporary.delete()
+        }
+        _items.value = updated
+        // Cleanup failure must never roll back a published library or delete its staged photos.
+        runCatching {
+            val directory = imagesDir.canonicalFile
+            val referenced = keep.map { File(it).canonicalFile }.toSet()
+            candidates.map { File(it).canonicalFile }.distinct().filter {
+                it.parentFile == directory && it !in referenced
+            }.forEach { it.delete() }
+        }
+    }
+
+    private fun writeImage(target: File, bytes: ByteArray) {
+        FileOutputStream(target).use { output ->
+            output.write(bytes)
+            output.flush()
+            output.fd.sync()
+        }
     }
 }

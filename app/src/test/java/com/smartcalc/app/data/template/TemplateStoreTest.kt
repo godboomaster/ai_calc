@@ -4,6 +4,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Assert.fail
 import org.junit.Rule
 import org.junit.Test
@@ -11,6 +12,7 @@ import org.junit.rules.TemporaryFolder
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -206,5 +208,93 @@ class TemplateStoreTest {
         assertEquals(1, images.size)
         assertEquals(File(root, "templates").canonicalPath, File(images.single()).parentFile!!.canonicalPath)
         assertTrue(!File(root.parentFile, "evil.jpg").exists())
+    }
+
+    private fun sharedPhotoBundle(): ByteArray = zip(
+        "manifest.json" to """{"format":"smartcalc-templates","version":1,"templates":[
+            {"id":"a","name":"A","examples":[{"solutionImages":["images/common.jpg"]}]},
+            {"id":"b","name":"B","examples":[{"solutionImages":["images/common.jpg"]}]}]}""".toByteArray(),
+        "images/common.jpg" to photo,
+    )
+
+    @Test fun deletingTemplatePreservesAnotherTemplatesSharedPhoto() = runBlocking {
+        val target = store()
+        target.import(ByteArrayInputStream(sharedPhotoBundle()))
+        target.delete("a")
+        val path = target.items.value.single().examples.single().solutionImages.single()
+        assertArrayEquals(photo, target.readImage(path))
+        val copy = store()
+        copy.import(ByteArrayInputStream(target.exportBytes(TemplateFormat.ZIP)))
+        assertEquals(1, copy.items.value.single().examples.single().solutionImages.size)
+    }
+
+    @Test fun editingTemplatePreservesAnotherTemplatesSharedPhoto() = runBlocking {
+        val target = store()
+        target.import(ByteArrayInputStream(sharedPhotoBundle()))
+        target.save("a", "A changed", "", emptyList())
+        val path = target.items.value.first { it.id == "b" }.examples.single().solutionImages.single()
+        assertArrayEquals(photo, target.readImage(path))
+    }
+
+    @Test fun replacingOneTemplatePreservesAnotherTemplatesSharedPhoto() = runBlocking {
+        val target = store()
+        target.import(ByteArrayInputStream(sharedPhotoBundle()))
+        target.import(ByteArrayInputStream("""{"format":"smartcalc-templates","version":1,
+            "templates":[{"id":"a","name":"A changed"}]}""".toByteArray()))
+        val path = target.items.value.first { it.id == "b" }.examples.single().solutionImages.single()
+        assertArrayEquals(photo, target.readImage(path))
+    }
+
+    @Test fun failedPublicationPreservesMetadataPhotosAndMemory() = runBlocking {
+        for (operation in listOf("save", "delete", "import")) {
+            val root = tmp.newFolder()
+            val target = TemplateStore(root)
+            val original = target.addSample()
+            val previousJson = File(root, "templates.json").readText()
+            val previousPhoto = File(original.examples.single().solutionImages.single())
+            // A filesystem failure opening the staging file must not damage the live library.
+            File(root, "templates.json.tmp").mkdir()
+            assertThrows(IOException::class.java) {
+                runBlocking {
+                    when (operation) {
+                        "save" -> target.save(original.id, "changed", "", emptyList())
+                        "delete" -> target.delete(original.id)
+                        else -> target.import(ByteArrayInputStream("""{"format":"smartcalc-templates","version":1,
+                            "templates":[{"id":"${original.id}","name":"changed",
+                            "examples":[{"solutionImages":["data:image/jpeg;base64,AQID"]}]}]}""".toByteArray()))
+                    }
+                }
+            }
+            assertEquals(listOf(original), target.items.value)
+            assertEquals(previousJson, File(root, "templates.json").readText())
+            assertEquals(listOf(original), TemplateStore(root).items.value)
+            assertArrayEquals(photo, previousPhoto.readBytes())
+            assertEquals(1, File(root, "templates").listFiles()!!.size)
+        }
+    }
+
+    @Test fun duplicateIdsDoNotLeaveUnusedPhotos() = runBlocking {
+        val root = tmp.newFolder()
+        val target = TemplateStore(root)
+        val bundle = zip("manifest.json" to """{"format":"smartcalc-templates","version":1,"templates":[
+            {"id":"a","name":"first","examples":[{"solutionImages":["images/first.jpg"]}]},
+            {"id":"a","name":"duplicate","examples":[{"solutionImages":["images/second.jpg"]}]}]}""".toByteArray(),
+            "images/first.jpg" to photo, "images/second.jpg" to byteArrayOf(6, 7, 8))
+        target.import(ByteArrayInputStream(bundle))
+        assertEquals("first", target.items.value.single().name)
+        assertEquals(1, File(root, "templates").listFiles()!!.size)
+    }
+
+    @Test fun unsupportedVersionDoesNotReplaceExistingTemplates() = runBlocking {
+        val target = store()
+        val original = target.addSample()
+        assertThrows(TemplateImportException::class.java) {
+            runBlocking {
+                target.import(ByteArrayInputStream("""{"format":"smartcalc-templates","version":2,
+                    "templates":[{"id":"${original.id}","name":"unsupported"}]}""".toByteArray()))
+            }
+        }
+        assertEquals(listOf(original), target.items.value)
+        assertArrayEquals(photo, target.readImage(original.examples.single().solutionImages.single()))
     }
 }
