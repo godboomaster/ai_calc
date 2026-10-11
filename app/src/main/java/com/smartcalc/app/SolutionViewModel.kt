@@ -20,6 +20,8 @@ import com.smartcalc.app.data.session.ListPosition
 import com.smartcalc.app.data.session.ReadingSession
 import com.smartcalc.app.data.session.ReadingTarget
 import com.smartcalc.app.data.session.restoredFor
+import com.smartcalc.app.data.session.blockIds
+import com.smartcalc.app.data.session.forSolution
 import com.smartcalc.app.data.request.RequestStatus
 import com.smartcalc.app.data.request.active
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -223,6 +225,22 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
         it.copy(solutionScroll = position)
     }
 
+    fun setSolutionBlocksCollapsed(id: String, revision: Int, blocks: Set<String>, collapsed: Boolean) {
+        val solution = current.value?.takeIf { it.id == id && it.followUps.size == revision } ?: return
+        val validBlocks = blocks.intersect(solution.blockIds())
+        updateReading(id, revision) {
+            it.copy(collapsedBlocks = if (collapsed) it.collapsedBlocks + validBlocks else it.collapsedBlocks - validBlocks)
+        }
+    }
+
+    fun toggleSolutionBlock(id: String, revision: Int, block: String) {
+        val solution = current.value?.takeIf { it.id == id && it.followUps.size == revision } ?: return
+        if (block !in solution.blockIds()) return
+        updateReading(id, revision) {
+            it.copy(collapsedBlocks = if (block in it.collapsedBlocks) it.collapsedBlocks - block else it.collapsedBlocks + block)
+        }
+    }
+
     fun saveAnswerScroll(id: String, revision: Int, offset: Int) = updateReading(id, revision) {
         it.copy(answerScroll = offset.coerceAtLeast(0))
     }
@@ -238,7 +256,7 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
     private fun rememberSolution(solution: Solution?) {
         sessionStore.update { saved ->
             saved.copy(
-                reading = solution?.let { ReadingSession(it.id, it.followUps.size) } ?: ReadingSession(),
+                reading = solution?.let { saved.reading.forSolution(it, resetPosition = true) } ?: ReadingSession(),
                 calculator = if (saved.calculator.followUpSolutionId == solution?.id) saved.calculator
                     else saved.calculator.copy(followUpDraft = "", followUpSolutionId = null),
                 unread = false,

@@ -13,7 +13,7 @@ internal fun SessionState.restoredFor(history: List<Solution>): SessionState {
     }
     if (solution == null) return state.copy(calculator = calculator, reading = ReadingSession(), unread = false)
     if (state.reading.followUpCount != solution.followUps.size) {
-        return state.copy(calculator = calculator, reading = ReadingSession(solution.id, solution.followUps.size))
+        return state.copy(calculator = calculator, reading = state.reading.forSolution(solution))
     }
     val itemCount = 3 + (if (solution.template != null || solution.format != null) 1 else 0) +
         solution.steps.size + solution.followUps.sumOf { it.steps.size + 2 }
@@ -23,7 +23,7 @@ internal fun SessionState.restoredFor(history: List<Solution>): SessionState {
     }
     return state.copy(
         calculator = calculator,
-        reading = state.reading.copy(
+        reading = state.reading.forSolution(solution).copy(
             target = if (solution.latestSteps.isEmpty() && state.reading.target == ReadingTarget.STEP) {
                 ReadingTarget.BRIEF
             } else state.reading.target,

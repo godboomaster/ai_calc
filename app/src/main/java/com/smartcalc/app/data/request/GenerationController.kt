@@ -17,6 +17,7 @@ import com.smartcalc.app.data.history.Solution
 import com.smartcalc.app.data.history.SolutionStep
 import com.smartcalc.app.data.session.ReadingSession
 import com.smartcalc.app.data.session.SessionStore
+import com.smartcalc.app.data.session.forSolution
 import com.smartcalc.app.data.settings.SettingsRepository
 import com.smartcalc.app.data.template.TaskTemplate
 import com.smartcalc.app.data.template.TemplateStore
@@ -66,12 +67,8 @@ class GenerationController(
                     val id = if (record.status == RequestStatus.SUCCEEDED) record.resultSolutionId else record.baseSolutionId
                     val solution = history.items.value.firstOrNull { it.id == id }
                     sessions.update { saved ->
-                        val same = saved.reading.solutionId == solution?.id &&
-                            saved.reading.followUpCount == (solution?.followUps?.size ?: 0)
                         saved.copy(
-                            reading = if (same) saved.reading else solution?.let {
-                                ReadingSession(it.id, it.followUps.size)
-                            } ?: ReadingSession(),
+                            reading = solution?.let { saved.reading.forSolution(it) } ?: ReadingSession(),
                             unread = record.unread,
                         )
                     }

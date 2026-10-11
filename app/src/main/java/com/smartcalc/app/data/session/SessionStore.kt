@@ -51,6 +51,7 @@ data class ReadingSession(
     val stepScroll: Map<Int, Int> = emptyMap(),
     val solutionScroll: ListPosition? = null,
     val answerScroll: Int = 0,
+    val collapsedBlocks: Set<String> = emptySet(),
 )
 
 @Serializable

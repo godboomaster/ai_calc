@@ -2,6 +2,7 @@ package com.smartcalc.app.ui.solution
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -27,6 +29,11 @@ import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -45,8 +52,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -54,6 +65,8 @@ import com.smartcalc.app.SolutionViewModel
 import com.smartcalc.app.data.history.Solution
 import com.smartcalc.app.data.history.SolutionStep
 import com.smartcalc.app.data.session.ListPosition
+import com.smartcalc.app.data.session.SolutionBlockId
+import com.smartcalc.app.data.session.blockIds
 import com.smartcalc.app.ui.calculator.CalcKey
 import com.smartcalc.app.ui.math.MathMarkup
 import com.smartcalc.app.ui.math.MathText
@@ -63,7 +76,7 @@ import java.io.File
 
 /**
  * Всё решение целиком — открывается удержанием «=» на калькуляторе. Условие, шаги и ответ —
- * отдельные блоки, все развёрнуты.
+ * отдельные блоки, которые можно независимо свернуть за заголовок.
  */
 @Composable
 fun SolutionScreen(
@@ -74,7 +87,13 @@ fun SolutionScreen(
 ) {
     BackHandler(onBack = onBack)
     val solution by vm.current.collectAsState()
+    val session by vm.session.collectAsState()
     var copied by remember(solution?.id) { mutableStateOf(false) }
+    var menuOpen by remember(solution?.id) { mutableStateOf(false) }
+    val collapsed = session.reading.takeIf { it.solutionId == solution?.id }?.collapsedBlocks.orEmpty()
+    val toggleBlock: (String) -> Unit = { block ->
+        solution?.let { vm.toggleSolutionBlock(it.id, it.followUps.size, block) }
+    }
     val clipboard = LocalClipboardManager.current
 
     Column(
@@ -95,6 +114,8 @@ fun SolutionScreen(
                 fontSize = 20.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             val s = solution
             if (s != null) {
@@ -110,6 +131,21 @@ fun SolutionScreen(
                         contentDescription = if (copied) "Скопировано" else "Скопировать решение",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+                Box {
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = "Действия с блоками")
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(text = { Text("Свернуть всё") }, onClick = {
+                            vm.setSolutionBlocksCollapsed(s.id, s.followUps.size, s.blockIds(), true)
+                            menuOpen = false
+                        })
+                        DropdownMenuItem(text = { Text("Развернуть всё") }, onClick = {
+                            vm.setSolutionBlocksCollapsed(s.id, s.followUps.size, s.blockIds(), false)
+                            menuOpen = false
+                        })
+                    }
                 }
             }
         }
@@ -150,8 +186,10 @@ fun SolutionScreen(
             contentPadding = PaddingValues(vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            item {
+            item(key = SolutionBlockId.question()) {
                 SolutionBlock(
+                    expanded = SolutionBlockId.question() !in collapsed,
+                    onToggle = { toggleBlock(SolutionBlockId.question()) },
                     label = "Условие",
                     action = {
                         IconButton(onClick = {
@@ -183,7 +221,7 @@ fun SolutionScreen(
                 }
             }
             if (s.template != null || s.format != null) {
-                item {
+                item(key = "format") {
                     Text(
                         listOfNotNull(
                             s.template?.let { "По шаблону «$it»" },
@@ -195,16 +233,22 @@ fun SolutionScreen(
                     )
                 }
             }
-            stepsAndAnswer(s.steps, s.answer, numbered)
-            s.followUps.forEach { f ->
-                item {
-                    SolutionBlock(label = "Дополнение" + (f.template?.let { " · по шаблону «$it»" } ?: "")) {
+            stepsAndAnswer(s.steps, s.answer, numbered, 0, collapsed, toggleBlock)
+            s.followUps.forEachIndexed { index, f ->
+                val group = index + 1
+                val questionKey = SolutionBlockId.question(group)
+                item(key = questionKey) {
+                    SolutionBlock(
+                        expanded = questionKey !in collapsed,
+                        onToggle = { toggleBlock(questionKey) },
+                        label = "Дополнение $group" + (f.template?.let { " · по шаблону «$it»" } ?: ""),
+                    ) {
                         MathText(f.question, fontSize = 17.sp)
                     }
                 }
-                stepsAndAnswer(f.steps, f.answer, numbered)
+                stepsAndAnswer(f.steps, f.answer, numbered, group, collapsed, toggleBlock)
             }
-            item {
+            item(key = "add-followup") {
                 // Вопрос к этому решению — в строке калькулятора, ответ — на его дисплее.
                 Row(modifier = Modifier.padding(top = 4.dp)) {
                     CalcKey(
@@ -235,9 +279,18 @@ fun SolutionScreen(
 }
 
 /** Шаги одного ответа (исходного или на дополнение) и сам ответ отдельным блоком. */
-private fun LazyListScope.stepsAndAnswer(steps: List<SolutionStep>, answer: String, numbered: Boolean) {
-    itemsIndexed(steps) { index, step ->
-        SolutionBlock(number = if (numbered) index + 1 else null, title = step.title) {
+private fun LazyListScope.stepsAndAnswer(
+    steps: List<SolutionStep>, answer: String, numbered: Boolean,
+    group: Int, collapsed: Set<String>, onToggle: (String) -> Unit,
+) {
+    itemsIndexed(steps, key = { index, _ -> SolutionBlockId.step(group, index) }) { index, step ->
+        val blockKey = SolutionBlockId.step(group, index)
+        SolutionBlock(
+            expanded = blockKey !in collapsed,
+            onToggle = { onToggle(blockKey) },
+            number = if (numbered) index + 1 else null,
+            title = step.title,
+        ) {
             if (step.content.isNotBlank()) MathText(step.content, fontSize = 16.sp)
             step.plot?.let {
                 PlotView(it, container = MaterialTheme.colorScheme.surface, modifier = Modifier.padding(top = 12.dp))
@@ -245,8 +298,10 @@ private fun LazyListScope.stepsAndAnswer(steps: List<SolutionStep>, answer: Stri
             step.svg?.let { SchemeView(it, modifier = Modifier.padding(top = 12.dp)) }
         }
     }
-    item {
+    item(key = SolutionBlockId.answer(group)) {
         SolutionBlock(
+            expanded = SolutionBlockId.answer(group) !in collapsed,
+            onToggle = { onToggle(SolutionBlockId.answer(group)) },
             label = "Ответ",
             container = MaterialTheme.colorScheme.primaryContainer,
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -276,6 +331,8 @@ internal fun StepNumber(number: Int) {
 
 @Composable
 private fun SolutionBlock(
+    expanded: Boolean,
+    onToggle: () -> Unit,
     label: String? = null,
     number: Int? = null,
     title: String? = null,
@@ -288,33 +345,51 @@ private fun SolutionBlock(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(24.dp))
-            .background(container)
-            .padding(start = 18.dp, end = if (action != null) 6.dp else 18.dp, top = 14.dp, bottom = 16.dp),
+            .background(container),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(bottom = 8.dp),
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            if (number != null) {
-                StepNumber(number)
-                Box(Modifier.size(12.dp))
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                if (label != null) {
-                    Text(label, style = MaterialTheme.typography.labelLarge, color = contentColor)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+                    .semantics { stateDescription = if (expanded) "Развёрнуто" else "Свёрнуто" }
+                    .clickable(role = Role.Button, onClickLabel = if (expanded) "Свернуть блок" else "Развернуть блок", onClick = onToggle)
+                    .heightIn(min = 56.dp)
+                    .padding(start = 18.dp, end = 12.dp, top = 14.dp, bottom = 14.dp),
+            ) {
+                if (number != null) {
+                    StepNumber(number)
+                    Box(Modifier.size(12.dp))
                 }
-                if (title != null) {
-                    MathText(
-                        title,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
+                Column(modifier = Modifier.weight(1f)) {
+                    if (label != null) {
+                        Text(label, style = MaterialTheme.typography.labelLarge, color = contentColor,
+                            maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    }
+                    if (title != null) {
+                        MathText(
+                            title,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 3,
+                        )
+                    }
                 }
+                Icon(
+                    if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = null,
+                    tint = contentColor,
+                    modifier = Modifier.padding(start = 8.dp).size(24.dp),
+                )
             }
             action?.invoke()
         }
-        Column(modifier = Modifier.padding(end = if (action != null) 12.dp else 0.dp), content = content)
+        if (expanded) {
+            Column(modifier = Modifier.padding(start = 18.dp, end = 18.dp, bottom = 16.dp), content = content)
+        }
     }
 }
 

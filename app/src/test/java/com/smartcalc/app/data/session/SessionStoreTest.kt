@@ -40,6 +40,7 @@ class SessionStoreTest {
                 stepScroll = mapOf(0 to 14, 2 to 91),
                 solutionScroll = ListPosition(index = 7, offset = 23),
                 answerScroll = 48,
+                collapsedBlocks = setOf("0:question", "0:step:1", "3:answer"),
             ),
             unread = true,
         )
