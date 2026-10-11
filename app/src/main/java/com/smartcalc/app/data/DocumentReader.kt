@@ -121,7 +121,7 @@ object DocumentReader {
             .toString()
     } catch (e: CharacterCodingException) {
         String(bytes, Charset.forName("windows-1251"))
-    }.removePrefix("﻿").trim().ifEmpty { throw DocumentException("Файл пустой") }
+    }.removePrefix("\uFEFF").trim().ifEmpty { throw DocumentException("Файл пустой") }
 
     private fun limit(text: String) =
         if (text.length > MAX_TEXT_LENGTH) text.take(MAX_TEXT_LENGTH) + "\n…" else text
