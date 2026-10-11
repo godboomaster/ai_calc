@@ -107,11 +107,6 @@ internal fun displayFontSize(length: Int): TextUnit = when {
     else -> 28.sp
 }
 
-/** Символы обычного выражения. Всё остальное (буквы, «=», «^») значит, что это задача для ИИ. */
-private const val ARITHMETIC = "0123456789.,+-−×÷*/()%E∞"
-
-private fun isArithmetic(text: String) = text.all { it in ARITHMETIC || it.isWhitespace() }
-
 /** Действие ИИ на месте цифры. */
 private class AiAction(
     val label: String,
@@ -287,18 +282,19 @@ fun CalculatorScreen(
         when {
             !onDisplay -> startEditing(taskDraft.ifEmpty { if (evaluated && !isArithmetic(expr)) "" else expr })
             solving -> Unit
-            error != null -> startEditing(vm.retryText.orEmpty(), asFollowUp = vm.retryIsFollowUp && solution != null)
+            error != null -> {
+                val asFollowUp = vm.retryIsFollowUp && solution != null
+                val draft = if (asFollowUp) followUpDraft else taskDraft
+                startEditing(retryEditorText(draft, vm.retryText), asFollowUp)
+            }
             else -> startEditing(followUpDraft, asFollowUp = true)
         }
     }
 
     fun input(token: String) {
         leaveAi()
-        if (evaluated) {
-            expr = if (token.first().isDigit() || token == "(") "" else expr
-            evaluated = false
-        }
-        expr += token
+        expr = appendCalculatorToken(expr, evaluated, token)
+        evaluated = false
     }
 
     fun clear() {
@@ -311,8 +307,9 @@ fun CalculatorScreen(
     fun equals() {
         val text = (if (editing) field.text.toString() else expr).trim()
         if (!editing) leaveAi()
-        if (text.isEmpty()) return
-        if (editing && followUp) {
+        val submission = inputSubmission(text, editing, followUp)
+        if (submission == InputSubmission.NONE) return
+        if (submission == InputSubmission.FOLLOW_UP) {
             // Дополнение уходит ИИ целиком, даже если похоже на выражение: «а если 2+3?».
             followUp = false
             followUpDraft = ""
@@ -320,7 +317,7 @@ fun CalculatorScreen(
             vm.askFollowUp(text)
             return
         }
-        if (isArithmetic(text)) {
+        if (submission == InputSubmission.CALCULATE) {
             if (editing) taskDraft = ""
             stopEditing(saveDraft = false)
             expr = try {
@@ -329,7 +326,7 @@ fun CalculatorScreen(
                 "Ошибка"
             }
             evaluated = true
-        } else if (editing || !evaluated) {
+        } else if (submission == InputSubmission.ASK) {
             // «Ошибка» и «Не число» — результаты, а не задачи: их ИИ не отправляем.
             stopEditing(saveDraft = false)
             vm.solveText(text)
@@ -693,8 +690,7 @@ fun CalculatorScreen(
                             CalcKey(".", numberColor) { input(".") }
                             CalcKey("⌫", numberColor, onLongClick = { clear() }) {
                                 leaveAi()
-                                if (expr == "Ошибка") expr = ""
-                                if (expr.isNotEmpty()) expr = expr.dropLast(1)
+                                expr = deleteCalculatorCharacter(expr)
                                 evaluated = false
                             }
                         }

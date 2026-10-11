@@ -52,4 +52,18 @@ class ExpressionParserTest {
         assertEquals("-2.5E20", ExpressionParser.format(-2.5e20))
         assertEquals("1E-10", ExpressionParser.format(1e-10))
     }
+
+    @Test fun formattedResultsCanBeUsedInAnotherCalculation() {
+        assertEquals(1_000_000_000_000_001.0, eval(ExpressionParser.format(1e15) + "+1"), 0.0)
+        assertEquals(1e-9, eval(ExpressionParser.format(1e-10) + "×10"), 1e-20)
+        assertEquals(-2500.0, eval("-2.5E+3"), 0.0)
+        assertEquals(0.02, eval("2e-2"), 1e-12)
+        assertEquals(Double.POSITIVE_INFINITY, eval("∞+1"), 0.0)
+    }
+
+    @Test fun incompleteExponentsAreRejected() {
+        for (input in listOf("1E", "1E+", "1E-", "1E2.5", "1EE2")) {
+            assertThrows(ExpressionParser.ParseException::class.java) { eval(input) }
+        }
+    }
 }

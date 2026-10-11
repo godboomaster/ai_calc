@@ -92,9 +92,16 @@ object ExpressionParser {
                 if (!match(')')) throw ParseException("Нет закрывающей скобки")
                 return value
             }
+            if (match('∞')) return Double.POSITIVE_INFINITY
             val start = pos
             while (pos < input.length && (input[pos].isDigit() || input[pos] == '.')) pos++
             if (start == pos) throw ParseException("Ожидалось число на позиции $pos")
+            if (match('E') || match('e')) {
+                if (!match('+')) match('-')
+                val exponentStart = pos
+                while (pos < input.length && input[pos].isDigit()) pos++
+                if (pos == exponentStart) throw ParseException("Ожидался показатель степени на позиции $pos")
+            }
             return input.substring(start, pos).toDoubleOrNull()
                 ?: throw ParseException("Некорректное число")
         }
