@@ -1,6 +1,7 @@
 package com.smartcalc.app.data.settings
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -35,6 +36,15 @@ class SettingsRepository(private val context: Context) {
         val API_KEY = stringPreferencesKey("api_key")
         val MODEL = stringPreferencesKey("model")
         val SYSTEM_PROMPT = stringPreferencesKey("system_prompt")
+        val SWIPE_TO_RESTORE = booleanPreferencesKey("swipe_to_restore")
+    }
+
+    val swipeToRestore: Flow<Boolean> = context.dataStore.data.map { p ->
+        p[Keys.SWIPE_TO_RESTORE] ?: false
+    }
+
+    suspend fun setSwipeToRestore(enabled: Boolean) {
+        context.dataStore.edit { p -> p[Keys.SWIPE_TO_RESTORE] = enabled }
     }
 
     val settings: Flow<ApiSettings> = context.dataStore.data.map { p ->

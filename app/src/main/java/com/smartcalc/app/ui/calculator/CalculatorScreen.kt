@@ -147,6 +147,7 @@ fun CalculatorScreen(
     val keyboard = LocalSoftwareKeyboardController.current
 
     val display by vm.display.collectAsState()
+    val swipeToRestore by vm.swipeToRestore.collectAsState()
     val onDisplay = display.visible
     val solving by vm.solving.collectAsState()
     val error by vm.error.collectAsState()
@@ -158,6 +159,8 @@ fun CalculatorScreen(
     val templates by vm.templates.collectAsState()
     val steps = solution?.latestSteps.orEmpty()
     val answerVisible = onDisplay && !solving && error == null && solution != null
+    val canSwipeToRestore = swipeToRestore && !onDisplay && !editing && !aiKeys &&
+        (solving || solution != null || error != null)
     val answerScroll = rememberScrollState()
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
 
@@ -367,6 +370,7 @@ fun CalculatorScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
+                    .swipeUpToRestore(enabled = canSwipeToRestore, onRestore = ::restoreAssistant)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,

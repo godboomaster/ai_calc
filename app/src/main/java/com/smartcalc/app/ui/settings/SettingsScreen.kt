@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -19,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.Switch
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -30,6 +32,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.smartcalc.app.SolutionViewModel
@@ -40,6 +43,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
     val settings by vm.settings.collectAsState()
+    val swipeToRestore by vm.swipeToRestore.collectAsState()
     val scope = rememberCoroutineScope()
 
     var loaded by remember { mutableStateOf(false) }
@@ -85,6 +89,33 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            Text(
+                "Управление",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().toggleable(
+                    value = swipeToRestore,
+                    role = Role.Switch,
+                    onValueChange = { enabled ->
+                        scope.launch { vm.settingsRepo.setSwipeToRestore(enabled) }
+                    },
+                ).padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Возврат к решению свайпом", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Свайп вверх по дисплею калькулятора — как удержание ✦",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+                Switch(checked = swipeToRestore, onCheckedChange = null)
+            }
             Text(
                 "OpenAI-совместимый API",
                 style = MaterialTheme.typography.titleSmall,
@@ -180,6 +211,6 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
 @Composable
 private fun TextButtonReset(onClick: () -> Unit) {
     OutlinedButton(onClick = onClick) {
-        Text("Сбросить к значениям по умолчанию")
+        Text("Сбросить настройки API")
     }
 }

@@ -75,6 +75,7 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { templateStore.delete(id) }
     }
     val settings = settingsRepo.settings.stateIn(viewModelScope, SharingStarted.Eagerly, ApiSettings())
+    val swipeToRestore = settingsRepo.swipeToRestore.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     private val _current = MutableStateFlow<Solution?>(null)
     val current: StateFlow<Solution?> = _current
