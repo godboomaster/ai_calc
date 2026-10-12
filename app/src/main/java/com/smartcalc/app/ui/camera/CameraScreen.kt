@@ -359,7 +359,7 @@ private fun FormatChip(
             modifier = Modifier.size(18.dp),
         )
         Text(
-            if (format.isSet) "Формат: ${format.summary}" else "Задать формат решения",
+            if (format.isSet) "Оформление: ${format.summary}" else "Настроить оформление",
             color = contentColor,
             style = MaterialTheme.typography.labelLarge,
             maxLines = 1,

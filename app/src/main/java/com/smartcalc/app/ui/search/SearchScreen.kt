@@ -28,6 +28,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -59,6 +60,7 @@ import com.smartcalc.app.data.search.FoundSolution
 import com.smartcalc.app.data.search.SearchHit
 import com.smartcalc.app.data.search.TaskSearch
 import com.smartcalc.app.ui.math.MathText
+import com.smartcalc.app.ui.library.LibraryTabs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -81,6 +83,8 @@ fun SearchScreen(
     initialQuery: String,
     onBack: () -> Unit,
     onOpenLibrary: () -> Unit,
+    onOpenFiles: () -> Unit,
+    onAddMaterial: () -> Unit,
     onOpenSolution: () -> Unit,
 ) {
     // null — список ещё собирается: «искать не в чем» до этого не показываем.
@@ -107,18 +111,17 @@ fun SearchScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
-            title = { Text("Поиск") },
+            title = { Text("Библиотека") },
             navigationIcon = {
                 IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
                 }
             },
-            actions = {
-                IconButton(onClick = onOpenLibrary) {
-                    Icon(Icons.Outlined.FolderOpen, contentDescription = "База задач")
-                }
-            },
         )
+        LibraryTabs(0, onSearch = {}, onTasks = onOpenLibrary, onFiles = onOpenFiles)
+        OutlinedButton(onClick = onAddMaterial, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Text("Добавить материал")
+        }
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
@@ -181,7 +184,7 @@ fun SearchScreen(
                 if (library.isEmpty()) {
                     item {
                         Text(
-                            "Свои решённые задачи можно загрузить в базу — значок папки вверху.",
+                            "Поиск включает задачи библиотеки, примеры из «По образцу» и историю решений.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -219,14 +222,13 @@ private fun EmptyBase(hasLibraryExamples: Boolean, onOpenLibrary: () -> Unit) {
     ) {
         Text(
             if (hasLibraryExamples) "Нет доступных для поиска задач. Проверьте отметки «Отклонено» и переключатели «Использовать в поиске» в базе."
-            else "Искать пока не в чем. Загрузите решённые задачи в базу — файлом Markdown, JSON или ZIP, " +
-                "как шаблоны, — или решите задачу с ИИ: история тоже участвует в поиске.",
+            else "Пока нет готовых решений. Добавьте материал в библиотеку или решите задачу с ИИ — история тоже участвует в поиске.",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Button(onClick = onOpenLibrary) {
             Icon(Icons.Outlined.FolderOpen, contentDescription = null)
-            Text("База задач", modifier = Modifier.padding(start = 8.dp))
+            Text("Мои задачи", modifier = Modifier.padding(start = 8.dp))
         }
     }
 }

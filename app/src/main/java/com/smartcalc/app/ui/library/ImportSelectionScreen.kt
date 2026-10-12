@@ -11,6 +11,7 @@ import androidx.compose.ui.unit.dp
 import com.smartcalc.app.data.settings.ApiSettings
 import com.smartcalc.app.data.library.extract.PageSelection
 import com.smartcalc.app.data.library.source.*
+import com.smartcalc.app.ui.components.ExplanationCard
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 
@@ -32,7 +33,7 @@ import kotlinx.coroutines.CancellationException
     Column(Modifier.fillMaxSize().imePadding()) {
         LibraryHeader("Подготовка задач", onBack)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Проверьте диапазон и порядок файлов. Необработанная часть оригинала остаётся доступной.")
+            ExplanationCard("Что добавить", "Выберите нужные страницы и порядок файлов. Остальная часть оригинала останется доступной.")
             order.forEachIndexed { index, id ->
                 val source = catalog.sources.firstOrNull { it.id == id }
                 Card(Modifier.fillMaxWidth()) {
@@ -43,21 +44,26 @@ import kotlinx.coroutines.CancellationException
                             Text("Всего: $count ${if (source?.format == SourceFormat.PDF) "страниц" else "фрагментов"}")
                             val processed = jobs.jobs.flatMap { job -> job.segments.filter { it.ref.sourceId == id && it.ref.segmentId in job.processedSegmentIds }.map { it.ref.ordinal } }
                             if (processed.isNotEmpty()) Text("Уже обработано: ${formatOrdinalRanges(processed)}. Повтор создаст новые черновики для сравнения, прежние задачи сохранятся.", style = MaterialTheme.typography.bodySmall)
-                            OutlinedTextField(value = ranges[id].orEmpty(), onValueChange = { ranges = HashMap(ranges).apply { put(id, it) } },
-                                label = { Text(if (source?.format == SourceFormat.PDF) "Страницы, например 1-3,6" else "Фрагменты") }, modifier = Modifier.fillMaxWidth(), enabled = !starting)
+                            if (source?.format !in setOf(SourceFormat.JPEG, SourceFormat.PNG)) {
+                                OutlinedTextField(value = ranges[id].orEmpty(), onValueChange = { ranges = HashMap(ranges).apply { put(id, it) } },
+                                    label = { Text(if (source?.format == SourceFormat.PDF) "Страницы, например 1-3,6" else "Фрагменты") }, modifier = Modifier.fillMaxWidth(), enabled = !starting)
+                            }
                             val selected = runCatching { parsePageSelection(ranges[id].orEmpty(), count).ordinals.size }.getOrNull()
                             if (selected != null) Text("Выбрано: $selected · Останется: ${count - selected}", style = MaterialTheme.typography.bodySmall)
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (order.size > 1) Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             TextButton(onClick = { order = order.toMutableList().apply { val old = this[index - 1]; this[index - 1] = this[index]; this[index] = old } }, enabled = index > 0 && !starting) { Text("Выше") }
                             TextButton(onClick = { order = order.toMutableList().apply { val old = this[index + 1]; this[index + 1] = this[index]; this[index] = old } }, enabled = index < order.lastIndex && !starting) { Text("Ниже") }
                         }
                     }
                 }
             }
-            Text("Для распознавания используется настроенный API: ${settings.model}. Изображения: ${if (settings.supportsImages) "поддержка подтверждена" else "не подтверждена"}.")
-            Text("Структурированный текст разбирается локально. Неразобранные фрагменты передаются API только после запуска. Если модель не подходит, можно исправить черновики вручную.")
-            Text("Предел партии: 100 фрагментов, до 10 запросов, до 2 изображений или 12 000 символов в пакете. Цена зависит от провайдера.", style = MaterialTheme.typography.bodySmall)
+            ExplanationCard(
+                title = "Как проходит разбор",
+                text = "Структурированный текст обрабатывается на устройстве. Для распознавания выбранные фрагменты могут отправляться в настроенный API. Стоимость зависит от провайдера.",
+                detailsLabel = "Модель и ограничения",
+                details = "Модель: ${settings.model}. Изображения: ${if (settings.supportsImages) "поддержка подтверждена" else "поддержка не подтверждена"}.\n\nЗа запуск: до 100 фрагментов и 10 запросов. В одном запросе — до 2 изображений или 12 000 символов.\n\nЕсли модель не подходит, можно заполнить задачи вручную по сохранённому оригиналу.",
+            )
             LibraryError(error)
             Button(onClick = {
                 starting = true; error = null
@@ -73,7 +79,8 @@ import kotlinx.coroutines.CancellationException
             }, enabled = !starting && order.isNotEmpty() && counts.size == order.size, modifier = Modifier.fillMaxWidth()) {
                 Text(if (starting) "Сохраняю диапазон…" else "Обработать выбранное")
             }
-            Text("Добавление разобранных задач потребует вашей проверки. Отметка «Проверено мной» автоматически не ставится.", style = MaterialTheme.typography.bodySmall)
+            Text("Перед добавлением вы сможете проверить и исправить задачи.", style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp))
         }
     }
 }

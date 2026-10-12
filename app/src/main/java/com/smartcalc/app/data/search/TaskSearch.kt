@@ -10,7 +10,7 @@ import com.smartcalc.app.data.template.ExampleFingerprint
 import kotlin.math.ln
 
 /** Откуда решённая задача: база задач, пример шаблона или история решений. */
-enum class FoundSource(val label: String) { BASE("База"), TEMPLATE("Шаблон"), HISTORY("История") }
+enum class FoundSource(val label: String) { BASE("Библиотека"), TEMPLATE("Образец"), HISTORY("История") }
 
 /**
  * Решённая задача, по которой идёт поиск. Числа и основы слов считаются один раз, при сборке списка,

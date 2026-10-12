@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.smartcalc.app.SolutionViewModel
 import com.smartcalc.app.data.ImageUtils
+import com.smartcalc.app.ui.components.ExplanationCard
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -90,7 +91,7 @@ fun FormatScreen(vm: SolutionViewModel, onBack: () -> Unit) {
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
-            title = { Text("Формат решения") },
+            title = { Text("Оформление") },
             navigationIcon = {
                 IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
@@ -104,19 +105,22 @@ fun FormatScreen(vm: SolutionViewModel, onBack: () -> Unit) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                "Опишите, как решать и оформлять задачи, или прикрепите образец. " +
-                    "ИИ будет решать в этом формате, пока вы его не сбросите.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            ExplanationCard(
+                title = "Для всех новых ответов",
+                text = "Задайте структуру, стиль записи и подробность ответа. " +
+                    "После сохранения эти настройки действуют до сброса.",
+                details = "Например, добавьте разделы «Дано / Найти / Решение / Ответ» " +
+                    "или попросите короткие пояснения к каждому шагу.\n\n" +
+                    "Метод для конкретной задачи можно задать через «По образцу»: " +
+                    "там сохраняются требования и примеры решения.",
             )
 
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
-                label = { Text("Требования к решению") },
+                label = { Text("Требования к оформлению") },
                 placeholder = {
-                    Text("Например: Дано / Найти / Решение / Ответ. Уравнения решать через дискриминант.")
+                    Text("Например: Дано / Найти / Решение / Ответ. К каждому шагу — короткое пояснение.")
                 },
                 minLines = 4,
                 modifier = Modifier.fillMaxWidth(),
@@ -135,15 +139,14 @@ fun FormatScreen(vm: SolutionViewModel, onBack: () -> Unit) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
                         "Образец оформления",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.titleSmall,
                     )
                     Text(
                         "Фото или скриншот решения, оформленного так, как нужно. " +
                             "ИИ повторит его структуру и стиль записи.",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 4.dp),
+                        modifier = Modifier.padding(top = 8.dp),
                     )
                     if (hasSample) {
                         AsyncImage(
@@ -196,7 +199,7 @@ fun FormatScreen(vm: SolutionViewModel, onBack: () -> Unit) {
                         onBack()
                     },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Сбросить формат") }
+                ) { Text("Сбросить оформление") }
             }
         }
     }

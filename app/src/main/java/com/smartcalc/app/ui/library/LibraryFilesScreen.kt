@@ -1,7 +1,5 @@
 package com.smartcalc.app.ui.library
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,12 +11,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalContext
-import android.content.Intent
 import com.smartcalc.app.data.library.source.*
 import com.smartcalc.app.data.library.importer.*
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.CancellationException
 
 internal val ImportStatus.label: String get() = when (this) {
     ImportStatus.COPIED -> "Оригинал сохранён"
@@ -47,41 +41,32 @@ internal val ImportJob.busy: Boolean get() = waitingForSolution || status in set
     }
 }
 @Composable fun LibraryFilesScreen(vm: LibraryImportViewModel, onBack: () -> Unit,
-    onSelection: () -> Unit, onReview: (String) -> Unit, onSource: (String, Int) -> Unit, onCamera: () -> Unit) {
+    onSelection: () -> Unit, onReview: (String) -> Unit, onSource: (String, Int) -> Unit,
+    onSearch: () -> Unit, onTasks: () -> Unit, onAddMaterial: () -> Unit) {
     val catalog by vm.sources.collectAsState(); val jobs by vm.jobs.collectAsState()
     val error by vm.error.collectAsState(); val copying by vm.copying.collectAsState()
     val selected by vm.pendingSourceIds.collectAsState()
-    val context = LocalContext.current; val scope = rememberCoroutineScope()
     var deleting by remember { mutableStateOf<LibrarySource?>(null) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        if (uris.isNotEmpty()) scope.launch {
-            try {
-                uris.forEach { uri -> runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
-                vm.copyUris(uris); onSelection()
-            } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { }
-        }
-    }
-    val photos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
-        if (uris.isNotEmpty()) scope.launch {
-            try { vm.copyUris(uris); onSelection() }
-            catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { }
-        }
-    }
+    var showCompleted by rememberSaveable { mutableStateOf(false) }
+    val pendingJobs = jobs.jobs.filter { it.status !in setOf(ImportStatus.READY, ImportStatus.CANCELLED) }.reversed()
+    val completedJobs = jobs.jobs.filter { it.status in setOf(ImportStatus.READY, ImportStatus.CANCELLED) }.reversed()
     Column(Modifier.fillMaxSize()) {
-        LibraryHeader("База задач", onBack)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            TextButton(onClick = onBack) { Text("Задачи") }
-            TextButton(onClick = {}) { Text("Файлы") }
-        }
-        Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { picker.launch(arrayOf("application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/*", "image/*")) }, enabled = !copying) { Text("Файл") }
-            OutlinedButton(onClick = { photos.launch(ActivityResultContracts.PickVisualMedia.ImageOnly.let { androidx.activity.result.PickVisualMediaRequest(it) }) }, enabled = !copying) { Text("Фото") }
-            OutlinedButton(onClick = onCamera, enabled = !copying) { Text("Камера") }
+        LibraryHeader("Библиотека", onBack)
+        LibraryTabs(2, onSearch = onSearch, onTasks = onTasks, onFiles = {})
+        Button(onClick = onAddMaterial, enabled = !copying,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Text("Добавить материал")
         }
         if (copying) LinearProgressIndicator(Modifier.fillMaxWidth().padding(12.dp))
         LibraryError(catalog.error ?: jobs.error ?: error, vm::clearError)
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (catalog.sources.isEmpty()) item { Text("Загрузите PDF, DOCX, текст или фотографии. Оригиналы сохраняются отдельно от задач.") }
+            if (pendingJobs.isNotEmpty()) {
+                item { Text("Требуют внимания", style = MaterialTheme.typography.titleMedium) }
+                items(pendingJobs, key = { "job:${it.id}" }) { job -> ImportJobCard(job, vm, onReview) }
+            }
+            item {
+                com.smartcalc.app.ui.components.ExplanationCard("Исходные файлы", "Оригиналы документов и фотографий. Готовые примеры находятся во вкладке «Задачи».")
+            }
             items(catalog.sources.reversed(), key = { it.id }) { source ->
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -108,17 +93,13 @@ internal val ImportJob.busy: Boolean get() = waitingForSolution || status in set
                     }
                 }
             }
-            if (jobs.jobs.isNotEmpty()) item { Text("Сохранённые разборы", style = MaterialTheme.typography.titleMedium) }
-            items(jobs.jobs.reversed(), key = { it.id }) { job ->
-                Card(onClick = { onReview(job.id) }, modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(job.sourceIds.mapNotNull { vm.source(it)?.name }.joinToString(", "), style = MaterialTheme.typography.titleSmall)
-                        Text(job.status.label)
-                        Text("Черновиков: ${job.drafts.size} · Запросов в партии: ${job.postsUsed}/10", style = MaterialTheme.typography.bodySmall)
-                        job.error?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                        if (job.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if (completedJobs.isNotEmpty()) {
+                item {
+                    TextButton(onClick = { showCompleted = !showCompleted }) {
+                        Text("${if (showCompleted) "Скрыть" else "Показать"} предыдущие разборы (${completedJobs.size})")
                     }
                 }
+                if (showCompleted) items(completedJobs, key = { "job:${it.id}" }) { job -> ImportJobCard(job, vm, onReview) }
             }
         }
         if (selected.isNotEmpty()) Button(onClick = onSelection, enabled = !copying, modifier = Modifier.fillMaxWidth().padding(12.dp)) {
@@ -129,4 +110,18 @@ internal val ImportJob.busy: Boolean get() = waitingForSolution || status in set
         text = { Text("Связанные задачи перестанут участвовать в новом поиске. Их текст, собственные фото и сохранённые решения останутся.") },
         confirmButton = { TextButton(onClick = { vm.deleteSource(source.id); deleting = null }) { Text("Удалить оригинал") } },
         dismissButton = { TextButton(onClick = { deleting = null }) { Text("Отмена") } }) }
+}
+
+@Composable
+private fun ImportJobCard(job: ImportJob, vm: LibraryImportViewModel, onReview: (String) -> Unit) {
+    Card(onClick = { onReview(job.id) }, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(job.sourceIds.mapNotNull { vm.source(it)?.name }.joinToString(", "), style = MaterialTheme.typography.titleSmall)
+            Text(job.status.label, style = MaterialTheme.typography.bodyMedium)
+            Text("Задач для проверки: ${job.drafts.count { it.id !in job.publishedDraftIds && !it.excluded }}",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            job.error?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+            if (job.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+        }
+    }
 }

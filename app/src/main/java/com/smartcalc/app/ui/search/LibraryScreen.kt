@@ -18,7 +18,6 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.FileOpen
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Share
@@ -43,7 +42,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,14 +54,10 @@ import com.smartcalc.app.data.template.TaskTemplate
 import com.smartcalc.app.data.template.TemplateExample
 import com.smartcalc.app.data.template.TemplateKind
 import com.smartcalc.app.ui.template.rememberTemplateTransfer
+import com.smartcalc.app.ui.components.ExplanationCard
+import com.smartcalc.app.ui.library.LibraryTabs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-
-/** Что прикрепить к шаблону, пока открыто окно выбора: загружаемый файл или раздел базы. */
-private sealed interface AttachChoice {
-    data object Import : AttachChoice
-    data class Section(val section: TaskTemplate) : AttachChoice
-}
 
 /**
  * База решённых задач: разделы по типам задач. Задачи загружаются файлом (те же форматы, что у
@@ -77,46 +71,41 @@ fun LibraryScreen(
     onBack: () -> Unit,
     onEdit: (id: String?) -> Unit,
     onFiles: () -> Unit = {},
+    onSearch: () -> Unit,
+    onAddMaterial: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val sections by vm.library.collectAsState()
     val storageError by vm.storageError(TemplateKind.LIBRARY).collectAsState()
     val templates by vm.templates.collectAsState()
-    // Шаблон, к которому прикрепить загружаемый файл; переживает системный выбор файла.
-    var importInto by rememberSaveable { mutableStateOf<String?>(null) }
-    var choosing by remember { mutableStateOf<AttachChoice?>(null) }
+    var choosing by remember { mutableStateOf<TaskTemplate?>(null) }
     var exportMenu by remember { mutableStateOf(false) }
 
     suspend fun attach(templateId: String, examples: List<TemplateExample>) {
         val name = vm.templates.value.firstOrNull { it.id == templateId }?.name ?: return
         try {
             val added = vm.attachToTemplate(templateId, examples)
-            val text = if (added == 0) "Эти задачи уже есть в шаблоне «$name»"
-                else "Прикреплено к шаблону «$name»: $added ${tasksWord(added)}"
+            val text = if (added == 0) "Эти задачи уже есть в образце «$name»"
+                else "Добавлено в образец «$name»: $added ${tasksWord(added)}"
             Toast.makeText(context, text, Toast.LENGTH_LONG).show()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
             Toast.makeText(
                 context,
-                "Не удалось прикрепить задачи к шаблону. Задачи остались в базе. " +
+                "Не удалось добавить копии в образец. Задачи остались в библиотеке. " +
                     "Проверьте, что фотографии доступны, и попробуйте ещё раз.",
                 Toast.LENGTH_LONG,
             ).show()
         }
     }
 
-    val transfer = rememberTemplateTransfer(vm, TemplateKind.LIBRARY) { result ->
-        val target = importInto ?: return@rememberTemplateTransfer
-        importInto = null
-        // Attach in this screen's scope so cancellation is not consumed by the transfer import catch.
-        scope.launch { attach(target, result.items.flatMap { it.examples }) }
-    }
+    val transfer = rememberTemplateTransfer(vm, TemplateKind.LIBRARY)
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
-            title = { Text("База задач") },
+            title = { Text("Библиотека") },
             navigationIcon = {
                 IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
@@ -148,10 +137,7 @@ fun LibraryScreen(
                 }
             },
         )
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            TextButton(onClick = {}) { Text("Задачи") }
-            TextButton(onClick = onFiles) { Text("Файлы") }
-        }
+        LibraryTabs(1, onSearch = onSearch, onTasks = {}, onFiles = onFiles)
         if (storageError != null) {
             Text(storageError.orEmpty(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
             return@Column
@@ -161,44 +147,27 @@ fun LibraryScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                Text(
-                    "Решённые задачи для поиска (клавиша 9 в режиме ИИ): он находит похожие по числам, словам " +
-                        "условия и типу без интернета. Найденный ответ — на дисплее, шаги — на цифрах.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                ExplanationCard(
+                    title = "Ваши решённые задачи",
+                    text = "Храните примеры по разделам и находите готовые решения во вкладке «Поиск».",
+                    details = "Документы и фото сохраняются во вкладке «Файлы». После разбора вы проверяете задачи и добавляете их сюда.\n\nЧтобы задать способ решения новой задачи, добавьте нужные примеры в «По образцу».",
                 )
             }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
-                        onClick = {
-                            if (templates.isEmpty()) {
-                                importInto = null
-                                transfer.import()
-                            } else choosing = AttachChoice.Import
-                        },
+                        onClick = onAddMaterial,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Icon(Icons.Outlined.FileOpen, contentDescription = null)
-                        Text("Загрузить из файла", modifier = Modifier.padding(start = 8.dp))
+                        Text("Добавить материал", modifier = Modifier.padding(start = 8.dp))
                     }
-                    OutlinedButton(onClick = { onEdit(null) }, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Filled.Add, contentDescription = null)
-                        Text("Вписать задачи вручную", modifier = Modifier.padding(start = 8.dp))
-                    }
-                    Text(
-                        "Файлы — как у шаблонов: ZIP и JSON из экспорта SmartCalc или Markdown: «# Тип задач», " +
-                            "дальше «## Задача 1», «### Условие», «### Решение». Строка «Ответ: …» в решении " +
-                            "попадёт на дисплей. Файл шаблонов тоже подходит.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
             }
             if (sections.isEmpty()) {
                 item {
                     Text(
-                        "В базе пока нет задач",
+                        "В библиотеке пока нет задач",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 8.dp),
@@ -210,7 +179,7 @@ fun LibraryScreen(
                     section = section,
                     canAttach = templates.isNotEmpty(),
                     onClick = { onEdit(section.id) },
-                    onAttach = { choosing = AttachChoice.Section(section) },
+                    onAttach = { choosing = section },
                 )
             }
         }
@@ -219,24 +188,11 @@ fun LibraryScreen(
     choosing?.let { choice ->
         AttachDialog(
             templates = templates,
-            // Загрузить можно и просто в базу; раздел, который уже в базе, — только к шаблону.
-            baseOnly = choice == AttachChoice.Import,
-            title = when (choice) {
-                AttachChoice.Import -> "Куда загрузить задачи"
-                is AttachChoice.Section -> "Прикрепить «${choice.section.name}» к шаблону"
-            },
+            title = "Добавить «${choice.name}» в образец",
             onDismiss = { choosing = null },
             onChoose = { templateId ->
                 choosing = null
-                when (choice) {
-                    AttachChoice.Import -> {
-                        importInto = templateId
-                        transfer.import()
-                    }
-                    is AttachChoice.Section -> if (templateId != null) {
-                        scope.launch { attach(templateId, choice.section.examples) }
-                    }
-                }
+                scope.launch { attach(templateId, choice.examples) }
             },
         )
     }
@@ -269,29 +225,25 @@ private fun SectionCard(section: TaskTemplate, canAttach: Boolean, onClick: () -
             }
             if (canAttach) {
                 IconButton(onClick = onAttach) {
-                    Icon(Icons.Outlined.Link, contentDescription = "Прикрепить к шаблону")
+                    Icon(Icons.Outlined.Link, contentDescription = "Добавить в образец")
                 }
             }
         }
     }
 }
 
-/**
- * Выбор шаблона, к которому прикрепить задачи. С [baseOnly] первый вариант — «Только в базу»:
- * задачи загрузятся без шаблона.
- */
+/** Выбор образца, в который будут скопированы задачи. */
 @Composable
 private fun AttachDialog(
     templates: List<TaskTemplate>,
-    baseOnly: Boolean,
     title: String,
     onDismiss: () -> Unit,
-    onChoose: (templateId: String?) -> Unit,
+    onChoose: (templateId: String) -> Unit,
 ) {
-    var selected by remember { mutableStateOf(if (baseOnly) null else templates.firstOrNull()?.id) }
+    var selected by remember { mutableStateOf(templates.firstOrNull()?.id) }
 
     @Composable
-    fun Option(id: String?, label: String) {
+    fun Option(id: String, label: String) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
@@ -310,19 +262,17 @@ private fun AttachDialog(
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 Text(
-                    "Прикреплённые задачи становятся примерами шаблона: ИИ получает их вместе с задачей по " +
-                        "этому шаблону. В поиске они остаются в базе.",
-                    style = MaterialTheme.typography.bodySmall,
+                    "Задачи будут скопированы в образец для решения новых задач. Изменения в библиотеке не обновляют эти копии.",
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
-                if (baseOnly) Option(null, "Только в базу")
-                templates.forEach { t -> Option(t.id, if (baseOnly) "В базу и к шаблону «${t.name}»" else "«${t.name}»") }
+                templates.forEach { t -> Option(t.id, "«${t.name}»") }
             }
         },
         confirmButton = {
-            TextButton(onClick = { onChoose(selected) }, enabled = baseOnly || selected != null) {
-                Text(if (baseOnly) "Выбрать файл" else "Прикрепить")
+            TextButton(onClick = { selected?.let(onChoose) }, enabled = selected != null) {
+                Text("Добавить копии")
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },

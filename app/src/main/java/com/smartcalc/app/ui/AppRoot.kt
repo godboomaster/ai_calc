@@ -55,6 +55,7 @@ object Routes {
     const val LIBRARY = "library"
     const val LIBRARY_EDIT = "library/section?id={id}"
     const val LIBRARY_FILES = "library/files"
+    const val LIBRARY_ADD = "library/add"
     const val LIBRARY_IMPORT = "library/import"
     const val LIBRARY_REVIEW = "library/review/{jobId}"
     const val LIBRARY_SOURCE = "library/source/{sourceId}?ordinal={ordinal}"
@@ -84,6 +85,13 @@ fun AppRoot(vm: SolutionViewModel = viewModel()) {
 private fun AppSession(vm: SolutionViewModel) {
     val nav = rememberNavController()
     val libraryVm: LibraryImportViewModel = viewModel()
+    fun libraryTab(route: String) {
+        nav.navigate(route) {
+            popUpTo(Routes.CALCULATOR) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
     val solution by vm.current.collectAsState()
     val shown by vm.shown.collectAsState()
     val solving by vm.solving.collectAsState()
@@ -195,7 +203,9 @@ private fun AppSession(vm: SolutionViewModel) {
                     vm = vm,
                     initialQuery = entry.arguments?.getString("q").orEmpty(),
                     onBack = { nav.popBackStack() },
-                    onOpenLibrary = { nav.navigate(Routes.LIBRARY) },
+                    onOpenLibrary = { libraryTab(Routes.LIBRARY) },
+                    onOpenFiles = { libraryTab(Routes.LIBRARY_FILES) },
+                    onAddMaterial = { nav.navigate(Routes.LIBRARY_ADD) },
                     onOpenSolution = ::backToCalculator,
                 )
             }
@@ -204,7 +214,9 @@ private fun AppSession(vm: SolutionViewModel) {
                     vm = vm,
                     onBack = { nav.popBackStack() },
                     onEdit = { id -> nav.navigate(Routes.libraryEdit(id)) },
-                    onFiles = { nav.navigate(Routes.LIBRARY_FILES) },
+                    onFiles = { libraryTab(Routes.LIBRARY_FILES) },
+                    onSearch = { libraryTab(Routes.search("")) },
+                    onAddMaterial = { nav.navigate(Routes.LIBRARY_ADD) },
                 )
             }
             composable(Routes.LIBRARY_FILES) {
@@ -212,7 +224,20 @@ private fun AppSession(vm: SolutionViewModel) {
                     onSelection = { nav.navigate(Routes.LIBRARY_IMPORT) },
                     onReview = { nav.navigate(Routes.libraryReview(it)) },
                     onSource = { id, ordinal -> nav.navigate(Routes.librarySource(id, ordinal)) },
-                    onCamera = { nav.navigate(Routes.LIBRARY_CAMERA) })
+                    onSearch = { libraryTab(Routes.search("")) },
+                    onTasks = { libraryTab(Routes.LIBRARY) },
+                    onAddMaterial = { nav.navigate(Routes.LIBRARY_ADD) })
+            }
+            composable(Routes.LIBRARY_ADD) {
+                AddLibraryMaterialScreen(vm, libraryVm,
+                    onBack = { nav.popBackStack() },
+                    onSelection = { nav.navigate(Routes.LIBRARY_IMPORT) },
+                    onCamera = { nav.navigate(Routes.LIBRARY_CAMERA) },
+                    onManual = { nav.navigate(Routes.libraryEdit(null)) },
+                    onCollectionImported = {
+                        nav.popBackStack()
+                        libraryTab(Routes.LIBRARY)
+                    })
             }
             composable(Routes.LIBRARY_IMPORT) {
                 ImportSelectionScreen(libraryVm, onBack = { nav.popBackStack() }, onReview = {

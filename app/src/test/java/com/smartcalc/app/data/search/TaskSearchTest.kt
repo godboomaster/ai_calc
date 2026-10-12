@@ -105,7 +105,7 @@ class TaskSearchTest {
         val fall = FoundSolution.of(TaskSearch.search(entries, "45").first().entry)
         assertEquals("3 с", fall.answer)
         assertEquals(2, fall.steps.size)
-        assertEquals("База · Кинематика", fall.source)
+        assertEquals("Библиотека · Кинематика", fall.source)
 
         val block = TaskSearch.search(entries, "ускорение бруска").first().entry
         assertTrue(block.condition.startsWith("Брусок"))

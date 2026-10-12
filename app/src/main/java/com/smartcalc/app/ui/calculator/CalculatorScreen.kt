@@ -491,16 +491,16 @@ fun CalculatorScreen(
                                     }
                                     ContextCaption(
                                         "Дополнение к ответу" +
-                                            (withTemplate?.let { " · шаблон «${it.name}»" } ?: ""),
+                                            (withTemplate?.let { " · образец «${it.name}»" } ?: ""),
                                         s.latestAnswer,
                                         onDrop = { followUp = false },
                                         compact = compactEditorContext,
                                     )
                                 } else if (template != null) {
                                     // Задача уйдёт вместе с шаблоном; ✕ — решать без него.
-                                    ContextCaption("Шаблон", template!!.name, onDrop = vm::disarmTemplate)
+                                    ContextCaption("Образец", template!!.name, onDrop = vm::disarmTemplate)
                                 } else if (format.isSet) {
-                                    DisplayCaption("Формат: ${format.summary}", maxLines = 1)
+                                    DisplayCaption("Оформление: ${format.summary}", maxLines = 1)
                                 }
                             }
                             InputField(
@@ -531,7 +531,7 @@ fun CalculatorScreen(
                             Text(
                                 text = when {
                                     preview != null -> "= $preview"
-                                    aiKeys && template != null -> "Шаблон «${template!!.name}»: прикрепите задачу"
+                                    aiKeys && template != null -> "Образец «${template!!.name}»: прикрепите задачу"
                                     aiKeys -> "Нажмите на строку, чтобы написать задачу"
                                     else -> " "
                                 },
@@ -620,10 +620,10 @@ fun CalculatorScreen(
                 '5' to AiAction("История", Icons.Outlined.History, onClick = onOpenHistory),
                 '6' to AiAction("Настройки", Icons.Outlined.Settings, onClick = onOpenSettings),
                 // Выбранный шаблон и заданный формат подсвечены: следующая задача пойдёт с ними.
-                '7' to AiAction("Шаблоны", Icons.Outlined.ContentCopy, highlighted = template != null, onClick = onOpenTemplates),
-                '8' to AiAction("Формат", Icons.Outlined.Tune, highlighted = format.isSet, onClick = onOpenFormat),
+                '7' to AiAction("По образцу", Icons.Outlined.ContentCopy, highlighted = template != null, onClick = onOpenTemplates),
+                '8' to AiAction("Оформление", Icons.Outlined.Tune, highlighted = format.isSet, onClick = onOpenFormat),
                 // Числа задачи можно набрать на калькуляторе до поиска — например, 12+3,5+40.
-                '9' to AiAction("Поиск", Icons.Outlined.Search) {
+                '9' to AiAction("Библиотека", Icons.Outlined.Search) {
                     onOpenSearch(if (!onDisplay && !evaluated) searchNumbers(expr) else "")
                 },
             )

@@ -42,6 +42,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.smartcalc.app.SolutionViewModel
 import com.smartcalc.app.data.template.TaskTemplate
+import com.smartcalc.app.ui.components.ExplanationCard
 
 /**
  * Шаблоны заданий. Нажатие на шаблон выбирает его для следующей задачи и возвращает на
@@ -62,7 +63,7 @@ fun TemplatesScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
-            title = { Text("Шаблоны заданий") },
+            title = { Text("По образцу") },
             navigationIcon = {
                 IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
@@ -72,7 +73,7 @@ fun TemplatesScreen(
                 if (templates.isNotEmpty()) {
                     Box {
                         IconButton(onClick = { exportMenu = true }) {
-                            Icon(Icons.Outlined.Share, contentDescription = "Экспорт всех шаблонов")
+                            Icon(Icons.Outlined.Share, contentDescription = "Экспорт всех образцов")
                         }
                         DropdownMenu(expanded = exportMenu, onDismissRequest = { exportMenu = false }) {
                             DropdownMenuItem(
@@ -99,12 +100,13 @@ fun TemplatesScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                Text(
-                    "Шаблон — примеры решённых задач одного типа и требования к ним. Выберите шаблон и " +
-                        "прикрепите новую задачу: ИИ получит шаблон вместе с ней и решит так же. " +
-                        "Шаблон действует на одну задачу.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                ExplanationCard(
+                    title = "Для одной новой задачи",
+                    text = "Образец задаёт метод решения через требования и примеры. " +
+                        "Выберите его, затем прикрепите новую задачу на калькуляторе.",
+                    details = "ИИ получит требования и примеры вместе с новой задачей. " +
+                        "Выбранный образец действует на одну задачу.\n\n" +
+                        "Общий вид и подробность ответов задаются в «Оформлении» и сохраняются до сброса.",
                 )
             }
             armed?.let { t ->
@@ -131,25 +133,27 @@ fun TemplatesScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { onEdit(null) }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Filled.Add, contentDescription = null)
-                        Text("Создать шаблон заданий", modifier = Modifier.padding(start = 8.dp))
+                        Text("Создать образец", modifier = Modifier.padding(start = 8.dp))
                     }
                     // Файл шаблонов — из экспорта на другом телефоне или присланный кем-то.
                     OutlinedButton(onClick = transfer.import, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Outlined.FileOpen, contentDescription = null)
                         Text("Импортировать из файла", modifier = Modifier.padding(start = 8.dp))
                     }
-                    Text(
-                        "Подходят ZIP и JSON из экспорта SmartCalc и Markdown (.md): «# Название», " +
-                            "«## Требования», «## Пример 1», «### Условие», «### Решение».",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ExplanationCard(
+                        title = "Образцы из файла",
+                        text = "Добавьте образцы, сохранённые в SmartCalc или подготовленные в текстовом файле.",
+                        details = "Подходят ZIP и JSON из экспорта SmartCalc.\n\n" +
+                            "В Markdown (.md) используйте заголовки: «# Название», «## Требования», " +
+                            "«## Пример 1», «### Условие», «### Решение».",
+                        detailsLabel = "Форматы файлов",
                     )
                 }
             }
             if (templates.isEmpty()) {
                 item {
                     Text(
-                        "Шаблонов пока нет",
+                        "Образцов пока нет. Создайте образец с требованиями и примером решения.",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 8.dp),
@@ -203,7 +207,7 @@ private fun TemplateCard(template: TaskTemplate, selected: Boolean, onClick: () 
                 )
             }
             IconButton(onClick = onEdit) {
-                Icon(Icons.Filled.Edit, contentDescription = "Изменить шаблон")
+                Icon(Icons.Filled.Edit, contentDescription = "Изменить образец")
             }
         }
     }

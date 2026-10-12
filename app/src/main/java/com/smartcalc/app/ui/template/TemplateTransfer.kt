@@ -99,7 +99,7 @@ internal fun rememberTemplateTransfer(
                 try {
                     val count = context.contentResolver.openOutputStream(uri)?.use { vm.exportTemplates(ids, it, format, kind) }
                         ?: throw IllegalStateException()
-                    toast(context, if (kind == TemplateKind.LIBRARY) "Сохранено разделов: $count" else "Сохранено шаблонов: $count")
+                    toast(context, if (kind == TemplateKind.LIBRARY) "Сохранено разделов: $count" else "Сохранено образцов: $count")
                 } catch (e: Exception) {
                     toast(context, "Не удалось сохранить файл")
                 }
@@ -123,7 +123,7 @@ internal fun rememberTemplateTransfer(
                 onImported?.invoke(result)
             } catch (e: TemplateImportException) {
                 // Сообщение про формат Markdown длинное — короткий тост его обрежет.
-                Toast.makeText(context, e.message ?: "Не удалось импортировать шаблоны", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, e.message ?: "Не удалось импортировать подборку", Toast.LENGTH_LONG).show()
             } catch (e: Exception) {
                 toast(context, "Не удалось открыть файл")
             }
@@ -216,12 +216,12 @@ private suspend fun shareFile(
         .setType(if (format == TemplateFormat.MARKDOWN) "text/plain" else format.mime)
         .putExtra(Intent.EXTRA_STREAM, uri)
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    context.startActivity(Intent.createChooser(send, if (kind == TemplateKind.LIBRARY) "Отправить задачи" else "Отправить шаблоны"))
+    context.startActivity(Intent.createChooser(send, if (kind == TemplateKind.LIBRARY) "Отправить задачи" else "Отправить образцы"))
 }
 
 private fun importMessage(r: ImportResult, kind: TemplateKind): String = when (kind) {
     TemplateKind.TEMPLATES -> listOfNotNull(
-        "Добавлено шаблонов: ${r.added}".takeIf { r.added > 0 },
+        "Добавлено образцов: ${r.added}".takeIf { r.added > 0 },
         "обновлено: ${r.updated}".takeIf { r.updated > 0 },
     ).joinToString(", ").replaceFirstChar { it.uppercase() }
     // В базе важнее число задач: раздел в файле обычно один.

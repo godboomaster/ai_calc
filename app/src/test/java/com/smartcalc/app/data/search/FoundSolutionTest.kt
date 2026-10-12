@@ -86,7 +86,7 @@ class FoundSolutionTest {
         assertEquals("/c1.jpg", s.imagePath)
         assertEquals(listOf("Условие на фото", "Решение"), s.steps.map { it.title })
         assertEquals(listOf("/s.jpg"), s.steps[1].images)
-        assertEquals("База · Геометрия", s.source)
+        assertEquals("Библиотека · Геометрия", s.source)
         // Та же задача — тот же id: повторное открытие не дублирует историю.
         assertEquals(s.id, FoundSolution.of(entry).id)
     }

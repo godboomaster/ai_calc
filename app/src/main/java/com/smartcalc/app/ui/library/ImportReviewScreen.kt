@@ -15,6 +15,7 @@ import com.smartcalc.app.data.library.source.SourceStatus
 import com.smartcalc.app.data.library.source.SegmentKind
 import com.smartcalc.app.data.library.source.SourceSegmentRef
 import com.smartcalc.app.data.library.extract.ExtractionWarning
+import com.smartcalc.app.ui.components.ExplanationCard
 
 @Composable fun ImportReviewScreen(vm: LibraryImportViewModel, jobId: String, onBack: () -> Unit,
     onSource: (String, Int) -> Unit) {
@@ -62,13 +63,17 @@ import com.smartcalc.app.data.library.extract.ExtractionWarning
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
                 Text(job.status.label, style = MaterialTheme.typography.titleMedium)
-                Text("Запросов в партии: ${job.postsUsed}/10 · Черновиков: ${job.drafts.size}")
+                Text("Задач: ${job.drafts.size}", style = MaterialTheme.typography.bodyMedium)
                 job.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-                Text("Проверьте условие, авторское решение, ответ и границы. Подтверждение разбора не означает математической проверки.", style = MaterialTheme.typography.bodySmall)
+                ExplanationCard(
+                    title = "Сверьте с оригиналом",
+                    text = "Проверьте условие, решение и ответ. Убедитесь, что части каждой задачи собраны вместе.",
+                    details = "Подтверждение разбора не означает проверки правильности решения. Добавленные задачи получают отметку «Не проверено».\n\nЗапросов за этот запуск: ${job.postsUsed}/10.",
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (busy) TextButton(onClick = { vm.cancel(jobId) }) { Text("Остановить") }
-                    else TextButton(onClick = { vm.process(jobId) }) { Text(if (job.status == ImportStatus.FAILED || job.status == ImportStatus.INTERRUPTED) "Повторить обработку" else "Продолжить") }
+                    else TextButton(onClick = { vm.process(jobId) }) { Text(if (job.status == ImportStatus.FAILED || job.status == ImportStatus.INTERRUPTED) "Повторить обработку" else "Продолжить разбор") }
                     if (!busy) TextButton(onClick = { vm.addDraft(jobId) }) { Text("Новый черновик") }
                 }
                 if (edits.keys.any { id -> job.drafts.any { it.id == id } }) Text("Сохраняю правки…", style = MaterialTheme.typography.bodySmall)
@@ -78,12 +83,18 @@ import com.smartcalc.app.data.library.extract.ExtractionWarning
                 val published = draft.id in job.publishedDraftIds
                 val enabled = !busy && !published
                 Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Checkbox(checked = draft.id in selectedDraftIds, enabled = enabled && !draft.excluded,
                                 onCheckedChange = { chosen -> selected = if (chosen) selected + draft.id else selected - draft.id })
                             Text(if (published) "Добавлено в библиотеку" else "Задача ${drafts.indexOf(draft) + 1}", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
                         }
+                        draft.warnings.forEach { warning -> Text(warning.detail,
+                            color = if (warning.blocking) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium) }
+                        if (draft.warnings.any { it.blocking } && enabled) TextButton(onClick = {
+                            vm.edit(jobId, draft.copy(warnings = draft.warnings.map { it.copy(blocking = false) }))
+                        }) { Text("Замечания исправлены, границы проверены") }
                         OutlinedTextField(value = draft.condition, onValueChange = { vm.edit(jobId, draft.copy(condition = it)) },
                             label = { Text("Условие") }, enabled = enabled, modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 7)
                         com.smartcalc.app.ui.solution.StepImages(draft.conditionImages)
@@ -109,12 +120,6 @@ import com.smartcalc.app.data.library.extract.ExtractionWarning
                                 if (old.answer.isNotBlank()) { Text("Прежний ответ"); com.smartcalc.app.ui.math.MathText(old.answer) }
                             }
                         }
-                        draft.warnings.forEach { warning -> Text(warning.detail,
-                            color = if (warning.blocking) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall) }
-                        if (draft.warnings.any { it.blocking } && enabled) TextButton(onClick = {
-                            vm.edit(jobId, draft.copy(warnings = draft.warnings.map { it.copy(blocking = false) }))
-                        }) { Text("Замечания исправлены, границы проверены") }
                         Text("Ссылки на оригинал", style = MaterialTheme.typography.labelLarge)
                         val permitted = (job.segments.map { it.ref } + draft.refs).distinct()
                         permitted.forEach { ref ->

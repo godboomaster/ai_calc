@@ -225,7 +225,7 @@ fun SolutionScreen(
                     Text(
                         listOfNotNull(
                             s.source,
-                            s.template?.let { "По шаблону «$it»" },
+                            s.template?.let { "По образцу «$it»" },
                             s.format?.let { "В вашем формате · $it" },
                         ).joinToString(" · "),
                         style = MaterialTheme.typography.labelLarge,
@@ -242,7 +242,7 @@ fun SolutionScreen(
                     SolutionBlock(
                         expanded = questionKey !in collapsed,
                         onToggle = { toggleBlock(questionKey) },
-                        label = "Дополнение $group" + (f.template?.let { " · по шаблону «$it»" } ?: ""),
+                        label = "Дополнение $group" + (f.template?.let { " · по образцу «$it»" } ?: ""),
                     ) {
                         MathText(f.question, fontSize = 17.sp)
                     }

@@ -60,6 +60,7 @@ import com.smartcalc.app.data.DocumentReader
 import com.smartcalc.app.data.ImageUtils
 import com.smartcalc.app.data.template.ImageDraft
 import com.smartcalc.app.data.template.TemplateKind
+import com.smartcalc.app.ui.components.ExplanationCard
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.io.File
@@ -75,6 +76,7 @@ private class EditorWords(
     val namePlaceholder: String,
     val examplesTitle: String,
     val examplesHint: String,
+    val examplesDetails: String,
     val example: String,
     val solutionPlaceholder: String,
     val addExample: String,
@@ -87,33 +89,39 @@ private class EditorWords(
 
 private fun wordsFor(kind: TemplateKind) = when (kind) {
     TemplateKind.TEMPLATES -> EditorWords(
-        title = "Шаблон заданий",
-        newTitle = "Новый шаблон",
-        nameLabel = "Название",
+        title = "Образец решения",
+        newTitle = "Новый образец",
+        nameLabel = "Название образца",
         namePlaceholder = "Например: устойчивость по Гурвицу",
         examplesTitle = "Примеры решённых задач",
-        examplesHint = "Условие и решение — текстом, фото или документом. Всё это уходит ИИ вместе с каждой задачей " +
-            "по шаблону, поэтому одного-двух хороших примеров обычно хватает.",
+        examplesHint = "Добавьте условие и решение текстом, фото или документом. " +
+            "Один-два понятных примера покажут нужный метод решения.",
+        examplesDetails = "Требования и примеры отправляются ИИ вместе с одной новой задачей, " +
+            "для которой выбран этот образец.\n\n" +
+            "Общие настройки структуры и подробности ответов находятся в «Оформлении».",
         example = "Пример",
         solutionPlaceholder = "Как такую задачу нужно решить",
         addExample = "Добавить пример",
         removeExample = "Удалить пример",
-        exportTitle = "Экспорт шаблона",
-        delete = "Удалить шаблон",
-        lostChanges = "Изменения в шаблоне пропадут.",
+        exportTitle = "Экспорт образца",
+        delete = "Удалить образец",
+        lostChanges = "Изменения в образце пропадут.",
         deleteDetails = "Его примеры и фото удалятся с телефона.",
     )
     TemplateKind.LIBRARY -> EditorWords(
-        title = "Раздел базы задач",
+        title = "Раздел библиотеки",
         newTitle = "Новый раздел",
-        nameLabel = "Тип задач",
+        nameLabel = "Название раздела",
         namePlaceholder = "Например: кинематика, 9 класс",
         examplesTitle = "Решённые задачи",
-        examplesHint = "Условие и решение — текстом, фото или документом. Поиск (клавиша 9 в режиме ИИ) находит " +
-            "их по числам и словам условия. Строка «Ответ: …» в решении попадёт на дисплей, пункты «1)», «2)» " +
-            "или абзацы — на цифры.",
+        examplesHint = "Сохраните условие, решение и ответ. «Библиотека» на калькуляторе " +
+            "находит готовые задачи по числам и словам условия.",
+        examplesDetails = "Условие и решение можно добавить текстом, фото или документом. " +
+            "Ответ укажите в отдельном поле.\n\n" +
+            "Если отдельный ответ не указан, строка «Ответ: …» в решении попадёт на дисплей. " +
+            "Пункты «1)», «2)» или абзацы решения доступны на цифровых клавишах.",
         example = "Задача",
-        solutionPlaceholder = "Решение, в конце — «Ответ: …»",
+        solutionPlaceholder = "Текст готового решения",
         addExample = "Добавить задачу",
         removeExample = "Удалить задачу",
         exportTitle = "Экспорт раздела",
@@ -268,22 +276,17 @@ fun TemplateEditScreen(
                         requirements = it
                         dirty = true
                     },
-                    label = { Text("Требования к таким задачам") },
+                    label = { Text("Метод и требования к решению") },
                     placeholder = { Text("Например: решать методом Гурвица, в конце — вывод об устойчивости") },
                     minLines = 3,
                     enabled = !saving && !reading,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-            Text(
-                words.examplesTitle,
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Text(
-                words.examplesHint,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            ExplanationCard(
+                title = words.examplesTitle,
+                text = words.examplesHint,
+                details = words.examplesDetails,
             )
             examples.forEachIndexed { index, example ->
                 Card(modifier = Modifier.fillMaxWidth()) {
