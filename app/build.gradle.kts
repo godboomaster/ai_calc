@@ -20,7 +20,7 @@ android {
     buildToolsVersion = "35.0.0"
 
     defaultConfig {
-        applicationId = "com.smartcalc.app"
+        applicationId = if (providers.gradleProperty("isolatedDeviceCheck").isPresent) "com.smartcalc.app.importcheck" else "com.smartcalc.app"
         minSdk = 26
         targetSdk = 35
         versionCode = appVersionCode

@@ -4,3 +4,5 @@ docs/library-quality/fixtures/*.pdf binary
 docs/library-quality/fixtures/*.docx binary
 docs/library-quality/fixtures/*.doc binary
 docs/library-quality/fixtures/i02-cp1251.txt binary
+app/src/androidTest/assets/library-import/* -text
+app/src/androidTest/assets/library-import/*.pdf binary

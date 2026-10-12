@@ -20,8 +20,8 @@ object ImageUtils {
     private const val MAX_SIDE = 1568
     private const val JPEG_QUALITY = 85
 
-    suspend fun compressFile(path: String): ByteArray = withContext(Dispatchers.IO) {
-        compressSource { File(path).inputStream() }
+    suspend fun compressFile(path: String, maxPixels: Int? = null): ByteArray = withContext(Dispatchers.IO) {
+        compressSource(maxPixels) { File(path).inputStream() }
     }
 
     suspend fun compressUri(context: Context, uri: Uri): ByteArray = withContext(Dispatchers.IO) {
@@ -31,11 +31,16 @@ object ImageUtils {
         }
     }
 
-    private fun compressSource(open: () -> InputStream): ByteArray {
+    private fun compressSource(maxPixels: Int? = null, open: () -> InputStream): ByteArray {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         open().use { BitmapFactory.decodeStream(it, null, bounds) }
         val options = BitmapFactory.Options().apply {
             inSampleSize = imageDecodeSampleSize(bounds.outWidth, bounds.outHeight, MAX_SIDE)
+            if (maxPixels != null) {
+                require(maxPixels > 0)
+                while (((bounds.outWidth + inSampleSize - 1) / inSampleSize).toLong() *
+                    ((bounds.outHeight + inSampleSize - 1) / inSampleSize) > maxPixels) inSampleSize *= 2
+            }
             inPreferredConfig = Bitmap.Config.ARGB_8888
         }
         val orientation = try {
