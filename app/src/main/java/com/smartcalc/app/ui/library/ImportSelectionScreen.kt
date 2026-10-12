@@ -29,7 +29,7 @@ import kotlinx.coroutines.CancellationException
             ranges = HashMap(ranges).apply { counts.forEach { (id, count) -> if (id !in this) put(id, "1-${minOf(count, 100)}") } }
         } catch (_: Exception) { error = "Не удалось прочитать источник. Защищённый PDF и старый DOC нужно сохранить доступной копией." }
     }
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().imePadding()) {
         LibraryHeader("Подготовка задач", onBack)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Проверьте диапазон и порядок файлов. Необработанная часть оригинала остаётся доступной.")

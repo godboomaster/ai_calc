@@ -45,7 +45,7 @@ import com.smartcalc.app.data.library.extract.ExtractionWarning
             selected = selected.filter { it in allowed }
         }
     }
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().imePadding()) {
         LibraryHeader("Проверка разбора", ::back)
         LibraryError(catalog.error ?: error, vm::clearError)
         if (job == null) { Text("Разбор недоступен", modifier = Modifier.padding(16.dp)); return@Column }
