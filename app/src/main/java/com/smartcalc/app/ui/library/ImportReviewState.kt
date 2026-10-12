@@ -6,8 +6,12 @@ import com.smartcalc.app.data.library.extract.PageSelection
 data class ImportReviewState(val drafts: List<ImportDraft>, val selectedIds: Set<String>,
     val publishedIds: Set<String> = emptySet(), val busy: Boolean = false,
     val repeatRequired: Boolean = false, val repeatConfirmed: Boolean = false) {
+    private val selectedDrafts: List<ImportDraft> get() = drafts.filter { it.id in selectedIds && it.id !in publishedIds && !it.excluded }
+    // Split/merge replace IDs; removed drafts must never count or reach an action.
+    val selectedDraftIds: Set<String> get() = selectedDrafts.mapTo(linkedSetOf()) { it.id }
+    val canMerge: Boolean get() = !busy && selectedDrafts.size >= 2
     val canPublish: Boolean get() {
-        val selected = drafts.filter { it.id in selectedIds && it.id !in publishedIds }
+        val selected = selectedDrafts
         return !busy && (!repeatRequired || repeatConfirmed) && selected.isNotEmpty() && selected.all { !it.excluded && it.condition.isNotBlank() &&
             (it.solution.isNotBlank() || it.answer.isNotBlank()) && it.refs.isNotEmpty() && it.warnings.none { warning -> warning.blocking } }
     }

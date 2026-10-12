@@ -21,6 +21,30 @@ class ImportReviewStateTest {
         assertFalse(ImportReviewState(listOf(draft.copy(condition = "")), setOf(draft.id)).canPublish)
         assertFalse(ImportReviewState(listOf(draft), setOf(draft.id), publishedIds = setOf(draft.id)).canPublish)
     }
+    @Test fun removedDraftIdsDoNotCountAfterSplitAndMerge() {
+        val first = draft.copy(id = UUID.randomUUID().toString())
+        val second = draft.copy(id = UUID.randomUUID().toString())
+        val split = ImportReviewState(listOf(first, second), setOf(draft.id, first.id))
+        assertEquals(setOf(first.id), split.selectedDraftIds)
+        assertFalse(split.canMerge)
+        val both = split.copy(selectedIds = split.selectedIds + second.id)
+        assertEquals(2, both.selectedDraftIds.size)
+        assertTrue(both.canMerge)
+        val merged = draft.copy(id = UUID.randomUUID().toString())
+        val stale = both.copy(drafts = listOf(merged))
+        assertTrue(stale.selectedDraftIds.isEmpty())
+        assertFalse(stale.canMerge)
+        assertFalse(stale.canPublish)
+        assertEquals(setOf(merged.id), stale.copy(selectedIds = stale.selectedIds + merged.id).selectedDraftIds)
+    }
+    @Test fun excludedAndPublishedDraftsCannotReachReviewActions() {
+        val excluded = draft.copy(id = UUID.randomUUID().toString(), excluded = true)
+        val published = draft.copy(id = UUID.randomUUID().toString())
+        val state = ImportReviewState(listOf(draft, excluded, published), setOf(draft.id, excluded.id, published.id), setOf(published.id))
+        assertEquals(setOf(draft.id), state.selectedDraftIds)
+        assertFalse(state.canMerge)
+        assertTrue(state.canPublish)
+    }
     @Test fun repeatedSourceRequiresComparisonAcknowledgementAndKeepsLocalEditsVisible() {
         val previous = TemplateExample("Locally corrected", solution = "Local solution", answer = "43",
             library = LibraryMetadata(id = UUID.randomUUID().toString(), sourceRefs = listOf(ref)))

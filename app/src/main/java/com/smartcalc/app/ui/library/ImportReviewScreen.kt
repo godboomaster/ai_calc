@@ -39,6 +39,12 @@ import com.smartcalc.app.data.library.extract.ExtractionWarning
         }
         if (name.isEmpty()) name = job?.sourceIds?.firstOrNull()?.let { vm.source(it)?.name?.substringBeforeLast('.') }.orEmpty()
     }
+    LaunchedEffect(job?.drafts?.map { it.id to it.excluded }, job?.publishedDraftIds) {
+        job?.let { current ->
+            val allowed = current.drafts.filterNot { it.excluded || it.id in current.publishedDraftIds }.map { it.id }.toSet()
+            selected = selected.filter { it in allowed }
+        }
+    }
     Column(Modifier.fillMaxSize()) {
         LibraryHeader("Проверка разбора", ::back)
         LibraryError(catalog.error ?: error, vm::clearError)
@@ -46,9 +52,11 @@ import com.smartcalc.app.data.library.extract.ExtractionWarning
         val busy = job.busy || actionBusy
         val drafts = job.drafts.map { edits[it.id] ?: it }
         val comparisons = drafts.associate { it.id to comparableExamples(it, library, jobId) }
-        val repeatRequired = drafts.any { it.id in selected && it.id !in job.publishedDraftIds && comparisons[it.id].orEmpty().isNotEmpty() }
-        val review = ImportReviewState(drafts, selected.toSet(), job.publishedDraftIds, busy, repeatRequired, repeatConfirmed)
-        val sourceAvailable = sources.error == null && drafts.filter { it.id in selected }.all { draft ->
+        val baseReview = ImportReviewState(drafts, selected.toSet(), job.publishedDraftIds, busy)
+        val repeatRequired = baseReview.selectedDraftIds.any { comparisons[it].orEmpty().isNotEmpty() }
+        val review = baseReview.copy(repeatRequired = repeatRequired, repeatConfirmed = repeatConfirmed)
+        val selectedDraftIds = review.selectedDraftIds
+        val sourceAvailable = sources.error == null && drafts.filter { it.id in selectedDraftIds }.all { draft ->
             draft.refs.all { ref -> sources.sources.firstOrNull { it.id == ref.sourceId }?.status == SourceStatus.ACTIVE }
         }
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -72,7 +80,7 @@ import com.smartcalc.app.data.library.extract.ExtractionWarning
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(checked = draft.id in selected, enabled = enabled && !draft.excluded,
+                            Checkbox(checked = draft.id in selectedDraftIds, enabled = enabled && !draft.excluded,
                                 onCheckedChange = { chosen -> selected = if (chosen) selected + draft.id else selected - draft.id })
                             Text(if (published) "Добавлено в библиотеку" else "Задача ${drafts.indexOf(draft) + 1}", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
                         }
@@ -130,7 +138,7 @@ import com.smartcalc.app.data.library.extract.ExtractionWarning
                 }
             }
             item {
-                TextButton(onClick = { vm.merge(jobId, selected) }, enabled = !busy && selected.size >= 2) { Text("Объединить выбранные") }
+                TextButton(onClick = { vm.merge(jobId, selectedDraftIds.toList()) }, enabled = review.canMerge) { Text("Объединить выбранные") }
                 Box {
                     TextButton(onClick = { menu = true }) { Text(sectionId?.let { id -> library.firstOrNull { it.id == id }?.name } ?: "Новый раздел ▾") }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -144,8 +152,8 @@ import com.smartcalc.app.data.library.extract.ExtractionWarning
                     Checkbox(checked = repeatConfirmed, onCheckedChange = { repeatConfirmed = it }, enabled = !busy)
                     Text("Сравнил прежние задачи. Добавить выбранные как новые, сохранив прежние правки.", style = MaterialTheme.typography.bodySmall)
                 }
-                Button(onClick = { vm.publish(jobId, selected, sectionId, name) },
-                    enabled = review.canPublish && sourceAvailable && name.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Добавить выбранные (${selected.size})") }
+                Button(onClick = { vm.publish(jobId, selectedDraftIds.toList(), sectionId, name) },
+                    enabled = review.canPublish && sourceAvailable && name.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Добавить выбранные (${selectedDraftIds.size})") }
             }
         }
     }
