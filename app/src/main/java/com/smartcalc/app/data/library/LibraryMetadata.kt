@@ -1,6 +1,7 @@
 package com.smartcalc.app.data.library
 
 import kotlinx.serialization.Serializable
+import com.smartcalc.app.data.library.source.SourceSegmentRef
 
 const val LIBRARY_METADATA_SCHEMA_VERSION = 1
 
@@ -13,6 +14,7 @@ data class LibraryMetadata(
     val verification: LibraryVerification = LibraryVerification.UNVERIFIED,
     val enabled: Boolean = true,
     val previousVersions: List<LibraryRevision> = emptyList(),
+    val sourceRefs: List<SourceSegmentRef> = emptyList(),
 )
 
 @Serializable
@@ -35,4 +37,5 @@ data class LibraryRevision(
     val solution: String,
     val solutionImages: List<String>,
     val verification: LibraryVerification,
+    val sourceRefs: List<SourceSegmentRef> = emptyList(),
 )

@@ -319,6 +319,7 @@ class TemplateStore(private val root: File, val kind: TemplateKind = TemplateKin
             solution = old.solution,
             solutionImages = old.solutionImages,
             verification = previous.verification,
+            sourceRefs = previous.sourceRefs,
         )
         return previous.copy(
             version = previous.version + 1,

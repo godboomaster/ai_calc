@@ -1,0 +1,6 @@
+# Preserve source bytes and fixture SHA256 across Windows/Linux checkouts.
+docs/library-quality/fixtures/* -text
+docs/library-quality/fixtures/*.pdf binary
+docs/library-quality/fixtures/*.docx binary
+docs/library-quality/fixtures/*.doc binary
+docs/library-quality/fixtures/i02-cp1251.txt binary

@@ -1,0 +1,274 @@
+{
+  "version": 1,
+  "provenance": "Synthetic repository fixtures; no user documents or provider responses",
+  "files": [
+    {
+      "path": "i01-utf8.txt",
+      "sha256": "ad7df18e1344dc93ee02b79438d55182073a1c9872f8515b2f27ad7028ae519b",
+      "format": "txt"
+    },
+    {
+      "path": "i02-cp1251.txt",
+      "sha256": "834b91b8422e3ca009e8064f83e77f3b557e4d39d87a237dbdb4c6ea55c3bc32",
+      "format": "txt"
+    },
+    {
+      "path": "i03-two-pages.pdf",
+      "sha256": "3357ff326597b7f1a27e1962ab68b99eaf9cba7ee3b71e5dbacbfc37e56258da",
+      "format": "pdf"
+    },
+    {
+      "path": "i04-scan.pdf",
+      "sha256": "6bb2a33ddcae8db8203ace70d81ac64bc0fd89c70f08c478bd485c661e671476",
+      "format": "pdf"
+    },
+    {
+      "path": "i05-formulas.docx",
+      "sha256": "9007c914689a366b96ec8e377b0f65412f2efcc98aadab296809a8baf1744c17",
+      "format": "docx"
+    },
+    {
+      "path": "i06-tilted.jpg",
+      "sha256": "c06d5090162d18ae9c3c23146467fcd630c28c08d7fd232191e119b7a78587cd",
+      "format": "jpg"
+    },
+    {
+      "path": "i07-unclear.png",
+      "sha256": "23267917d1ca1f483d89be75feea14af40058b076b07bcffbff97c72254fdfb1",
+      "format": "png"
+    },
+    {
+      "path": "i08-six-pages.pdf",
+      "sha256": "f6befbbed5791f43e39e3f52db4bdfaaf196fc5e4ba7a3a472ee5e51134171c0",
+      "format": "pdf"
+    },
+    {
+      "path": "i11-wrong-answer.txt",
+      "sha256": "c0546f8cc8684a1a4be68a1e5561ed1c6f7f868b9a2dd9636ffdc8f40eab006e",
+      "format": "txt"
+    },
+    {
+      "path": "i12-instruction.txt",
+      "sha256": "cb7b7fefdd3b67ca86724b6fc03412efec215c02d4f327c53b85a102d01e8645",
+      "format": "txt"
+    },
+    {
+      "path": "i13-legacy.doc",
+      "sha256": "0e6f6a29bb101e7e351107eb5846a683f69f7ee33952e5dc701dc32256df183e",
+      "format": "doc"
+    },
+    {
+      "path": "i13-protected.pdf",
+      "sha256": "99801a5520e6ad8d170fd87a9dfbd22835353543709e9433b357b24f8bbca631",
+      "format": "pdf"
+    },
+    {
+      "path": "i14-boundaries.pdf",
+      "sha256": "c9b1c737e7acf4bc4f628376479bd24d7c4b3c5b670ccb92d01bff2fb5dd0003",
+      "format": "pdf"
+    }
+  ],
+  "cases": [
+    {
+      "id": "I01",
+      "files": [
+        "i01-utf8.txt"
+      ],
+      "expected_examples": [
+        "E01",
+        "E02"
+      ],
+      "expected_ordinals": [
+        1
+      ],
+      "expectation": "Две задачи, разные искомые величины"
+    },
+    {
+      "id": "I02",
+      "files": [
+        "i02-cp1251.txt"
+      ],
+      "expected_examples": [
+        "E07"
+      ],
+      "expected_ordinals": [
+        1
+      ],
+      "expectation": "Windows-1251 и обе черты модуля"
+    },
+    {
+      "id": "I03",
+      "files": [
+        "i03-two-pages.pdf"
+      ],
+      "expected_examples": [
+        "E06"
+      ],
+      "expected_ordinals": [
+        1,
+        2
+      ],
+      "expectation": "Одна задача на страницах 1 и 2"
+    },
+    {
+      "id": "I04",
+      "files": [
+        "i04-scan.pdf"
+      ],
+      "expected_examples": [
+        "E06"
+      ],
+      "expected_ordinals": [
+        1,
+        2
+      ],
+      "expectation": "Одна задача на растровых страницах 1 и 2"
+    },
+    {
+      "id": "I05",
+      "files": [
+        "i05-formulas.docx"
+      ],
+      "expected_examples": [
+        "E05",
+        "E06"
+      ],
+      "expected_ordinals": [
+        1
+      ],
+      "expectation": "OMML и таблица сохраняются либо явно требуют проверки"
+    },
+    {
+      "id": "I06",
+      "files": [
+        "i06-tilted.jpg"
+      ],
+      "expected_examples": [
+        "E01",
+        "E08"
+      ],
+      "expected_ordinals": [
+        1
+      ],
+      "expectation": "Две задачи под наклоном"
+    },
+    {
+      "id": "I07",
+      "files": [
+        "i07-unclear.png"
+      ],
+      "expected_examples": [
+        "E04"
+      ],
+      "expected_ordinals": [
+        1
+      ],
+      "expectation": "Нечитаемый знак требует уточнения; пример выключен"
+    },
+    {
+      "id": "I08",
+      "files": [
+        "i08-six-pages.pdf"
+      ],
+      "expected_examples": [
+        "E01",
+        "E02",
+        "E03",
+        "E04",
+        "E05",
+        "E06"
+      ],
+      "expected_ordinals": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "expectation": "Все шесть страниц доступны"
+    },
+    {
+      "id": "I09",
+      "files": [
+        "i03-two-pages.pdf"
+      ],
+      "expected_examples": [
+        "E06"
+      ],
+      "expected_ordinals": [
+        1,
+        2
+      ],
+      "expectation": "Повтор SHA256 не заменяет локальные исправления"
+    },
+    {
+      "id": "I10",
+      "files": [
+        "i04-scan.pdf"
+      ],
+      "expected_examples": [
+        "E06"
+      ],
+      "expected_ordinals": [
+        1,
+        2
+      ],
+      "expectation": "Обрыв/неизвестный POST не запускает скрытый повтор"
+    },
+    {
+      "id": "I11",
+      "files": [
+        "i11-wrong-answer.txt"
+      ],
+      "expected_examples": [
+        "E12"
+      ],
+      "expected_ordinals": [
+        1
+      ],
+      "expectation": "Ошибка автора сохранена, математическая проверка не выставлена"
+    },
+    {
+      "id": "I12",
+      "files": [
+        "i12-instruction.txt"
+      ],
+      "expected_examples": [
+        "E01"
+      ],
+      "expected_ordinals": [
+        1
+      ],
+      "expectation": "Инструкция внутри материала остаётся данными"
+    },
+    {
+      "id": "I13",
+      "files": [
+        "i13-protected.pdf",
+        "i13-legacy.doc"
+      ],
+      "expected_examples": [],
+      "expected_ordinals": [
+        1
+      ],
+      "expectation": "Защищённый PDF и DOC отклоняются; oversized ZIP генерируется потоково в тесте"
+    },
+    {
+      "id": "I14",
+      "files": [
+        "i14-boundaries.pdf"
+      ],
+      "expected_examples": [
+        "E01",
+        "E02",
+        "E06"
+      ],
+      "expected_ordinals": [
+        1,
+        2
+      ],
+      "expectation": "Две задачи на первой странице и продолжение третьей на второй"
+    }
+  ]
+}
