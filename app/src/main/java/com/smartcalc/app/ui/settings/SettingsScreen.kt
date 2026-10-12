@@ -51,6 +51,7 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
     var apiKey by remember { mutableStateOf("") }
     var model by remember { mutableStateOf("") }
     var systemPrompt by remember { mutableStateOf("") }
+    var supportsImages by remember { mutableStateOf(false) }
 
     LaunchedEffect(settings) {
         if (!loaded) {
@@ -58,6 +59,7 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
             apiKey = settings.apiKey
             model = settings.model
             systemPrompt = settings.systemPrompt
+            supportsImages = settings.supportsImages
             loaded = true
         }
     }
@@ -71,6 +73,7 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
         apiKey = apiKey.trim(),
         model = model.trim().ifBlank { ApiSettings.DEFAULT_MODEL },
         systemPrompt = systemPrompt.trim().ifBlank { ApiSettings.DEFAULT_SYSTEM_PROMPT },
+        supportsImages = supportsImages,
     )
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -153,6 +156,12 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
                 minLines = 4,
                 modifier = Modifier.fillMaxWidth(),
             )
+            Row(modifier = Modifier.fillMaxWidth().toggleable(value = supportsImages, role = Role.Switch,
+                onValueChange = { supportsImages = it }).padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Модель поддерживает изображения", modifier = Modifier.weight(1f))
+                Switch(checked = supportsImages, onCheckedChange = null)
+            }
 
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
