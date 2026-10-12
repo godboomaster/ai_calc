@@ -29,6 +29,43 @@ class LibraryImportControllerTest {
             put("content", """{"drafts":[{"condition":"Condition $id","solution":"Author solution","answer":"2","segment_ids":["$id"]}],"carry":null}""")
         } }) }
     }.toString())
+    @Test fun partialCheckpointKeepsOmittedCarryEditableAndBlocksPublicationWithoutAnotherPost() = runBlocking {
+        val root = temp.newFolder(); val sources = LibrarySourceStore(File(root, "sources"))
+        val src = sources.copy(SourceInput("raw.txt", "text/plain") { "Raw".byteInputStream() }).source
+        val earlierImage = File(root, "sources/earlier.png").absolutePath
+        val previous = ExtractedSegment(SourceSegmentRef(src.id, "${src.id}:block:1", SegmentKind.DOCUMENT_BLOCK, 1),
+            "previous original", listOf(earlierImage))
+        val next = ExtractedSegment(previous.ref.copy(segmentId = "${src.id}:block:2", ordinal = 2), "next original")
+        val carry = RecognitionCarry("Полное условие и начало решения", listOf(previous.ref))
+        val batch = RecognitionBatch(listOf(next), carry)
+        val journal = LibraryImportJournal(File(root, "imports")); val id = UUID.randomUUID().toString()
+        journal.save(ImportJob(id, listOf(src.id), mapOf(src.id to PageSelection(listOf(1, 2))),
+            status = ImportStatus.RECOGNIZING, segments = listOf(previous, next), processedSegmentIds = setOf(previous.ref.segmentId),
+            carry = carry, activeBatch = batch, inFlightPost = PostAttempt(1, listOf(next.ref.segmentId))))
+        journal.checkpointResponse(id, response(next.ref.segmentId))
+        journal.update(id) { it.copy(status = ImportStatus.INTERRUPTED) }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val controller = LibraryImportController(sources, journal, DocumentExtractor(sources), DocumentRecognizer(object : RecognitionTransport {
+                override suspend fun post(settings: ApiSettings, body: JsonObject) = error("saved checkpoint must not post again")
+            }), fakePublisher, { ApiSettings() }, scope)
+            controller.process(id)
+            withTimeout(3000) { journal.jobs.first { it.jobs.single().status == ImportStatus.REVIEW_REQUIRED } }
+            val job = journal.jobs.value.jobs.single()
+            assertEquals(2, job.drafts.size)
+            assertEquals(setOf(previous.ref.segmentId, next.ref.segmentId), job.processedSegmentIds)
+            assertEquals(0, job.postsUsed)
+            assertNull(job.carry)
+            val recovery = job.drafts.single { previous.ref in it.refs }
+            assertEquals(carry.text, recovery.condition)
+            assertEquals(listOf(earlierImage), recovery.conditionImages)
+            controller.saveDraft(id, recovery.copy(solution = "User supplied solution"), recovery.revision)
+            try { controller.publish(id, listOf(recovery.id), null, "Recovered"); fail("unconfirmed recovery must be blocked") }
+            catch (_: IllegalArgumentException) { }
+            assertEquals(ImportStatus.REVIEW_REQUIRED, journal.jobs.value.jobs.single().status)
+            assertTrue(journal.jobs.value.jobs.single().publishedDraftIds.isEmpty())
+        } finally { scope.cancel() }
+    }
     @Test fun explicitRetryCanReplaceFailedOrMalformedCheckpointWithANewPost() = runBlocking {
         for (failed in listOf(RecognitionHttpResponse(429, "rate limit"), RecognitionHttpResponse(200, "malformed"))) {
             val root = temp.newFolder(); val sources = LibrarySourceStore(File(root, "sources"))

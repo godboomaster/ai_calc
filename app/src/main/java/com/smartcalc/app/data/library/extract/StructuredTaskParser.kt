@@ -4,6 +4,8 @@ import com.smartcalc.app.data.library.source.SourceSegmentRef
 
 object StructuredTaskParser {
     private val taskHeading = Regex("^(?:#{1,3}\\s*)?(?:задача|пример)\\s+(.+)$", RegexOption.IGNORE_CASE)
+    private val taskNumber = Regex("^(?:№\\s*)?(?:\\d+(?:[.-]\\d+)*|[A-Za-zА-Яа-я]+\\d+)(?:[.)]|\\s*[:—–-])?(?:\\s+|$)(.*)$")
+    private val continuation = Regex("^(?:\\(\\s*продолжение\\s*\\)|продолжение)\\s*[:.—–-]?\\s*(.*)$", RegexOption.IGNORE_CASE)
     private val fieldHeading = Regex("^(?:#{1,3}\\s*)?(условие|решение|ответ)\\s*:?\\s*(.*)$", RegexOption.IGNORE_CASE)
     fun parse(segments: List<ExtractedSegment>): StructuredParseResult {
         val tasks = mutableListOf<ParsedTask>(); val unresolved = mutableSetOf<String>()
@@ -28,15 +30,21 @@ object StructuredTaskParser {
             segment.text.lineSequence().forEach { raw ->
                 val line = raw.trim(); if (line.isEmpty()) return@forEach
                 val heading = taskHeading.matchEntire(line)
-                if (heading != null && !heading.groupValues[1].contains("продолжение", ignoreCase = true)) {
+                val headingText = heading?.groupValues?.get(1)?.let { payload ->
+                    taskNumber.matchEntire(payload)?.groupValues?.get(1) ?: payload
+                }
+                val continued = headingText?.let { continuation.matchEntire(it) }
+                if (heading != null && continued == null) {
                     if (started) flush()
                     started = true
+                    if (!headingText.isNullOrBlank()) condition.appendLine(headingText)
                 } else if (!started) {
                     unresolved += segment.ref.segmentId
                 } else {
                     val section = fieldHeading.matchEntire(line)
-                    val value = if (section != null) { field = section.groupValues[1].lowercase(); section.groupValues[2] } else line
-                    if (value.isNotEmpty() && heading == null) when (field) {
+                    val value = if (continued != null) continued.groupValues[1]
+                        else if (section != null) { field = section.groupValues[1].lowercase(); section.groupValues[2] } else line
+                    if (value.isNotEmpty()) when (field) {
                         "условие" -> condition.appendLine(value)
                         "решение" -> solution.appendLine(value)
                         "ответ" -> answer.appendLine(value)

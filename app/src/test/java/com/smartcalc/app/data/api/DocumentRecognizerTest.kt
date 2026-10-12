@@ -17,6 +17,68 @@ class DocumentRecognizerTest {
         buildJsonObject { putJsonArray("choices") { add(buildJsonObject { putJsonObject("message") {
             put("content", """{"drafts":[{"condition":"Условие","solution":"Авторское решение","answer":"2","segment_ids":["$ids"]$extra}],"carry":null}""")
         } }) } }.toString())
+    private fun saved(content: String) = RecognitionHttpResponse(200, buildJsonObject {
+        putJsonArray("choices") { add(buildJsonObject { putJsonObject("message") { put("content", content) } }) }
+    }.toString())
+    private fun localRecognizer() = DocumentRecognizer(object : RecognitionTransport {
+        override suspend fun post(settings: ApiSettings, body: JsonObject) = error("local checkpoints only")
+    })
+    @Test fun partiallyAssignedResponsePreservesOmittedTextImagesAndWarningsForReview() {
+        val omittedRef = ref.copy(segmentId = "segment-2", ordinal = 2)
+        val warning = ExtractionWarning("unclear", "Проверьте формулу")
+        val input = RecognitionBatch(listOf(ExtractedSegment(ref, "first"),
+            ExtractedSegment(omittedRef, "Найти напряжение", listOf("diagram.png"), listOf(warning))))
+        val drafts = localRecognizer().parseSaved(input, response()).drafts
+        assertEquals(2, drafts.size)
+        assertEquals("Условие", drafts.first().condition)
+        val recovery = drafts.last()
+        assertEquals(listOf(omittedRef), recovery.refs)
+        assertEquals("Найти напряжение", recovery.condition)
+        assertEquals(listOf("diagram.png"), recovery.conditionImages)
+        assertTrue(warning in recovery.warnings)
+        assertTrue(recovery.warnings.any { it.code == "unassigned" && it.blocking })
+        assertEquals(drafts.map { it.id }, localRecognizer().parseSaved(input, response()).drafts.map { it.id })
+    }
+    @Test fun emptyResponseKeepsAllMaterialAsAnEditableBlockedDraft() {
+        val second = ref.copy(segmentId = "segment-2", ordinal = 2)
+        val input = RecognitionBatch(listOf(ExtractedSegment(ref, "first"), ExtractedSegment(second, "second")))
+        val recovery = localRecognizer().parseSaved(input, saved("""{"drafts":[],"carry":null}""")).drafts.single()
+        assertEquals(listOf(ref, second), recovery.refs)
+        assertTrue(recovery.condition.contains("first"))
+        assertTrue(recovery.condition.contains("second"))
+        assertTrue(recovery.warnings.any { it.blocking })
+    }
+    @Test fun omittedPriorCarryKeepsItsFullTextAndEarlierIllustrations() {
+        val next = ref.copy(segmentId = "segment-2", ordinal = 2)
+        val carry = RecognitionCarry("Полное условие и начало решения", listOf(ref),
+            listOf(ExtractedSegment(ref, imagePaths = listOf("earlier.png"))))
+        val recovery = localRecognizer().parseSaved(RecognitionBatch(listOf(ExtractedSegment(next, "next")), carry),
+            response("segment-2")).drafts.last()
+        assertEquals(carry.text, recovery.condition)
+        assertEquals(listOf(ref), recovery.refs)
+        assertEquals(listOf("earlier.png"), recovery.conditionImages)
+        assertTrue(recovery.warnings.any { it.blocking })
+    }
+    @Test fun fullyCoveredDraftAndCarryDoNotCreateRecoveryWarnings() {
+        val next = ref.copy(segmentId = "segment-2", ordinal = 2)
+        val input = RecognitionBatch(listOf(ExtractedSegment(ref, "first"), ExtractedSegment(next, "next")))
+        val result = localRecognizer().parseSaved(input, saved("""{"drafts":[{"condition":"c","solution":"s","segment_ids":["segment-1"]}],"carry":{"text":"next","segment_ids":["segment-2"]}}"""))
+        assertEquals(1, result.drafts.size)
+        assertTrue(result.drafts.single().warnings.isEmpty())
+        assertEquals(listOf(next), result.carry!!.refs)
+    }
+    @Test fun recoveryPreservesMaterialWithoutExceedingFiveHundredDrafts() {
+        val next = ref.copy(segmentId = "segment-2", ordinal = 2)
+        val input = RecognitionBatch(listOf(ExtractedSegment(ref, "first"), ExtractedSegment(next, "omitted")))
+        val draftsJson = (1..500).joinToString(",") { """{"condition":"c$it","solution":"s$it","segment_ids":["segment-1"]}""" }
+        val result = localRecognizer().parseSaved(input, saved("""{"drafts":[$draftsJson],"carry":null}"""))
+        assertEquals(500, result.drafts.size)
+        assertTrue(result.drafts.last().condition.contains("c500"))
+        assertTrue(result.drafts.last().condition.contains("omitted"))
+        assertEquals("s500", result.drafts.last().solution)
+        assertEquals(listOf(ref, next), result.drafts.last().refs)
+        assertTrue(result.drafts.last().warnings.any { it.blocking })
+    }
     @Test fun taskCompletedInNextBatchKeepsEarlierIllustrationAndWarning() {
         val recognizer = DocumentRecognizer(object : RecognitionTransport {
             override suspend fun post(settings: ApiSettings, body: JsonObject) = error("local checkpoints")
@@ -31,7 +93,7 @@ class DocumentRecognizerTest {
         val carry = recognizer.parseSaved(first, carryResponse).carry!!
         val secondRef = ref.copy(segmentId = "segment-2", ordinal = 2)
         val completed = recognizer.parseSaved(RecognitionBatch(listOf(ExtractedSegment(secondRef, "end")), carry),
-            response(extra = ",\"condition_segment_ids\":[\"segment-1\"]"))
+            saved("""{"drafts":[{"condition":"Условие","solution":"Авторское решение","answer":"2","segment_ids":["segment-1","segment-2"],"condition_segment_ids":["segment-1"]}],"carry":null}"""))
         assertEquals(listOf("diagram.jpg"), completed.drafts.single().conditionImages)
         assertTrue(warning in completed.drafts.single().warnings)
     }

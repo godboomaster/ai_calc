@@ -114,7 +114,31 @@ class DocumentRecognizer(private val transport: RecognitionTransport) {
             RecognitionCarry(obj["text"]?.jsonPrimitive?.content.orEmpty(), sourceRefs,
                 sourceRefs.mapNotNull { segmentById[it.segmentId]?.copy(text = "") })
         }
-        return RecognitionResult(drafts, carry)
+        val assigned = (drafts.flatMap { it.refs } + carry?.refs.orEmpty()).mapTo(mutableSetOf()) { it.segmentId }
+        val unassigned = allowed.values.filterNot { it.segmentId in assigned }
+        if (unassigned.isEmpty()) return RecognitionResult(drafts, carry)
+
+        // A successful response can still omit material. Keep it editable instead of
+        // marking the batch processed with no visible record or issuing another POST.
+        val unassignedIds = unassigned.mapTo(mutableSetOf()) { it.segmentId }
+        val omittedCarry = batch.carry?.takeIf { previous -> previous.refs.any { it.segmentId in unassignedIds } }
+        val omittedSegments = unassigned.mapNotNull { segmentById[it.segmentId] }
+        val recoveryText = (listOfNotNull(omittedCarry?.text) +
+            batch.segments.filter { it.ref.segmentId in unassignedIds }.map { it.text })
+            .filter { it.isNotBlank() }.joinToString("\n\n")
+        val recoveryWarnings = (omittedSegments.flatMap { it.warnings } + ExtractionWarning("unassigned",
+            "Модель не распределила часть материала. Исходный текст и изображения сохранены; проверьте и разделите их вручную.")).distinct()
+        val recoveryImages = omittedSegments.flatMap { it.imagePaths }.distinct()
+        val recovery = ImportDraft(UUID.nameUUIDFromBytes("${allowed.keys}:unassigned:$unassignedIds".toByteArray()).toString(),
+            condition = recoveryText, solution = "", refs = unassigned, conditionImages = recoveryImages, warnings = recoveryWarnings)
+        val retained = if (drafts.size < 500) drafts + recovery else {
+            // Keep the response bound while retaining every field for manual splitting.
+            val last = drafts.last()
+            drafts.dropLast(1) + last.copy(condition = listOf(last.condition, recovery.condition).filter { it.isNotBlank() }.joinToString("\n\n"),
+                refs = (last.refs + recovery.refs).distinct(), conditionImages = (last.conditionImages + recovery.conditionImages).distinct(),
+                warnings = (last.warnings + recovery.warnings).distinct())
+        }
+        return RecognitionResult(retained, carry)
     }
     companion object {
         private val PROMPT = """

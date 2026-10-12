@@ -42,6 +42,27 @@ class LocalExtractionTest {
         assertTrue(parsed.tasks.isEmpty())
         assertEquals(1, parsed.unresolvedSegmentIds.size)
     }
+    @Test fun sameLineTaskHeadingKeepsTheRequestedQuantityInTheCondition() {
+        val result = TextExtractor.extract(source(), "Задача 1. Найти силу тока.\nR=10, U=20\nРешение\nI=U/R\nОтвет\n2 A".byteInputStream())
+        val parsed = StructuredTaskParser.parse(result.segments)
+        assertEquals("Найти силу тока.\nR=10, U=20", parsed.tasks.single().condition)
+        assertEquals("I=U/R", parsed.tasks.single().solution)
+        assertEquals("2 A", parsed.tasks.single().answer)
+        assertTrue(parsed.unresolvedSegmentIds.isEmpty())
+    }
+    @Test fun numberedTitleAndContinuedHeadingRetainTheirMeaningWithoutSplittingTask() {
+        val result = TextExtractor.extract(source(), "Пример 2: Закон Ома\nУсловие\nНайти I\nРешение\nI=U/R\nПример 2 (продолжение): U=20, R=10\nОтвет\n2 A".byteInputStream())
+        val task = StructuredTaskParser.parse(result.segments).tasks.single()
+        assertEquals("Закон Ома\nНайти I", task.condition)
+        assertEquals("I=U/R\nU=20, R=10", task.solution)
+        assertEquals(result.segments.map { it.ref }, task.refs)
+    }
+    @Test fun numberOnlyHeadingsKeepSeparateTasksWithoutAddingLabelsToConditions() {
+        val result = TextExtractor.extract(source(), "Задача 1.\nУсловие\nFind I\nОтвет\n2\nЗадача E02\nУсловие\nFind U\nОтвет\n20".byteInputStream())
+        val parsed = StructuredTaskParser.parse(result.segments)
+        assertEquals(listOf("Find I", "Find U"), parsed.tasks.map { it.condition })
+        assertEquals(listOf("2", "20"), parsed.tasks.map { it.answer })
+    }
     @Test fun imageOnlyBlocksStayAssignedToTheirConditionOrSolutionWithWarnings() {
         val src = source(SourceFormat.DOCX)
         fun ref(n: Int) = SourceSegmentRef(src.id, "${src.id}:block:$n", SegmentKind.DOCUMENT_BLOCK, n)
