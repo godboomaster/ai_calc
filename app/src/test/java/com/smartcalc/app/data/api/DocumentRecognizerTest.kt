@@ -17,6 +17,24 @@ class DocumentRecognizerTest {
         buildJsonObject { putJsonArray("choices") { add(buildJsonObject { putJsonObject("message") {
             put("content", """{"drafts":[{"condition":"Условие","solution":"Авторское решение","answer":"2","segment_ids":["$ids"]$extra}],"carry":null}""")
         } }) } }.toString())
+    @Test fun taskCompletedInNextBatchKeepsEarlierIllustrationAndWarning() {
+        val recognizer = DocumentRecognizer(object : RecognitionTransport {
+            override suspend fun post(settings: ApiSettings, body: JsonObject) = error("local checkpoints")
+        })
+        val warning = ExtractionWarning("unclear", "Нечитаемый знак")
+        val first = RecognitionBatch(listOf(ExtractedSegment(ref, "start", listOf("diagram.jpg"), listOf(warning))))
+        val carryResponse = response().let { old -> old.copy(body = buildJsonObject {
+            putJsonArray("choices") { add(buildJsonObject { putJsonObject("message") {
+                put("content", """{"drafts":[],"carry":{"text":"start","segment_ids":["segment-1"]}}""")
+            } }) }
+        }.toString()) }
+        val carry = recognizer.parseSaved(first, carryResponse).carry!!
+        val secondRef = ref.copy(segmentId = "segment-2", ordinal = 2)
+        val completed = recognizer.parseSaved(RecognitionBatch(listOf(ExtractedSegment(secondRef, "end")), carry),
+            response(extra = ",\"condition_segment_ids\":[\"segment-1\"]"))
+        assertEquals(listOf("diagram.jpg"), completed.drafts.single().conditionImages)
+        assertTrue(warning in completed.drafts.single().warnings)
+    }
 
     @Test fun fallbackCountsEveryPostAndCheckpointsBeforeParsing() = runBlocking {
         var calls = 0; var persisted = 0; var checkpoints = 0

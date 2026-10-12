@@ -42,6 +42,21 @@ class LocalExtractionTest {
         assertTrue(parsed.tasks.isEmpty())
         assertEquals(1, parsed.unresolvedSegmentIds.size)
     }
+    @Test fun imageOnlyBlocksStayAssignedToTheirConditionOrSolutionWithWarnings() {
+        val src = source(SourceFormat.DOCX)
+        fun ref(n: Int) = SourceSegmentRef(src.id, "${src.id}:block:$n", SegmentKind.DOCUMENT_BLOCK, n)
+        val warning = ExtractionWarning("unknown", "Проверьте рисунок")
+        val parsed = StructuredTaskParser.parse(listOf(
+            ExtractedSegment(ref(1), "Задача 1\nУсловие\nFind x"),
+            ExtractedSegment(ref(2), imagePaths = listOf("condition.jpg"), warnings = listOf(warning)),
+            ExtractedSegment(ref(3), "Решение\nAuthor solution"),
+            ExtractedSegment(ref(4), imagePaths = listOf("solution.jpg")),
+            ExtractedSegment(ref(5), "Ответ\n2")))
+        assertEquals((1..5).map { ref(it) }, parsed.tasks.single().refs)
+        assertEquals(listOf("condition.jpg"), parsed.tasks.single().conditionImages)
+        assertEquals(listOf("solution.jpg"), parsed.tasks.single().solutionImages)
+        assertTrue(warning in parsed.tasks.single().warnings)
+    }
     @Test fun textLimitRejectsRatherThanTruncating() {
         try { TextExtractor.extract(source(), ByteArrayInputStream(ByteArray(2 * 1024 * 1024 + 1) { 65 })); fail("limit") }
         catch (_: IllegalArgumentException) { }

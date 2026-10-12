@@ -41,7 +41,8 @@ class LibraryImportJournal(private val root: File) {
         val refs = job.segments.map { it.ref } + job.drafts.flatMap { it.refs } + job.carry?.refs.orEmpty()
         refs.forEach { require(it.sourceId in job.sourceIds && it.ordinal in job.selections.getValue(it.sourceId).ordinals) }
         val media = job.segments.flatMap { it.imagePaths } + job.drafts.flatMap { it.conditionImages + it.solutionImages } +
-            job.activeBatch?.segments.orEmpty().flatMap { it.imagePaths }
+            job.activeBatch?.segments.orEmpty().flatMap { it.imagePaths } + job.carry?.segments.orEmpty().flatMap { it.imagePaths } +
+            job.activeBatch?.carry?.segments.orEmpty().flatMap { it.imagePaths }
         val sourcesRoot = File(root.parentFile, "sources").canonicalFile.toPath()
         val jobsRoot = root.canonicalFile.toPath()
         media.forEach { path -> val file = File(path).canonicalFile.toPath(); require(file.startsWith(sourcesRoot) || file.startsWith(jobsRoot)) { "Медиа вне библиотеки" } }

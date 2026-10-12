@@ -12,7 +12,8 @@ class DocumentRecognizer(private val transport: RecognitionTransport) {
     private val json = Json { ignoreUnknownKeys = true }
     suspend fun recognize(settings: ApiSettings, batch: RecognitionBatch, beforePost: suspend () -> Unit,
         afterPost: suspend (RecognitionHttpResponse) -> Unit): RecognitionResult {
-        require(settings.supportsImages || batch.segments.none { it.imagePaths.isNotEmpty() }) { "Выбранная модель не подтверждена как поддерживающая изображения. Сохраните исходник и выберите подходящую модель или введите текст." }
+        val visualSegments = batch.segments + batch.carry?.segments.orEmpty()
+        require(settings.supportsImages || visualSegments.none { it.imagePaths.isNotEmpty() }) { "Выбранная модель не подтверждена как поддерживающая изображения. Сохраните исходник и выберите подходящую модель или введите текст." }
         require(settings.apiKey.isNotBlank()) { "API-ключ не задан. Можно подготовить задачи вручную." }
         apiEndpoint(settings.baseUrl)
         val messages = messages(batch)
@@ -37,7 +38,8 @@ class DocumentRecognizer(private val transport: RecognitionTransport) {
     private fun messages(batch: RecognitionBatch): JsonArray {
         val characters = batch.segments.sumOf { it.text.codePointCount(0, it.text.length) } +
             (batch.carry?.text?.let { it.codePointCount(0, it.length) } ?: 0)
-        require(characters <= 12_000 && batch.segments.sumOf { it.imagePaths.size } <= 2) { "Пакет превышает лимит" }
+        val visualSegments = (batch.segments + batch.carry?.segments.orEmpty()).distinctBy { it.ref.segmentId }
+        require(characters <= 12_000 && visualSegments.sumOf { it.imagePaths.size } <= 2) { "Пакет превышает лимит" }
         val material = buildJsonObject {
             putJsonArray("segments") { batch.segments.forEach { segment -> add(buildJsonObject {
                 put("id", segment.ref.segmentId); put("text", segment.text)
@@ -49,7 +51,7 @@ class DocumentRecognizer(private val transport: RecognitionTransport) {
         var remainingBytes = 20 * 1024 * 1024
         val content = buildJsonArray {
             add(buildJsonObject { put("type", "text"); put("text", material.toString()) })
-            batch.segments.forEach { segment -> segment.imagePaths.forEach { path ->
+            visualSegments.forEach { segment -> segment.imagePaths.forEach { path ->
                 val file = File(path)
                 require(file.isFile && file.length() <= remainingBytes) { "Изображение недоступно или пакет фото больше 20 МиБ" }
                 val bytes = file.inputStream().use { TextExtractor.readLimited(it, remainingBytes) }
@@ -77,7 +79,7 @@ class DocumentRecognizer(private val transport: RecognitionTransport) {
             ?.get("content")?.jsonPrimitive?.content ?: throw IllegalArgumentException("Модель вернула пустой ответ")
         val data = json.parseToJsonElement(content.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()).jsonObject
         val allowed = (batch.segments.map { it.ref } + batch.carry?.refs.orEmpty()).associateBy { it.segmentId }
-        val segmentById = batch.segments.associateBy { it.ref.segmentId }
+        val segmentById = (batch.carry?.segments.orEmpty() + batch.segments).associateBy { it.ref.segmentId }
         fun refs(obj: JsonObject): List<com.smartcalc.app.data.library.source.SourceSegmentRef> {
             val ids = obj["segment_ids"]?.jsonArray?.map { it.jsonPrimitive.content }.orEmpty()
             require(ids.isNotEmpty() && ids.size <= 100 && ids.all { it in allowed }) { "Распознавание ссылается на неизвестный фрагмент" }
@@ -98,14 +100,19 @@ class DocumentRecognizer(private val transport: RecognitionTransport) {
             if (solution.isBlank() && answer.isBlank()) warnings += ExtractionWarning("missing_solution", "Авторское решение не найдено")
             fun media(field: String): List<String> = draft[field]?.jsonArray?.flatMap { id ->
                 require(id.jsonPrimitive.content in allowed) { "Неизвестное изображение" }
-                segmentById[id.jsonPrimitive.content]?.imagePaths.orEmpty()
+                require(id.jsonPrimitive.content in sourceRefs.map { it.segmentId }) { "Изображение не связано со ссылками задачи" }
+                val segment = segmentById[id.jsonPrimitive.content]
+                if (segment == null || segment.imagePaths.isEmpty()) warnings += ExtractionWarning("missing_media", "Рисунок предыдущего фрагмента недоступен. Проверьте оригинал.")
+                segment?.imagePaths.orEmpty()
             }.orEmpty().distinct()
             ImportDraft(UUID.nameUUIDFromBytes("${allowed.keys}:$index:$draft".toByteArray()).toString(),
                 condition = condition, solution = solution, answer = answer, refs = sourceRefs,
                 conditionImages = media("condition_segment_ids"), solutionImages = media("solution_segment_ids"), warnings = warnings.distinct())
         }
         val carry = (data["carry"] as? JsonObject)?.let { obj ->
-            RecognitionCarry(obj["text"]?.jsonPrimitive?.content.orEmpty(), refs(obj))
+            val sourceRefs = refs(obj)
+            RecognitionCarry(obj["text"]?.jsonPrimitive?.content.orEmpty(), sourceRefs,
+                sourceRefs.mapNotNull { segmentById[it.segmentId]?.copy(text = "") })
         }
         return RecognitionResult(drafts, carry)
     }

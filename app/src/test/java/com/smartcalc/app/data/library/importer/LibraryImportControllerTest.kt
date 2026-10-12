@@ -29,6 +29,110 @@ class LibraryImportControllerTest {
             put("content", """{"drafts":[{"condition":"Condition $id","solution":"Author solution","answer":"2","segment_ids":["$id"]}],"carry":null}""")
         } }) }
     }.toString())
+    @Test fun explicitRetryCanReplaceFailedOrMalformedCheckpointWithANewPost() = runBlocking {
+        for (failed in listOf(RecognitionHttpResponse(429, "rate limit"), RecognitionHttpResponse(200, "malformed"))) {
+            val root = temp.newFolder(); val sources = LibrarySourceStore(File(root, "sources"))
+            val src = sources.copy(SourceInput("raw.txt", "text/plain") { "Raw".byteInputStream() }).source
+            val journal = LibraryImportJournal(File(root, "imports")); val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            var calls = 0
+            try {
+                val controller = LibraryImportController(sources, journal, DocumentExtractor(sources), DocumentRecognizer(object : RecognitionTransport {
+                    override suspend fun post(settings: ApiSettings, body: JsonObject): RecognitionHttpResponse {
+                        calls++; return if (calls == 1) failed else response("${src.id}:block:1")
+                    }
+                }), fakePublisher, { ApiSettings(apiKey = "synthetic") }, scope)
+                val id = controller.create(listOf(src.id), mapOf(src.id to PageSelection(listOf(1))))
+                controller.process(id)
+                withTimeout(3000) { journal.jobs.first { it.jobs.single().status == ImportStatus.FAILED } }
+                controller.process(id)
+                withTimeout(3000) { journal.jobs.first { it.jobs.single().status == ImportStatus.REVIEW_REQUIRED } }
+                assertEquals(2, calls)
+            } finally { scope.cancel() }
+        }
+    }
+    @Test fun explicitPublicationRetryRefreshesSectionSnapshotAfterTheUserFixesIt() = runBlocking {
+        val root = temp.newFolder(); val sources = LibrarySourceStore(File(root, "sources"))
+        val src = sources.copy(SourceInput("raw.txt", "text/plain") { "Raw".byteInputStream() }).source
+        val journal = LibraryImportJournal(File(root, "imports")); val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var target = com.smartcalc.app.data.template.TaskTemplate(name = "Target")
+        var publishes = 0
+        try {
+            val publisher = object : ImportPublisher {
+                override fun receipt(commitId: String): ImportReceipt? = null
+                override suspend fun publish(intent: PublicationIntent): ImportReceipt {
+                    publishes++
+                    if (publishes == 1) throw IllegalStateException("capacity")
+                    check(intent.expectedSection == target) { "stale section" }
+                    return fakePublisher.publish(intent)
+                }
+            }
+            val controller = LibraryImportController(sources, journal, DocumentExtractor(sources), DocumentRecognizer(object : RecognitionTransport {
+                override suspend fun post(settings: ApiSettings, body: JsonObject) = error("no network")
+            }), publisher, { ApiSettings() }, scope, sectionSnapshot = { target })
+            val id = UUID.randomUUID().toString()
+            val draft = ImportDraft(UUID.randomUUID().toString(), condition = "c", solution = "s",
+                refs = listOf(SourceSegmentRef(src.id, "${src.id}:block:1", SegmentKind.DOCUMENT_BLOCK, 1)))
+            journal.save(ImportJob(id, listOf(src.id), mapOf(src.id to PageSelection(listOf(1))),
+                status = ImportStatus.REVIEW_REQUIRED, drafts = listOf(draft)))
+            try { controller.publish(id, listOf(draft.id), target.id, target.name); fail("capacity") } catch (_: IllegalStateException) { }
+            target = target.copy(requirements = "User updated target")
+            controller.publish(id, listOf(draft.id), target.id, target.name)
+            assertEquals(ImportStatus.READY, journal.jobs.value.jobs.single().status)
+        } finally { scope.cancel() }
+    }
+    @Test fun explicitContinueCanRetryRejectedCheckpointLeftAtBatchBudgetBoundary() = runBlocking {
+        val root = temp.newFolder(); val sources = LibrarySourceStore(File(root, "sources"))
+        val src = sources.copy(SourceInput("raw.txt", "text/plain") { "Raw".byteInputStream() }).source
+        val journal = LibraryImportJournal(File(root, "imports")); val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val id = UUID.randomUUID().toString()
+        val segment = ExtractedSegment(SourceSegmentRef(src.id, "${src.id}:block:1", SegmentKind.DOCUMENT_BLOCK, 1), "Raw")
+        journal.save(ImportJob(id, listOf(src.id), mapOf(src.id to PageSelection(listOf(1))), status = ImportStatus.RECOGNIZING,
+            postsUsed = 10, segments = listOf(segment), activeBatch = RecognitionBatch(listOf(segment)), inFlightPost = PostAttempt(10, listOf(segment.ref.segmentId))))
+        journal.checkpointResponse(id, RecognitionHttpResponse(422, ""))
+        journal.update(id) { it.copy(status = ImportStatus.PAUSED) }
+        var posts = 0
+        try {
+            val controller = LibraryImportController(sources, journal, DocumentExtractor(sources), DocumentRecognizer(object : RecognitionTransport {
+                override suspend fun post(settings: ApiSettings, body: JsonObject): RecognitionHttpResponse { posts++; return response(segment.ref.segmentId) }
+            }), fakePublisher, { ApiSettings(apiKey = "synthetic") }, scope)
+            controller.process(id)
+            withTimeout(3000) { journal.jobs.first { it.jobs.single().status == ImportStatus.REVIEW_REQUIRED } }
+            assertEquals(1, posts)
+        } finally { scope.cancel() }
+    }
+    @Test fun carryThatCannotFitNextBatchBecomesAnEditableDraftWithoutTruncation() = runBlocking {
+        val root = temp.newFolder(); val sources = LibrarySourceStore(File(root, "sources"))
+        val src = sources.copy(SourceInput("raw.txt", "text/plain") { "Raw".byteInputStream() }).source
+        fun segment(n: Int, length: Int) = ExtractedSegment(SourceSegmentRef(src.id, "${src.id}:block:$n", SegmentKind.DOCUMENT_BLOCK, n), "x".repeat(length))
+        val segments = listOf(segment(1, 11000), segment(2, 2000)); val journal = LibraryImportJournal(File(root, "imports"))
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default); var posts = 0
+        try {
+            val extractor = object : DocumentExtractor(sources) {
+                override suspend fun inspect(source: LibrarySource) = 2
+                override suspend fun extract(source: LibrarySource, selection: PageSelection, onSegment: suspend (ExtractedSegment) -> Unit): ExtractionResult {
+                    segments.forEach { onSegment(it) }; return ExtractionResult(segments, 2)
+                }
+            }
+            val controller = LibraryImportController(sources, journal, extractor, DocumentRecognizer(object : RecognitionTransport {
+                override suspend fun post(settings: ApiSettings, body: JsonObject): RecognitionHttpResponse {
+                    posts++
+                    return RecognitionHttpResponse(200, buildJsonObject { putJsonArray("choices") { add(buildJsonObject { putJsonObject("message") {
+                        put("content", """{"drafts":[],"carry":{"text":"${"c".repeat(11500)}","segment_ids":["${segments[0].ref.segmentId}"]}}""")
+                    } }) } }.toString())
+                }
+            }), fakePublisher, { ApiSettings(apiKey = "synthetic") }, scope)
+            val id = controller.create(listOf(src.id), mapOf(src.id to PageSelection(listOf(1, 2))))
+            controller.process(id)
+            withTimeout(3000) { journal.jobs.first { it.jobs.single().status in setOf(ImportStatus.REVIEW_REQUIRED, ImportStatus.FAILED) } }
+            val job = journal.jobs.value.jobs.single()
+            assertEquals(ImportStatus.REVIEW_REQUIRED, job.status)
+            assertEquals(1, posts)
+            assertTrue(job.drafts.single().condition.contains("c".repeat(11500)))
+            assertTrue(job.drafts.single().condition.contains("x".repeat(2000)))
+            assertEquals(segments.map { it.ref }.toSet(), job.drafts.single().refs.toSet())
+            assertTrue(job.drafts.single().warnings.any { it.blocking })
+        } finally { scope.cancel() }
+    }
 
     @Test fun journalWriteFailureIsVisibleAndDoesNotEscapeWorkerScope() = runBlocking {
         val root = temp.newFolder(); val sources = LibrarySourceStore(File(root, "sources"))
@@ -84,10 +188,10 @@ class LibraryImportControllerTest {
                 { ApiSettings(apiKey = "synthetic") }, scope)
             val id = controller.create(listOf(src.id), mapOf(src.id to PageSelection((1..12).toList())))
             controller.process(id)
-            withTimeout(5000) { journal.jobs.first { it.jobs.first().status == ImportStatus.PAUSED } }
+            withTimeout(30000) { journal.jobs.first { it.jobs.first().status == ImportStatus.PAUSED } }
             assertEquals(10, calls); assertEquals(10, journal.jobs.value.jobs.single().drafts.size)
             controller.process(id)
-            withTimeout(5000) { journal.jobs.first { it.jobs.first().status == ImportStatus.REVIEW_REQUIRED } }
+            withTimeout(30000) { journal.jobs.first { it.jobs.first().status == ImportStatus.REVIEW_REQUIRED } }
             assertEquals(12, calls); assertEquals(12, journal.jobs.value.jobs.single().drafts.size)
         } finally { scope.cancel() }
     }

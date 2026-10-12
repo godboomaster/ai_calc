@@ -13,7 +13,8 @@ import com.smartcalc.app.data.template.TaskTemplate
     val solutionImages: List<String> = emptyList(), val refs: List<SourceSegmentRef>,
     val warnings: List<ExtractionWarning> = emptyList(), val excluded: Boolean = false,
 )
-@Serializable data class RecognitionCarry(val text: String, val refs: List<SourceSegmentRef>)
+@Serializable data class RecognitionCarry(val text: String, val refs: List<SourceSegmentRef>,
+    val segments: List<ExtractedSegment> = emptyList())
 @Serializable data class RecognitionBatch(val segments: List<ExtractedSegment>, val carry: RecognitionCarry? = null)
 @Serializable data class RecognitionResult(val drafts: List<ImportDraft>, val carry: RecognitionCarry? = null,
     val warnings: List<ExtractionWarning> = emptyList())

@@ -10,15 +10,21 @@ object StructuredTaskParser {
         var condition = StringBuilder(); var solution = StringBuilder(); var answer = StringBuilder()
         var field = "условие"; var started = false
         val refs = linkedSetOf<SourceSegmentRef>(); val warnings = mutableListOf<ExtractionWarning>()
-        val images = linkedSetOf<String>()
+        val conditionImages = linkedSetOf<String>(); val solutionImages = linkedSetOf<String>()
         fun flush() {
-            if (started && condition.isNotBlank() && (solution.isNotBlank() || answer.isNotBlank() || images.isNotEmpty())) {
-                tasks += ParsedTask(condition.toString().trim(), solution.toString().trim(), answer.toString().trim(), refs.toList(), warnings.distinct(), solutionImages = images.toList())
+            if (started && condition.isNotBlank() && (solution.isNotBlank() || answer.isNotBlank() || solutionImages.isNotEmpty())) {
+                tasks += ParsedTask(condition.toString().trim(), solution.toString().trim(), answer.toString().trim(), refs.toList(), warnings.distinct(), conditionImages.toList(), solutionImages.toList())
             } else unresolved += refs.map { it.segmentId }
             condition = StringBuilder(); solution = StringBuilder(); answer = StringBuilder()
-            refs.clear(); warnings.clear(); images.clear(); field = "условие"
+            refs.clear(); warnings.clear(); conditionImages.clear(); solutionImages.clear(); field = "условие"
         }
         segments.forEach { segment ->
+            fun retain() {
+                if (started) {
+                    refs += segment.ref; warnings += segment.warnings
+                    if (field == "условие") conditionImages += segment.imagePaths else solutionImages += segment.imagePaths
+                } else unresolved += segment.ref.segmentId
+            }
             segment.text.lineSequence().forEach { raw ->
                 val line = raw.trim(); if (line.isEmpty()) return@forEach
                 val heading = taskHeading.matchEntire(line)
@@ -36,8 +42,9 @@ object StructuredTaskParser {
                         "ответ" -> answer.appendLine(value)
                     }
                 }
-                if (started) { refs += segment.ref; warnings += segment.warnings; images += segment.imagePaths }
+                retain()
             }
+            if (segment.text.isBlank()) retain()
         }
         if (started) flush()
         return StructuredParseResult(tasks, unresolved.toList())

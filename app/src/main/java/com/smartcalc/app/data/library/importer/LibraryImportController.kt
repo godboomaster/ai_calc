@@ -48,7 +48,13 @@ class LibraryImportController(
                 check(!current(jobId).waitingForSolution && current(jobId).status !in setOf(ImportStatus.EXTRACTING, ImportStatus.RECOGNIZING, ImportStatus.PUBLISHING)) { "Этот импорт уже выполняется" }
                 previous.join()
             }
-            val job = journal.update(jobId) { it.copy(attempt = it.attempt + 1, postsUsed = 0, status = ImportStatus.EXTRACTING, error = null, waitingForSolution = false) }
+            val previousJob = current(jobId)
+            val discardCheckpoint = previousJob.status == ImportStatus.FAILED || withContext(Dispatchers.IO) {
+                journal.response(previousJob)?.let { it.code !in 200..299 } == true
+            }
+            val job = journal.update(jobId) { it.copy(attempt = it.attempt + 1, postsUsed = 0, status = ImportStatus.EXTRACTING, error = null, waitingForSolution = false,
+                activeBatch = if (discardCheckpoint) null else it.activeBatch,
+                inFlightPost = if (discardCheckpoint) null else it.inFlightPost) }
             val task = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
                 try { work.withLock { execute(jobId, job.attempt) } }
                 catch (error: CancellationException) { throw error }
@@ -71,9 +77,14 @@ class LibraryImportController(
     private suspend fun savedResponse(id: String, attempt: Long) {
         val job = current(id)
         val response = journal.response(job) ?: return
-        val batch = checkNotNull(job.activeBatch)
+        val batch = checkNotNull(job.activeBatch).let { it.copy(carry = resolvedCarry(job, it.carry)) }
         require(response.code in 200..299) { "Сохранённая ошибка требует явного повтора обработки" }
         applyResult(id, attempt, batch, recognizer.parseSaved(batch, response))
+    }
+    private fun resolvedCarry(job: ImportJob, carry: RecognitionCarry? = job.carry): RecognitionCarry? = carry?.let {
+        val ids = it.refs.map { ref -> ref.segmentId }.toSet()
+        it.copy(segments = (it.segments + job.segments).filter { segment -> segment.ref.segmentId in ids }
+            .distinctBy { segment -> segment.ref.segmentId }.map { segment -> segment.copy(text = "") })
     }
     private suspend fun execute(id: String, attempt: Long) {
         var foreground = false
@@ -125,15 +136,16 @@ class LibraryImportController(
                 val pending = job.segments.filterNot { it.ref.segmentId in job.processedSegmentIds }
                 if (pending.isEmpty()) {
                     if (job.carry != null) {
-                        val carry = job.carry
+                        val carry = resolvedCarry(job)!!
                         val draft = ImportDraft(UUID.nameUUIDFromBytes("$id:unfinished".toByteArray()).toString(), condition = carry.text,
-                            solution = "", refs = carry.refs, warnings = listOf(ExtractionWarning("unfinished", "Задача продолжается за выбранным диапазоном. Дополните или разделите её вручную.")))
+                            solution = "", refs = carry.refs, conditionImages = carry.segments.flatMap { it.imagePaths }.distinct(),
+                            warnings = carry.segments.flatMap { it.warnings } + ExtractionWarning("unfinished", "Задача продолжается за выбранным диапазоном. Дополните или разделите её вручную."))
                         change(id, attempt) { it.copy(drafts = it.drafts.filterNot { old -> old.id == draft.id } + draft, carry = null) }
                     }
                     change(id, attempt) { it.copy(status = ImportStatus.REVIEW_REQUIRED, error = null) }; return
                 }
                 active(ImportStatus.RECOGNIZING)
-                val batch = RecognitionBatcher.next(pending, job.carry)!!
+                val batch = RecognitionBatcher.next(pending, resolvedCarry(job))!!
                 change(id, attempt) { it.copy(activeBatch = batch, status = ImportStatus.RECOGNIZING, error = null) }
                 val result = withTimeout((deadline - clock()).coerceAtLeast(1)) { recognizer.recognize(settings(), batch, beforePost = {
                     if (clock() >= deadline) throw BudgetReached()
@@ -147,6 +159,18 @@ class LibraryImportController(
                 }) }
                 applyResult(id, attempt, batch, result)
             }
+        } catch (_: RecognitionBatcher.ManualBatchRequired) {
+            val job = current(id)
+            val next = job.segments.first { it.ref.segmentId !in job.processedSegmentIds }
+            val carry = resolvedCarry(job)
+            val context = carry?.segments.orEmpty() + next
+            val draft = ImportDraft(UUID.nameUUIDFromBytes("$id:manual:${next.ref.segmentId}".toByteArray()).toString(),
+                condition = listOfNotNull(carry?.text, next.text).filter { it.isNotBlank() }.joinToString("\n\n"), solution = "",
+                refs = (carry?.refs.orEmpty() + next.ref).distinct(), conditionImages = context.flatMap { it.imagePaths }.distinct(),
+                warnings = context.flatMap { it.warnings }.distinct() + ExtractionWarning("manual_boundary", "Продолжение превышает пакет распознавания. Полный текст и изображения сохранены; разделите и проверьте задачу вручную."))
+            change(id, attempt) { it.copy(drafts = it.drafts.filterNot { old -> old.id == draft.id } + draft,
+                processedSegmentIds = it.processedSegmentIds + next.ref.segmentId, carry = null, activeBatch = null, inFlightPost = null,
+                status = ImportStatus.REVIEW_REQUIRED, error = "Нужна ручная проверка длинного продолжения. Остаток можно обработать кнопкой «Продолжить».") }
         } catch (_: BudgetReached) {
             change(id, attempt) { it.copy(status = ImportStatus.PAUSED, error = "Лимит этой партии исчерпан. Сохранённый разбор доступен; «Продолжить» запускает следующую партию.") }
         } catch (_: TimeoutCancellationException) {
@@ -241,8 +265,10 @@ class LibraryImportController(
         val items = selected.map { draft -> PublicationItem(UUID.nameUUIDFromBytes("library-import:$jobId:${draft.id}".toByteArray()).toString(), draft.id, draft.revision,
             draft.condition, draft.solution, draft.answer, draft.conditionImages, draft.solutionImages, draft.refs) }
         val old = job.publication
-        val intent = if (old != null && old.items == items && old.sectionId == target && old.sectionName == sectionName) old
-            else PublicationIntent(UUID.randomUUID().toString(), jobId, target, sectionName, sectionSnapshot(target), items)
+        val snapshot = sectionSnapshot(target)
+        require(sectionId == null || snapshot != null) { "Раздел удалён. Выберите актуальный раздел или создайте новый." }
+        val intent = if (old != null && old.items == items && old.sectionId == target && old.sectionName == sectionName && old.expectedSection == snapshot) old
+            else PublicationIntent(UUID.randomUUID().toString(), jobId, target, sectionName, snapshot, items)
         journal.update(jobId) { it.copy(status = ImportStatus.PUBLISHING, publication = intent, error = null) }
         try {
             val receipt = publisher.publish(intent)
