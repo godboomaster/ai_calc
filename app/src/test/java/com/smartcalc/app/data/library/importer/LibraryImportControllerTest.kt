@@ -30,6 +30,33 @@ class LibraryImportControllerTest {
         } }) }
     }.toString())
 
+    @Test fun journalWriteFailureIsVisibleAndDoesNotEscapeWorkerScope() = runBlocking {
+        val root = temp.newFolder(); val sources = LibrarySourceStore(File(root, "sources"))
+        val src = sources.copy(SourceInput("raw.txt", "text/plain") { ByteArrayInputStream("Raw".toByteArray()) }).source
+        val journal = LibraryImportJournal(File(root, "imports")); val escaped = AtomicInteger()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + CoroutineExceptionHandler { _, _ -> escaped.incrementAndGet() })
+        try {
+            val extractor = object : DocumentExtractor(sources) {
+                override suspend fun inspect(source: LibrarySource) = 1
+                override suspend fun extract(source: LibrarySource, selection: PageSelection, onSegment: suspend (ExtractedSegment) -> Unit): ExtractionResult {
+                    val id = journal.jobs.value.jobs.single().id
+                    File(root, "imports/$id/job.json").apply { check(delete()); check(mkdir()) }
+                    onSegment(ExtractedSegment(SourceSegmentRef(src.id, "${src.id}:block:1", SegmentKind.DOCUMENT_BLOCK, 1), "Raw"))
+                    return ExtractionResult(emptyList(), 1)
+                }
+            }
+            val controller = LibraryImportController(sources, journal, extractor, DocumentRecognizer(object : RecognitionTransport {
+                override suspend fun post(settings: ApiSettings, body: JsonObject) = error("no network")
+            }), fakePublisher, { ApiSettings() }, scope)
+            val id = controller.create(listOf(src.id), mapOf(src.id to PageSelection(listOf(1))))
+            controller.process(id)
+            withTimeout(3000) { journal.jobs.first { it.error != null } }
+            delay(100)
+            assertEquals(0, escaped.get())
+            assertTrue(sources.originalFile(src.id).isFile)
+        } finally { scope.cancel() }
+    }
+
     @Test fun tenPostBudgetPausesAndManualContinueProcessesRemainingSegments() = runBlocking {
         val root = temp.newFolder(); val sources = LibrarySourceStore(File(root, "sources"))
         val src = sources.copy(SourceInput("text.txt", "text/plain") { ByteArrayInputStream("Raw".toByteArray()) }).source
@@ -161,6 +188,23 @@ class LibraryImportControllerTest {
             withTimeout(4000) { journal.jobs.first { it.jobs.single().status == ImportStatus.PAUSED } }
             assertEquals(1, calls)
             assertNull(journal.jobs.value.jobs.single().inFlightPost!!.responseRelativePath)
+        } finally { scope.cancel() }
+    }
+    @Test fun waitingForSolverIsNotAResumableTerminalPause() = runBlocking {
+        val root = temp.newFolder(); val sources = LibrarySourceStore(File(root, "sources"))
+        val src = sources.copy(SourceInput("raw.txt", "text/plain") { ByteArrayInputStream("Raw text".toByteArray()) }).source
+        val journal = LibraryImportJournal(File(root, "imports")); val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val solving = MutableStateFlow(true)
+        try {
+            val controller = LibraryImportController(sources, journal, DocumentExtractor(sources), DocumentRecognizer(object : RecognitionTransport {
+                override suspend fun post(settings: ApiSettings, body: JsonObject) = error("solver has priority")
+            }), fakePublisher, { ApiSettings() }, scope, solutionActive = solving)
+            val id = controller.create(listOf(src.id), mapOf(src.id to PageSelection(listOf(1))))
+            controller.process(id)
+            withTimeout(3000) { journal.jobs.first { it.jobs.single().waitingForSolution } }
+            controller.cancel(id)
+            assertFalse(journal.jobs.value.jobs.single().waitingForSolution)
+            assertEquals(ImportStatus.CANCELLED, journal.jobs.value.jobs.single().status)
         } finally { scope.cancel() }
     }
 }

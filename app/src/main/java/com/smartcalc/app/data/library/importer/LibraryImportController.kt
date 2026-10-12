@@ -24,6 +24,8 @@ class LibraryImportController(
 ) {
     init { require(activeTimeoutMillis in 1..8 * 60 * 1000L) }
     val jobs = journal.jobs
+    private val mutableForeground = MutableStateFlow(false)
+    val foregroundActive: StateFlow<Boolean> = mutableForeground
     private val work = Mutex()
     private val actions = Mutex()
     private val running = ConcurrentHashMap<String, Job>()
@@ -43,11 +45,15 @@ class LibraryImportController(
     suspend fun process(jobId: String) {
         actions.withLock {
             running[jobId]?.takeIf { it.isActive }?.let { previous ->
-                check(current(jobId).status !in setOf(ImportStatus.EXTRACTING, ImportStatus.RECOGNIZING, ImportStatus.PUBLISHING)) { "Этот импорт уже выполняется" }
+                check(!current(jobId).waitingForSolution && current(jobId).status !in setOf(ImportStatus.EXTRACTING, ImportStatus.RECOGNIZING, ImportStatus.PUBLISHING)) { "Этот импорт уже выполняется" }
                 previous.join()
             }
-            val job = journal.update(jobId) { it.copy(attempt = it.attempt + 1, postsUsed = 0, status = ImportStatus.EXTRACTING, error = null) }
-            val task = scope.launch(start = CoroutineStart.LAZY) { work.withLock { execute(jobId, job.attempt) } }
+            val job = journal.update(jobId) { it.copy(attempt = it.attempt + 1, postsUsed = 0, status = ImportStatus.EXTRACTING, error = null, waitingForSolution = false) }
+            val task = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+                try { work.withLock { execute(jobId, job.attempt) } }
+                catch (error: CancellationException) { throw error }
+                catch (_: Exception) { journal.reportStorageFailure() }
+            }
             running[jobId] = task
             task.invokeOnCompletion { running.remove(jobId, task) }; task.start()
         }
@@ -72,21 +78,22 @@ class LibraryImportController(
     private suspend fun execute(id: String, attempt: Long) {
         var foreground = false
         var deadline = clock() + activeTimeoutMillis
-        suspend fun active() {
+        suspend fun active(phase: ImportStatus) {
             if (solutionActive.value) {
-                if (foreground) { stopForeground(); foreground = false }
+                if (foreground) { mutableForeground.value = false; stopForeground(); foreground = false }
                 val waitingAt = clock()
-                change(id, attempt) { it.copy(status = ImportStatus.PAUSED, error = "Ожидает завершения текущего решения") }
+                change(id, attempt) { it.copy(status = ImportStatus.PAUSED, waitingForSolution = true, error = "Ожидает завершения текущего решения") }
                 solutionActive.first { !it }; deadline += clock() - waitingAt
             }
             currentCoroutineContext().ensureActive()
-            if (!foreground) { startForeground(); foreground = true }
+            change(id, attempt) { it.copy(status = phase, waitingForSolution = false, error = null) }
+            if (!foreground) { foreground = true; mutableForeground.value = true; startForeground() }
             if (clock() >= deadline) throw BudgetReached()
         }
         try {
             savedResponse(id, attempt)
             for (sourceId in current(id).sourceIds) {
-                active()
+                active(ImportStatus.EXTRACTING)
                 val source = sources.state.value.sources.first { it.id == sourceId }
                 check(source.status != SourceStatus.DELETED) { "Оригинал удалён; загрузите его снова" }
                 val existing = current(id).segments.filter { it.ref.sourceId == sourceId }.map { it.ref.ordinal }.toSet()
@@ -125,7 +132,7 @@ class LibraryImportController(
                     }
                     change(id, attempt) { it.copy(status = ImportStatus.REVIEW_REQUIRED, error = null) }; return
                 }
-                active()
+                active(ImportStatus.RECOGNIZING)
                 val batch = RecognitionBatcher.next(pending, job.carry)!!
                 change(id, attempt) { it.copy(activeBatch = batch, status = ImportStatus.RECOGNIZING, error = null) }
                 val result = withTimeout((deadline - clock()).coerceAtLeast(1)) { recognizer.recognize(settings(), batch, beforePost = {
@@ -146,21 +153,26 @@ class LibraryImportController(
             change(id, attempt) { it.copy(status = ImportStatus.PAUSED, error = "Время партии истекло. Неизвестный исход запроса не повторяется автоматически; сохранённый разбор доступен.") }
         } catch (error: CancellationException) {
             withContext(NonCancellable) {
-                if (current(id).attempt == attempt && current(id).status != ImportStatus.CANCELLED)
+                if (journal.jobs.value.error == null && current(id).attempt == attempt && current(id).status != ImportStatus.CANCELLED)
                     journal.update(id) { it.copy(status = ImportStatus.INTERRUPTED, error = "Обработка прервана; автоматического повтора запроса нет.") }
             }
             throw error
         } catch (error: Exception) {
+            if (journal.jobs.value.error != null) return
             val detail = error.message.orEmpty().take(400)
             change(id, attempt) { it.copy(status = ImportStatus.FAILED,
                 error = if (detail.any { ch -> ch in 'А'..'я' }) detail else "Не удалось обработать документ. Оригинал и черновики сохранены.") }
-        } finally { if (foreground) stopForeground() }
+        } finally { if (foreground) { mutableForeground.value = false; stopForeground() } }
     }
     suspend fun recover() {
         journal.recover()
         if (journal.jobs.value.error != null) return
         for (job in journal.jobs.value.jobs.filter { it.status != ImportStatus.CANCELLED }) {
-            val receipt = job.publication?.let { publisher.receipt(it.commitId) }
+            val receipt = try { job.publication?.let { publisher.receipt(it.commitId) } }
+                catch (_: Exception) {
+                    journal.update(job.id) { it.copy(status = ImportStatus.INTERRUPTED, error = "Библиотека недоступна; результат публикации не проверен. Данные сохранены.") }
+                    continue
+                }
             if (receipt != null) {
                 journal.update(job.id) { it.copy(status = ImportStatus.READY, receipt = receipt,
                     publishedDraftIds = it.publishedDraftIds + it.publication!!.items.map { item -> item.draftId }, error = null) }
@@ -176,28 +188,48 @@ class LibraryImportController(
     }
     suspend fun cancel(jobId: String) {
         actions.withLock {
-            journal.update(jobId) { it.copy(attempt = it.attempt + 1, status = ImportStatus.CANCELLED, error = null) }
+            journal.update(jobId) { it.copy(attempt = it.attempt + 1, status = ImportStatus.CANCELLED, error = null, waitingForSolution = false) }
             running[jobId]?.cancel()
         }
     }
-    suspend fun saveDraft(jobId: String, draft: ImportDraft, expectedRevision: Int) = journal.update(jobId) { job ->
-        check(running[jobId]?.isActive != true) { "Дождитесь завершения обработки" }
+    suspend fun interruptActive(message: String) {
+        for ((id, task) in running) {
+            journal.update(id) { current ->
+                if (current.status in setOf(ImportStatus.EXTRACTING, ImportStatus.RECOGNIZING) || current.waitingForSolution)
+                    current.copy(attempt = current.attempt + 1, status = ImportStatus.INTERRUPTED, waitingForSolution = false, error = message)
+                else current
+            }
+            task.cancel()
+        }
+    }
+    private suspend fun awaitTerminal(jobId: String) {
+        running[jobId]?.takeIf { it.isActive }?.let { task ->
+            check(!current(jobId).waitingForSolution && current(jobId).status !in setOf(ImportStatus.EXTRACTING, ImportStatus.RECOGNIZING, ImportStatus.PUBLISHING)) { "Дождитесь завершения обработки" }
+            task.join()
+        }
+    }
+    suspend fun saveDraft(jobId: String, draft: ImportDraft, expectedRevision: Int): ImportJob {
+        awaitTerminal(jobId)
+        return journal.update(jobId) { job ->
         val previous = job.drafts.firstOrNull { it.id == draft.id }
         check(previous?.revision == expectedRevision || previous == null && expectedRevision == 0) { "Черновик изменился. Откройте актуальную версию." }
         check(draft.id !in job.publishedDraftIds) { "Эта задача уже добавлена; измените её в библиотеке" }
         require(draft.refs.all { it.sourceId in job.sourceIds && it.ordinal in job.selections.getValue(it.sourceId).ordinals })
         job.copy(drafts = job.drafts.filterNot { it.id == draft.id } + draft.copy(revision = (previous?.revision ?: 0) + 1), status = ImportStatus.REVIEW_REQUIRED)
+        }
     }
-    suspend fun replaceDrafts(jobId: String, oldIds: List<String>, expectedRevisions: Map<String, Int>, replacements: List<ImportDraft>) = journal.update(jobId) { job ->
-        check(running[jobId]?.isActive != true)
+    suspend fun replaceDrafts(jobId: String, oldIds: List<String>, expectedRevisions: Map<String, Int>, replacements: List<ImportDraft>): ImportJob {
+        awaitTerminal(jobId)
+        return journal.update(jobId) { job ->
         check(oldIds.none { it in job.publishedDraftIds })
         require(oldIds.all { id -> job.drafts.firstOrNull { it.id == id }?.revision == expectedRevisions[id] })
         val old = job.drafts.filter { it.id in oldIds }
         require(replacements.flatMap { it.refs }.toSet() == old.flatMap { it.refs }.toSet())
         job.copy(drafts = job.drafts.filterNot { it.id in oldIds } + replacements, status = ImportStatus.REVIEW_REQUIRED)
+        }
     }
     suspend fun publish(jobId: String, draftIds: List<String>, sectionId: String?, sectionName: String) {
-        check(running[jobId]?.isActive != true) { "Дождитесь завершения обработки" }
+        awaitTerminal(jobId)
         var job = current(jobId)
         job.publication?.let { prior -> publisher.receipt(prior.commitId)?.let { receipt ->
             job = journal.update(jobId) { it.copy(receipt = receipt, publishedDraftIds = it.publishedDraftIds + prior.items.map { item -> item.draftId }, status = ImportStatus.READY) }

@@ -186,12 +186,16 @@ class GenerationController(
     private suspend fun templatePrompt(template: TaskTemplate): TemplatePrompt {
         suspend fun load(paths: List<String>) = paths.mapNotNull { templates.readImage(it)?.let(::encode) }
         return TemplatePrompt(template.name, template.requirements, template.examples.map {
-            TemplatePrompt.Example(it.condition, load(it.conditionImages), it.solution, load(it.solutionImages))
+            TemplatePrompt.Example(it.condition, load(it.conditionImages), exampleSolutionText(it), load(it.solutionImages))
         })
     }
 
     private fun encode(bytes: ByteArray) = Base64.encodeToString(bytes, Base64.NO_WRAP)
 }
+
+internal fun exampleSolutionText(example: com.smartcalc.app.data.template.TemplateExample): String =
+    listOf(example.solution, example.answer.takeIf { it.isNotBlank() }?.let { "Ответ: $it" }.orEmpty())
+        .filter { it.isNotBlank() }.joinToString("\n\n")
 
 internal fun requestError(error: Throwable): String = when (error) {
     is DocumentException -> error.message ?: "Не удалось прочитать вложение"

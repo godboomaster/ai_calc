@@ -35,5 +35,6 @@ import com.smartcalc.app.data.template.TaskTemplate
     val activeBatch: RecognitionBatch? = null, val inFlightPost: PostAttempt? = null,
     val publication: PublicationIntent? = null, val receipt: ImportReceipt? = null,
     val publishedDraftIds: Set<String> = emptySet(), val error: String? = null,
+    val waitingForSolution: Boolean = false,
 )
 @Serializable data class ImportCatalog(val jobs: List<ImportJob> = emptyList(), val error: String? = null)

@@ -32,6 +32,7 @@ import com.smartcalc.app.ui.calculator.CalculatorScreen
 import com.smartcalc.app.ui.camera.CameraScreen
 import com.smartcalc.app.ui.format.FormatScreen
 import com.smartcalc.app.ui.search.LibraryScreen
+import com.smartcalc.app.ui.library.*
 import com.smartcalc.app.ui.search.SearchScreen
 import com.smartcalc.app.ui.settings.SettingsScreen
 import com.smartcalc.app.ui.solution.HistoryScreen
@@ -53,11 +54,18 @@ object Routes {
     const val SEARCH = "search?q={q}"
     const val LIBRARY = "library"
     const val LIBRARY_EDIT = "library/section?id={id}"
+    const val LIBRARY_FILES = "library/files"
+    const val LIBRARY_IMPORT = "library/import"
+    const val LIBRARY_REVIEW = "library/review/{jobId}"
+    const val LIBRARY_SOURCE = "library/source/{sourceId}?ordinal={ordinal}"
+    const val LIBRARY_CAMERA = "library/camera"
 
     fun templateEdit(id: String?) = if (id == null) "template" else "template?id=$id"
     fun search(query: String) = if (query.isBlank()) "search" else "search?q=${Uri.encode(query)}"
     fun libraryEdit(id: String?) = if (id == null) "library/section" else "library/section?id=$id"
     fun step(index: Int) = "step/$index"
+    fun libraryReview(id: String) = "library/review/$id"
+    fun librarySource(id: String, ordinal: Int) = "library/source/$id?ordinal=$ordinal"
 }
 
 @Composable
@@ -75,6 +83,7 @@ fun AppRoot(vm: SolutionViewModel = viewModel()) {
 @Composable
 private fun AppSession(vm: SolutionViewModel) {
     val nav = rememberNavController()
+    val libraryVm: LibraryImportViewModel = viewModel()
     val solution by vm.current.collectAsState()
     val shown by vm.shown.collectAsState()
     val solving by vm.solving.collectAsState()
@@ -195,7 +204,34 @@ private fun AppSession(vm: SolutionViewModel) {
                     vm = vm,
                     onBack = { nav.popBackStack() },
                     onEdit = { id -> nav.navigate(Routes.libraryEdit(id)) },
+                    onFiles = { nav.navigate(Routes.LIBRARY_FILES) },
                 )
+            }
+            composable(Routes.LIBRARY_FILES) {
+                LibraryFilesScreen(libraryVm, onBack = { nav.popBackStack() },
+                    onSelection = { nav.navigate(Routes.LIBRARY_IMPORT) },
+                    onReview = { nav.navigate(Routes.libraryReview(it)) },
+                    onSource = { id, ordinal -> nav.navigate(Routes.librarySource(id, ordinal)) },
+                    onCamera = { nav.navigate(Routes.LIBRARY_CAMERA) })
+            }
+            composable(Routes.LIBRARY_IMPORT) {
+                ImportSelectionScreen(libraryVm, onBack = { nav.popBackStack() }, onReview = {
+                    nav.navigate(Routes.libraryReview(it)) { popUpTo(Routes.LIBRARY_IMPORT) { inclusive = true } }
+                })
+            }
+            composable(Routes.LIBRARY_REVIEW) { entry ->
+                ImportReviewScreen(libraryVm, entry.arguments?.getString("jobId").orEmpty(),
+                    onBack = { nav.popBackStack() }, onSource = { id, ordinal -> nav.navigate(Routes.librarySource(id, ordinal)) })
+            }
+            composable(Routes.LIBRARY_SOURCE, arguments = listOf(navArgument("ordinal") { type = NavType.IntType; defaultValue = 1 })) { entry ->
+                SourceViewerScreen(libraryVm, entry.arguments?.getString("sourceId").orEmpty(),
+                    entry.arguments?.getInt("ordinal") ?: 1, onBack = { nav.popBackStack() })
+            }
+            composable(Routes.LIBRARY_CAMERA) {
+                CameraScreen(vm, onBack = { nav.popBackStack() }, onOpenFormat = {}, onSolved = {},
+                    onImportInput = { libraryVm.copyInputs(listOf(it)) }, onImported = {
+                        nav.navigate(Routes.LIBRARY_IMPORT) { popUpTo(Routes.LIBRARY_CAMERA) { inclusive = true } }
+                    })
             }
             composable(
                 Routes.LIBRARY_EDIT,
@@ -212,6 +248,7 @@ private fun AppSession(vm: SolutionViewModel) {
                     templateId = entry.arguments?.getString("id"),
                     onBack = { nav.popBackStack() },
                     kind = TemplateKind.LIBRARY,
+                    onOpenSource = { ref -> nav.navigate(Routes.librarySource(ref.sourceId, ref.ordinal)) },
                 )
             }
             composable(Routes.TEMPLATES) {

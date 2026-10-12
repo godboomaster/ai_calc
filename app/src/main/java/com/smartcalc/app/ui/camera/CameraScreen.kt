@@ -67,8 +67,12 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.smartcalc.app.SolutionViewModel
 import com.smartcalc.app.data.ImageUtils
+import com.smartcalc.app.data.library.source.SourceInput
+import android.provider.OpenableColumns
 import com.smartcalc.app.data.format.SolutionFormat
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.File
 import kotlin.coroutines.resume
@@ -80,6 +84,8 @@ fun CameraScreen(
     onBack: () -> Unit,
     onOpenFormat: () -> Unit,
     onSolved: () -> Unit,
+    onImportInput: (suspend (SourceInput) -> Unit)? = null,
+    onImported: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -157,7 +163,11 @@ fun CameraScreen(
             busy = true
             scope.launch {
                 try {
-                    solveBytes(ImageUtils.compressUri(context, uri))
+                    if (onImportInput != null) {
+                        val name = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { if (it.moveToFirst()) it.getString(0) else null } ?: "Фото.jpg"
+                        onImportInput(SourceInput(name, context.contentResolver.getType(uri)) { checkNotNull(context.contentResolver.openInputStream(uri)) })
+                        onImported()
+                    } else solveBytes(ImageUtils.compressUri(context, uri))
                 } catch (e: Exception) {
                     Toast.makeText(context, "Не удалось открыть изображение", Toast.LENGTH_SHORT).show()
                     busy = false
@@ -178,7 +188,10 @@ fun CameraScreen(
                 override fun onImageSaved(result: ImageCapture.OutputFileResults) {
                     scope.launch {
                         try {
-                            solveBytes(ImageUtils.compressFile(file.absolutePath))
+                            if (onImportInput != null) {
+                                withContext(NonCancellable) { onImportInput(SourceInput(file.name, "image/jpeg") { file.inputStream() }) }
+                                onImported()
+                            } else solveBytes(ImageUtils.compressFile(file.absolutePath))
                         } catch (e: Exception) {
                             Toast.makeText(context, "Не удалось обработать фото", Toast.LENGTH_SHORT).show()
                             busy = false
@@ -267,7 +280,7 @@ fun CameraScreen(
                     )
                 }
             }
-            FormatChip(
+            if (onImportInput == null) FormatChip(
                 format = format,
                 onClick = onOpenFormat,
                 onClear = { vm.clearFormat() },

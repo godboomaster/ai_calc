@@ -32,7 +32,12 @@ object DocxExtractor {
                     mediaRoot.mkdirs()
                     val target = File(mediaRoot, "${UUID.nameUUIDFromBytes(entry.name.toByteArray())}.media")
                     require(target.canonicalFile.toPath().startsWith(mediaRoot.canonicalFile.toPath()))
-                    target.writeBytes(bytes.toByteArray()); media[entry.name] = target.absolutePath
+                    val temporary = File(mediaRoot, ".${target.name}.${UUID.randomUUID()}.tmp")
+                    try {
+                        java.io.FileOutputStream(temporary).use { it.write(bytes.toByteArray()); it.fd.sync() }
+                        java.nio.file.Files.move(temporary.toPath(), target.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                    } finally { temporary.delete() }
+                    media[entry.name] = target.absolutePath
                 }
             }
         }
@@ -68,7 +73,7 @@ object DocxExtractor {
                 el.namespaceURI == WORD && el.localName == "tbl" -> el.children().filter { it.localName == "tr" }.joinToString("\n") { row ->
                     row.children().filter { it.localName == "tc" }.joinToString(" | ") { text(it) }
                 }
-                el.namespaceURI == WORD && el.localName == "tc" -> el.children().filter { it.localName == "p" || it.localName == "tbl" }.joinToString(" ") { text(it) }
+                el.namespaceURI == WORD && el.localName == "tc" -> el.children().joinToString(" ") { text(it) }.trim()
                 else -> el.children().joinToString("") { text(it) }
             }
             val content = text(block).trim()

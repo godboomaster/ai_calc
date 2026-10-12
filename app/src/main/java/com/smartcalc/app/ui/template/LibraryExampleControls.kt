@@ -33,7 +33,8 @@ internal val LibraryVerification.label: String
     }
 
 @Composable
-internal fun LibraryExampleControls(state: ExampleEditState, enabled: Boolean, onChange: () -> Unit) {
+internal fun LibraryExampleControls(state: ExampleEditState, enabled: Boolean,
+    onOpenSource: ((com.smartcalc.app.data.library.source.SourceSegmentRef) -> Unit)? = null, onChange: () -> Unit) {
     val metadata = state.library
     val source = when (metadata?.origin?.kind) {
         LibraryOriginKind.LEGACY -> "Ранее сохранено в базе"
@@ -48,6 +49,11 @@ internal fun LibraryExampleControls(state: ExampleEditState, enabled: Boolean, o
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        metadata?.sourceRefs?.forEach { ref ->
+            TextButton(onClick = { onOpenSource?.invoke(ref) }, enabled = onOpenSource != null) {
+                Text(com.smartcalc.app.ui.library.sourceLabel("Оригинал", ref))
+            }
+        }
         Column {
             TextButton(onClick = { statusMenu = true }, enabled = enabled) { Text("${state.verification.label} ▾") }
             DropdownMenu(expanded = statusMenu && enabled, onDismissRequest = { statusMenu = false }) {
@@ -91,6 +97,12 @@ internal fun LibraryExampleControls(state: ExampleEditState, enabled: Boolean, o
                     Text("Решение", style = MaterialTheme.typography.labelLarge)
                     MathText(revision.solution)
                     StepImages(revision.solutionImages)
+                    if (revision.answer.isNotBlank()) { Text("Ответ", style = MaterialTheme.typography.labelLarge); MathText(revision.answer) }
+                    revision.sourceRefs.forEach { ref ->
+                        TextButton(onClick = { onOpenSource?.invoke(ref) }, enabled = onOpenSource != null) {
+                            Text(com.smartcalc.app.ui.library.sourceLabel("Оригинал", ref))
+                        }
+                    }
                 }
             }
         }

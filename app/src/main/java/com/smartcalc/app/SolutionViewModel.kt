@@ -61,8 +61,8 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Всё, по чему ищет поиск; считается, только пока открыт экран поиска. null — ещё не собрано. */
     val searchEntries: StateFlow<List<SearchEntry>?> =
-        combine(libraryStore.items, templateStore.items, historyStore.items) { base, templates, solved ->
-            TaskSearch.entries(base, templates, solved)
+        combine(libraryStore.items, templateStore.items, historyStore.items, applicationState.librarySources.state) { base, templates, solved, sources ->
+            TaskSearch.entries(base, templates, solved, sources)
         }
             // Building fingerprints reads local example images; keep that work off the CPU pool.
             .flowOn(Dispatchers.IO)

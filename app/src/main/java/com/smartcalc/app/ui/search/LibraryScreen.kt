@@ -76,6 +76,7 @@ fun LibraryScreen(
     vm: SolutionViewModel,
     onBack: () -> Unit,
     onEdit: (id: String?) -> Unit,
+    onFiles: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -147,6 +148,10 @@ fun LibraryScreen(
                 }
             },
         )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            TextButton(onClick = {}) { Text("Задачи") }
+            TextButton(onClick = onFiles) { Text("Файлы") }
+        }
         if (storageError != null) {
             Text(storageError.orEmpty(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
             return@Column

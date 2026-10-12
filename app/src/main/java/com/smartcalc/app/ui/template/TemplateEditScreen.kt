@@ -135,6 +135,7 @@ fun TemplateEditScreen(
     templateId: String?,
     onBack: () -> Unit,
     kind: TemplateKind = TemplateKind.TEMPLATES,
+    onOpenSource: ((com.smartcalc.app.data.library.source.SourceSegmentRef) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -306,8 +307,11 @@ fun TemplateEditScreen(
                         Column(modifier = Modifier.padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Section("Условие", "Текст условия", example.condition)
                             Section("Решение", words.solutionPlaceholder, example.solution)
+                            OutlinedTextField(value = example.answer.text,
+                                onValueChange = { example.answer.updateText(it); dirty = true },
+                                label = { Text("Ответ") }, modifier = Modifier.fillMaxWidth(), enabled = !saving && !reading)
                             if (kind == TemplateKind.LIBRARY) {
-                                LibraryExampleControls(example, enabled = !saving && !reading) { dirty = true }
+                                LibraryExampleControls(example, enabled = !saving && !reading, onOpenSource = onOpenSource) { dirty = true }
                             }
                         }
                     }

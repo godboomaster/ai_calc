@@ -125,7 +125,7 @@ class LibrarySourceStoreTest {
         File(root, "templates.json").writeText(Json.encodeToString(listOf(section)))
         val store = TemplateStore(root, TemplateKind.LIBRARY)
         store.save(section.id, section.name, "", listOf(ExampleDraft("Condition", emptyList(), "New", emptyList(),
-            libraryId = metadata.id, expectedVersion = 1)), expectedSection = section)
+            libraryId = metadata.id, expectedVersion = 1)), expectedSection = store.items.value.single())
         val current = TemplateStore(root, TemplateKind.LIBRARY).items.value.single().examples.single().library!!
         assertEquals(listOf(ref), current.sourceRefs)
         assertEquals(listOf(ref), current.previousVersions.single().sourceRefs)

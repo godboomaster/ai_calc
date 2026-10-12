@@ -24,6 +24,9 @@ class LibraryImportJournal(private val root: File) {
     private val mutex = Mutex()
     private val mutable = MutableStateFlow(load())
     val jobs: StateFlow<ImportCatalog> = mutable
+    fun reportStorageFailure() {
+        mutable.value = mutable.value.copy(error = "Не удалось сохранить журнал импорта. Обработка остановлена; перезапустите приложение после восстановления хранилища.")
+    }
     private fun folder(id: String): File {
         require(UUID.fromString(id).toString() == id)
         return File(root, id).also { require(it.canonicalFile.toPath().startsWith(root.canonicalFile.toPath())) }
@@ -65,7 +68,8 @@ class LibraryImportJournal(private val root: File) {
         try {
             FileOutputStream(temporary).use { it.write(bytes); it.fd.sync() }
             Files.move(temporary.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-        } finally { temporary.delete() }
+        } catch (error: java.io.IOException) { reportStorageFailure(); throw error }
+        finally { temporary.delete() }
     }
     private fun persist(job: ImportJob) {
         validate(job)
@@ -105,8 +109,8 @@ class LibraryImportJournal(private val root: File) {
     }
     suspend fun recover() {
         if (mutable.value.error != null) return
-        mutable.value.jobs.filter { it.status in setOf(ImportStatus.EXTRACTING, ImportStatus.RECOGNIZING) }.forEach { job ->
-            update(job.id) { current -> if (current.status !in setOf(ImportStatus.EXTRACTING, ImportStatus.RECOGNIZING)) current else current.copy(status = if (current.inFlightPost?.responseRelativePath != null) ImportStatus.PAUSED else ImportStatus.INTERRUPTED,
+        mutable.value.jobs.filter { it.waitingForSolution || it.status in setOf(ImportStatus.EXTRACTING, ImportStatus.RECOGNIZING) }.forEach { job ->
+            update(job.id) { current -> if (!current.waitingForSolution && current.status !in setOf(ImportStatus.EXTRACTING, ImportStatus.RECOGNIZING)) current else current.copy(waitingForSolution = false, status = if (current.inFlightPost?.responseRelativePath != null) ImportStatus.PAUSED else ImportStatus.INTERRUPTED,
                 error = if (current.inFlightPost?.responseRelativePath != null) "Ответ сохранён; можно завершить разбор без повторной отправки."
                     else "Обработка прервана. Неизвестный исход запроса не повторяется автоматически.") }
         }

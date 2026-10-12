@@ -28,7 +28,21 @@ open class DocumentExtractor(private val sources: LibrarySourceStore) {
             else -> error("Unsupported format")
         }
         require(selection.ordinals.all { it <= full.totalSegments }) { "Фрагмент документа отсутствует" }
-        val selected = full.segments.filter { it.ref.ordinal in selection.ordinals }
+        val selected = full.segments.filter { it.ref.ordinal in selection.ordinals }.map { segment ->
+            if (source.format != SourceFormat.DOCX) segment else {
+                val warnings = segment.warnings.toMutableList()
+                val images = segment.imagePaths.mapNotNull { path ->
+                    try {
+                        val raw = File(path)
+                        ImageExtractor.prepare(raw, File(raw.parentFile, "${raw.nameWithoutExtension}.jpg"))
+                    } catch (error: kotlinx.coroutines.CancellationException) { throw error }
+                    catch (_: Exception) {
+                        warnings += ExtractionWarning("image_unsupported", "Рисунок DOCX не подготовлен. Проверьте его в оригинале."); null
+                    }
+                }
+                segment.copy(imagePaths = images, warnings = warnings.distinct())
+            }
+        }
         selected.forEach { currentCoroutineContext().ensureActive(); onSegment(it) }
         full.copy(segments = selected, remainingOrdinals = remainingPages(full.totalSegments, selection.ordinals))
     }

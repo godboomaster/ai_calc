@@ -28,6 +28,8 @@
             android:exported="false"
             android:stopWithTask="false"
             android:foregroundServiceType="dataSync" />
+        <service android:name=".LibraryImportService" android:exported="false"
+            android:stopWithTask="false" android:foregroundServiceType="dataSync" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

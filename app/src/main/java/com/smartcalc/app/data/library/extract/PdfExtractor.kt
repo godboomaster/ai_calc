@@ -32,7 +32,7 @@ object PdfExtractor {
                         val (width, height) = rasterDimensions(page.width, page.height)
                         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
                         val target = File(directory, "page-$ordinal.jpg")
-                        val temporary = File(directory, "page-$ordinal.tmp")
+                        val temporary = File(directory, ".page-$ordinal.${java.util.UUID.randomUUID()}.tmp")
                         try {
                             bitmap.eraseColor(Color.WHITE)
                             page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
