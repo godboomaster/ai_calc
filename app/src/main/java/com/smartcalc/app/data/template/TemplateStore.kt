@@ -1,5 +1,13 @@
+@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+
 package com.smartcalc.app.data.template
 
+import com.smartcalc.app.data.library.LIBRARY_METADATA_SCHEMA_VERSION
+import com.smartcalc.app.data.library.LibraryMetadata
+import com.smartcalc.app.data.library.LibraryOrigin
+import com.smartcalc.app.data.library.LibraryOriginKind
+import com.smartcalc.app.data.library.LibraryRevision
+import com.smartcalc.app.data.library.LibraryVerification
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -7,6 +15,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -30,6 +39,8 @@ data class TemplateExample(
     val conditionImages: List<String> = emptyList(),
     val solution: String = "",
     val solutionImages: List<String> = emptyList(),
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val library: LibraryMetadata? = null,
 ) {
     val isEmpty: Boolean
         get() = condition.isBlank() && solution.isBlank() && conditionImages.isEmpty() && solutionImages.isEmpty()
@@ -56,12 +67,16 @@ class ExampleDraft(
     val conditionImages: List<ImageDraft>,
     val solution: String,
     val solutionImages: List<ImageDraft>,
+    val libraryId: String? = null,
+    val expectedVersion: Int? = null,
+    val verification: LibraryVerification? = null,
+    val enabled: Boolean? = null,
 )
 
 class TemplateImportException(message: String) : Exception(message)
 
 /** Итог импорта: сколько шаблонов новых, сколько заменили уже бывшие (тот же шаблон, импорт повторно). */
-data class ImportResult(val added: Int, val updated: Int) {
+data class ImportResult(val added: Int, val updated: Int, val unchanged: Int = 0) {
     /** Сами загруженные шаблоны — уже с путями к своим фото. В сравнении итогов не участвуют. */
     var items: List<TaskTemplate> = emptyList()
         internal set
@@ -73,6 +88,37 @@ data class ImportResult(val added: Int, val updated: Int) {
  */
 @Serializable
 private data class TemplateBundle(val format: String, val version: Int, val templates: List<TaskTemplate>)
+
+/** Import wire types deliberately have no library field: untrusted metadata is never decoded. */
+@Serializable
+private data class ImportedBundle(val format: String, val version: Int, val templates: List<ImportedTemplate>)
+
+@Serializable
+private data class ImportedTemplate(
+    val id: String = UUID.randomUUID().toString(),
+    val name: String,
+    val requirements: String = "",
+    val examples: List<ImportedExample> = emptyList(),
+    val updated: Long = System.currentTimeMillis(),
+) {
+    fun local() = TaskTemplate(
+        id = id,
+        name = name,
+        requirements = requirements,
+        examples = examples.map(ImportedExample::local),
+        updated = updated,
+    )
+}
+
+@Serializable
+private data class ImportedExample(
+    val condition: String = "",
+    val conditionImages: List<String> = emptyList(),
+    val solution: String = "",
+    val solutionImages: List<String> = emptyList(),
+) {
+    fun local() = TemplateExample(condition, conditionImages, solution, solutionImages)
+}
 
 private const val BUNDLE_FORMAT = "smartcalc-templates"
 private const val MANIFEST = "manifest.json"
@@ -99,7 +145,7 @@ enum class TemplateFormat(val extension: String, val mime: String) {
 enum class TemplateKind { TEMPLATES, LIBRARY }
 
 /** Шаблоны хранятся в [root]: список в templates.json, картинки в templates/. */
-class TemplateStore(private val root: File) {
+class TemplateStore(private val root: File, val kind: TemplateKind = TemplateKind.TEMPLATES) {
 
     // Time-dependent defaults must be written too: omitting updated changes it on every reload.
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
@@ -112,22 +158,90 @@ class TemplateStore(private val root: File) {
     private val imagesDir get() = File(root, "templates").apply { mkdirs() }
     private val mutex = Mutex()
 
-    private val _items = MutableStateFlow(load())
-    val items: StateFlow<List<TaskTemplate>> = _items
+    private data class Loaded(val items: List<TaskTemplate>, val error: String? = null)
+    private class UnsupportedLibrarySchema : Exception()
 
-    private fun load(): List<TaskTemplate> = try {
-        if (file.exists()) json.decodeFromString<List<TaskTemplate>>(file.readText()) else emptyList()
-    } catch (e: Exception) {
-        emptyList()
+    private val loaded = load()
+    private val _items = MutableStateFlow(loaded.items)
+    val items: StateFlow<List<TaskTemplate>> = _items
+    private val _loadError = MutableStateFlow(loaded.error)
+    val loadError: StateFlow<String?> = _loadError
+
+    private fun load(): Loaded {
+        if (!file.exists()) return Loaded(emptyList())
+        return try {
+            val decoded = json.decodeFromString<List<TaskTemplate>>(file.readText())
+            if (kind != TemplateKind.LIBRARY) return Loaded(decoded)
+            decoded.flatMap { it.examples }.mapNotNull { it.library }.forEach { metadata ->
+                if (metadata.schemaVersion != LIBRARY_METADATA_SCHEMA_VERSION) throw UnsupportedLibrarySchema()
+            }
+            validateLibraryMetadata(decoded)
+            var migrated = false
+            val library = decoded.map { template ->
+                template.copy(examples = template.examples.map { example ->
+                    if (example.library != null) example else {
+                        migrated = true
+                        example.copy(library = newMetadata(LibraryOriginKind.LEGACY))
+                    }
+                })
+            }
+            // A caller never observes generated IDs until the exact snapshot containing them is durable.
+            if (migrated) writeSnapshot(library)
+            Loaded(library)
+        } catch (_: UnsupportedLibrarySchema) {
+            Loaded(emptyList(), "Версия метаданных библиотеки не поддерживается")
+        } catch (_: Exception) {
+            Loaded(emptyList(), "Не удалось прочитать или обновить библиотеку. Изменения заблокированы")
+        }
     }
+
+    private fun ensureWritable() {
+        check(_loadError.value == null) { _loadError.value ?: "Изменения библиотеки заблокированы" }
+    }
+
+    private fun validateLibraryMetadata(templates: List<TaskTemplate>) {
+        val ids = mutableSetOf<String>()
+        templates.flatMap { it.examples }.mapNotNull { it.library }.forEach { metadata ->
+            val uuid = UUID.fromString(metadata.id)
+            require(uuid.toString() == metadata.id.lowercase())
+            require(ids.add(uuid.toString()))
+            require(metadata.version >= 1)
+            require(metadata.previousVersions.size == metadata.version - 1)
+            require(metadata.previousVersions.withIndex().all { (index, revision) ->
+                revision.version == index + 1
+            })
+        }
+    }
+
+    private fun newMetadata(kind: LibraryOriginKind, name: String? = null) = LibraryMetadata(
+        id = UUID.randomUUID().toString(),
+        origin = LibraryOrigin(kind, name),
+    )
 
     /**
      * Сохраняет шаблон из редактора: новые картинки пишутся в файлы, картинки, убранные из шаблона,
      * удаляются. [id] — null для нового шаблона.
      */
-    suspend fun save(id: String?, name: String, requirements: String, examples: List<ExampleDraft>) =
+    suspend fun save(
+        id: String?,
+        name: String,
+        requirements: String,
+        examples: List<ExampleDraft>,
+        expectedSection: TaskTemplate? = null,
+    ) =
         withContext(Dispatchers.IO) {
             mutex.withLock {
+                ensureWritable()
+                val previous = _items.value.firstOrNull { it.id == id }
+                if (kind == TemplateKind.LIBRARY) {
+                    if (id != null && previous == null) {
+                        throw IllegalStateException("Раздел библиотеки больше не существует")
+                    }
+                    if (previous != null && expectedSection != previous) {
+                        throw IllegalStateException("Раздел библиотеки изменился. Обновите его и повторите сохранение")
+                    }
+                    validateDraftVersions(previous, examples)
+                }
                 val created = mutableListOf<File>()
                 try {
                     fun store(images: List<ImageDraft>) = images.mapNotNull { img ->
@@ -138,12 +252,24 @@ class TemplateStore(private val root: File) {
                             }.absolutePath
                         }
                     }
+                    val oldById = previous?.examples.orEmpty().mapNotNull { old ->
+                        old.library?.id?.let { it to old }
+                    }.toMap()
                     val template = TaskTemplate(
                         id = id ?: UUID.randomUUID().toString(),
                         name = name.trim(),
                         requirements = requirements.trim(),
-                        examples = examples.map {
-                            TemplateExample(it.condition.trim(), store(it.conditionImages), it.solution.trim(), store(it.solutionImages))
+                        examples = examples.map { draft ->
+                            val current = TemplateExample(
+                                condition = draft.condition.trim(),
+                                conditionImages = store(draft.conditionImages),
+                                solution = draft.solution.trim(),
+                                solutionImages = store(draft.solutionImages),
+                            )
+                            if (kind != TemplateKind.LIBRARY) current else {
+                                val old = draft.libraryId?.let(oldById::get)
+                                current.copy(library = metadataForSave(old, current, draft))
+                            }
                         }.filterNot { it.isEmpty },
                     )
                     val updated = listOf(template) + _items.value.filterNot { it.id == template.id }
@@ -155,8 +281,74 @@ class TemplateStore(private val root: File) {
             }
         }
 
-    suspend fun delete(id: String) = withContext(Dispatchers.IO) {
+    private fun validateDraftVersions(previous: TaskTemplate?, drafts: List<ExampleDraft>) {
+        val oldById = previous?.examples.orEmpty().mapNotNull { example ->
+            example.library?.id?.let { it to example.library }
+        }.toMap()
+        val ids = drafts.mapNotNull { it.libraryId }
+        require(ids.size == ids.distinct().size) { "Один пример библиотеки указан несколько раз" }
+        drafts.forEach { draft ->
+            val libraryId = draft.libraryId ?: return@forEach
+            val current = oldById[libraryId]
+                ?: throw IllegalStateException("Пример библиотеки больше не существует")
+            if (draft.expectedVersion == null || draft.expectedVersion != current.version) {
+                throw IllegalStateException("Версия примера изменилась. Обновите раздел и повторите сохранение")
+            }
+        }
+    }
+
+    private fun metadataForSave(
+        old: TemplateExample?,
+        current: TemplateExample,
+        draft: ExampleDraft,
+    ): LibraryMetadata {
+        val previous = old?.library ?: return newMetadata(LibraryOriginKind.MANUAL).copy(
+            verification = draft.verification ?: LibraryVerification.UNVERIFIED,
+            enabled = draft.enabled ?: true,
+        )
+        if (sameContent(old, current)) {
+            return previous.copy(
+                verification = draft.verification ?: previous.verification,
+                enabled = draft.enabled ?: previous.enabled,
+            )
+        }
+        val revision = LibraryRevision(
+            version = previous.version,
+            condition = old.condition,
+            conditionImages = old.conditionImages,
+            solution = old.solution,
+            solutionImages = old.solutionImages,
+            verification = previous.verification,
+        )
+        return previous.copy(
+            version = previous.version + 1,
+            verification = draft.verification ?: LibraryVerification.UNVERIFIED,
+            enabled = draft.enabled ?: previous.enabled,
+            previousVersions = previous.previousVersions + revision,
+        )
+    }
+
+    private fun sameContent(first: TemplateExample, second: TemplateExample): Boolean =
+        first.condition.trim() == second.condition.trim() &&
+            first.solution.trim() == second.solution.trim() &&
+            sameImages(first.conditionImages, second.conditionImages) &&
+            sameImages(first.solutionImages, second.solutionImages)
+
+    private fun sameImages(first: List<String>, second: List<String>): Boolean =
+        first.size == second.size && first.zip(second).all { (left, right) ->
+            left == right || runCatching { File(left).readBytes().contentEquals(File(right).readBytes()) }.getOrDefault(false)
+        }
+
+    suspend fun delete(id: String, expectedSection: TaskTemplate? = null) = withContext(Dispatchers.IO) {
         mutex.withLock {
+            ensureWritable()
+            if (kind == TemplateKind.LIBRARY) {
+                val current = _items.value.firstOrNull { it.id == id }
+                    ?: throw IllegalStateException("Раздел библиотеки больше не существует")
+                if (expectedSection != current) {
+                    throw IllegalStateException("Раздел библиотеки изменился. Обновите его и повторите удаление")
+                }
+            }
             val updated = _items.value.filterNot { it.id == id }
             publish(updated)
         }
@@ -192,7 +384,11 @@ class TemplateStore(private val root: File) {
             templates.map { t ->
                 t.copy(
                     examples = t.examples.map { ex ->
-                        ex.copy(conditionImages = refs(ex.conditionImages), solutionImages = refs(ex.solutionImages))
+                        ex.copy(
+                            conditionImages = refs(ex.conditionImages),
+                            solutionImages = refs(ex.solutionImages),
+                            library = null,
+                        )
                     },
                 )
             },
@@ -225,8 +421,9 @@ class TemplateStore(private val root: File) {
      * же id (тот же файл импортирован повторно) заменяется, а не дублируется. Фото получают новые
      * имена: имена из файла на диск не попадают.
      */
-    suspend fun import(input: InputStream): ImportResult = withContext(Dispatchers.IO) {
+    suspend fun import(input: InputStream, sourceName: String? = null): ImportResult = withContext(Dispatchers.IO) {
         mutex.withLock {
+            ensureWritable()
             val created = mutableListOf<File>()
             val imported = try {
                 val stream = input.buffered()
@@ -252,6 +449,9 @@ class TemplateStore(private val root: File) {
                 throw TemplateImportException("В файле нет шаблонов")
             }
             val unique = imported.distinctBy { it.id }
+            if (kind == TemplateKind.LIBRARY) {
+                return@withLock importLibrary(unique, created, sourceName)
+            }
             val replaced = _items.value.filter { old -> unique.any { it.id == old.id } }
             val updated = unique + _items.value.filterNot { old -> unique.any { it.id == old.id } }
             try {
@@ -264,6 +464,44 @@ class TemplateStore(private val root: File) {
         }
     }
 
+    private fun importLibrary(
+        imported: List<TaskTemplate>,
+        created: MutableList<File>,
+        sourceName: String?,
+    ): ImportResult {
+        val existing = _items.value.associateBy { it.id }
+        val conflicts = imported.filter { candidate ->
+            existing[candidate.id]?.let { current -> !sameSection(current, candidate) } == true
+        }
+        if (conflicts.isNotEmpty()) {
+            created.forEach { it.delete() }
+            throw TemplateImportException("Конфликт раздела библиотеки: локальные данные не изменены")
+        }
+        val additions = imported.filterNot { it.id in existing }.map { template ->
+            template.copy(examples = template.examples.map { example ->
+                example.copy(library = newMetadata(LibraryOriginKind.FILE_IMPORT, sourceName))
+            })
+        }
+        val unchanged = imported.size - additions.size
+        val updated = additions + _items.value
+        try {
+            publish(updated, created)
+        } catch (error: Exception) {
+            created.forEach { it.delete() }
+            throw error
+        }
+        val additionsById = additions.associateBy { it.id }
+        return ImportResult(added = additions.size, updated = 0, unchanged = unchanged).apply {
+            items = imported.map { additionsById[it.id] ?: existing.getValue(it.id) }
+        }
+    }
+
+    private fun sameSection(first: TaskTemplate, second: TaskTemplate): Boolean =
+        first.name.trim() == second.name.trim() &&
+            first.requirements.trim() == second.requirements.trim() &&
+            first.examples.size == second.examples.size &&
+            first.examples.zip(second.examples).all { (left, right) -> sameContent(left, right) }
+
     /**
      * Дописывает к шаблону [templateId] задачи из другого хранилища (из базы задач). Фото копируются в
      * свои файлы: шаблон не зависит от того, удалят ли задачу из базы. Задача, которая в шаблоне уже
@@ -271,6 +509,7 @@ class TemplateStore(private val root: File) {
      */
     suspend fun attach(templateId: String, examples: List<TemplateExample>): Int = withContext(Dispatchers.IO) {
         mutex.withLock {
+            ensureWritable()
             val template = _items.value.firstOrNull { it.id == templateId } ?: return@withLock 0
             val references = examples.flatMap { it.conditionImages + it.solutionImages }
             references.forEach { path ->
@@ -290,7 +529,11 @@ class TemplateStore(private val root: File) {
             }
             try {
                 val added = examples.filter { !it.isEmpty && known.add(ExampleFingerprint.key(it)) }.map {
-                    it.copy(conditionImages = copy(it.conditionImages), solutionImages = copy(it.solutionImages))
+                    it.copy(
+                        conditionImages = copy(it.conditionImages),
+                        solutionImages = copy(it.solutionImages),
+                        library = if (kind == TemplateKind.LIBRARY) newMetadata(LibraryOriginKind.MANUAL) else null,
+                    )
                 }
                 if (added.isEmpty()) return@withLock 0
                 val changed = template.copy(examples = template.examples + added, updated = System.currentTimeMillis())
@@ -305,10 +548,10 @@ class TemplateStore(private val root: File) {
     }
 
     private fun bundleOf(text: String): TemplateBundle {
-        val bundle = json.decodeFromString<TemplateBundle>(text).takeIf { it.format == BUNDLE_FORMAT }
+        val imported = json.decodeFromString<ImportedBundle>(text).takeIf { it.format == BUNDLE_FORMAT }
             ?: throw TemplateImportException("Это не файл шаблонов SmartCalc")
-        if (bundle.version != 1) throw TemplateImportException("Эта версия файла шаблонов не поддерживается")
-        return bundle
+        if (imported.version != 1) throw TemplateImportException("Эта версия файла шаблонов не поддерживается")
+        return TemplateBundle(imported.format, imported.version, imported.templates.map(ImportedTemplate::local))
     }
 
     /** Фото из ссылок шаблона в свои файлы; [load] возвращает байты по ссылке или null. */
@@ -317,6 +560,11 @@ class TemplateStore(private val root: File) {
         created: MutableList<File>,
         load: (String) -> ByteArray?,
     ): List<TaskTemplate> {
+        val unique = if (kind == TemplateKind.LIBRARY) {
+            deduplicateLibraryImport(templates, load)
+        } else {
+            templates.distinctBy { it.id }
+        }
         val saved = mutableMapOf<String, String>()
         fun local(refs: List<String>) = refs.mapNotNull { ref ->
             saved[ref] ?: load(ref)?.let { bytes ->
@@ -327,13 +575,61 @@ class TemplateStore(private val root: File) {
                 f.absolutePath.also { saved[ref] = it }
             }
         }
-        return templates.distinctBy { it.id }.map { t ->
+        return unique.map { t ->
             t.copy(
                 examples = t.examples.map { ex ->
-                    ex.copy(conditionImages = local(ex.conditionImages), solutionImages = local(ex.solutionImages))
+                        ex.copy(
+                            conditionImages = local(ex.conditionImages),
+                            solutionImages = local(ex.solutionImages),
+                            // Every import is foreign input, including another SmartCalc installation.
+                            library = null,
+                        )
                 },
             )
         }
+    }
+
+    /** Validate duplicate IDs against source bytes before any imported photo is written to disk. */
+    private fun deduplicateLibraryImport(
+        templates: List<TaskTemplate>,
+        load: (String) -> ByteArray?,
+    ): List<TaskTemplate> {
+        val unique = linkedMapOf<String, TaskTemplate>()
+        templates.forEach { candidate ->
+            val first = unique[candidate.id]
+            if (first == null) {
+                unique[candidate.id] = candidate
+            } else if (!sameImportedSection(first, candidate, load)) {
+                throw TemplateImportException("Конфликт повторяющегося раздела библиотеки: импорт отменён")
+            }
+        }
+        return unique.values.toList()
+    }
+
+    private fun sameImportedSection(
+        first: TaskTemplate,
+        second: TaskTemplate,
+        load: (String) -> ByteArray?,
+    ): Boolean =
+        first.name.trim() == second.name.trim() &&
+            first.requirements.trim() == second.requirements.trim() &&
+            first.examples.size == second.examples.size &&
+            first.examples.zip(second.examples).all { (left, right) ->
+                left.condition.trim() == right.condition.trim() &&
+                    left.solution.trim() == right.solution.trim() &&
+                    sameImportedImages(left.conditionImages, right.conditionImages, load) &&
+                    sameImportedImages(left.solutionImages, right.solutionImages, load)
+            }
+
+    private fun sameImportedImages(
+        first: List<String>,
+        second: List<String>,
+        load: (String) -> ByteArray?,
+    ): Boolean = first.size == second.size && first.zip(second).all { (left, right) ->
+        val leftBytes = load(left)
+        val rightBytes = load(right)
+        leftBytes == null && rightBytes == null ||
+            leftBytes != null && rightBytes != null && leftBytes.contentEquals(rightBytes)
     }
 
     private fun importZip(input: InputStream, created: MutableList<File>): List<TaskTemplate> {
@@ -372,7 +668,11 @@ class TemplateStore(private val root: File) {
                     "дальше «## Требования», «## Пример 1», «### Условие», «### Решение».",
             )
         }
-        return templates
+        return if (kind == TemplateKind.LIBRARY) {
+            deduplicateLibraryImport(templates) { null }
+        } else {
+            templates
+        }
     }
 
     private fun readLimited(input: InputStream, limit: Long): ByteArray {
@@ -393,12 +693,31 @@ class TemplateStore(private val root: File) {
         File(path).takeIf { it.exists() }?.readBytes()
     }
 
-    private fun imagesOf(t: TaskTemplate) = t.examples.flatMap { it.conditionImages + it.solutionImages }.toSet()
+    private fun imagesOf(t: TaskTemplate) = t.examples.flatMap { example ->
+        val archived = example.library?.previousVersions.orEmpty().flatMap {
+            it.conditionImages + it.solutionImages
+        }
+        example.conditionImages + example.solutionImages + archived
+    }.toSet()
 
     /** Publish metadata first. Shared images belong to the whole library, not one template. */
     private fun publish(updated: List<TaskTemplate>, created: List<File> = emptyList()) {
         val candidates = _items.value.flatMap(::imagesOf) + created.map { it.absolutePath }
         val keep = updated.flatMap(::imagesOf).toSet()
+        writeSnapshot(updated)
+        _items.value = updated
+        // Cleanup failure must never roll back a published library or delete its staged photos.
+        runCatching {
+            val directory = imagesDir.canonicalFile
+            val referenced = keep.map { File(it).canonicalFile }.toSet()
+            candidates.map { File(it).canonicalFile }.distinct().filter {
+                it.parentFile == directory && it !in referenced
+            }.forEach { it.delete() }
+        }
+    }
+
+    private fun writeSnapshot(updated: List<TaskTemplate>) {
+        root.mkdirs()
         val temporary = File(root, "templates.json.tmp")
         try {
             FileOutputStream(temporary).use { output ->
@@ -412,15 +731,6 @@ class TemplateStore(private val root: File) {
             )
         } finally {
             if (temporary.isFile) temporary.delete()
-        }
-        _items.value = updated
-        // Cleanup failure must never roll back a published library or delete its staged photos.
-        runCatching {
-            val directory = imagesDir.canonicalFile
-            val referenced = keep.map { File(it).canonicalFile }.toSet()
-            candidates.map { File(it).canonicalFile }.distinct().filter {
-                it.parentFile == directory && it !in referenced
-            }.forEach { it.delete() }
         }
     }
 

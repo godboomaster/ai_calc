@@ -2,6 +2,7 @@ package com.smartcalc.app.ui.template
 
 import android.content.Context
 import android.content.Intent
+import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -109,8 +110,15 @@ internal fun rememberTemplateTransfer(
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             try {
-                val result = context.contentResolver.openInputStream(uri)?.use { vm.importTemplates(it, kind) }
-                    ?: throw TemplateImportException("Не удалось открыть файл")
+                val result = withContext(Dispatchers.IO) {
+                    val sourceName = runCatching {
+                        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                            if (cursor.moveToFirst()) cursor.getString(0)?.take(200) else null
+                        }
+                    }.getOrNull()
+                    context.contentResolver.openInputStream(uri)?.use { vm.importTemplates(it, kind, sourceName) }
+                        ?: throw TemplateImportException("Не удалось открыть файл")
+                }
                 toast(context, importMessage(result, kind))
                 onImported?.invoke(result)
             } catch (e: TemplateImportException) {
@@ -124,6 +132,7 @@ internal fun rememberTemplateTransfer(
 
     pending?.let { p ->
         FormatDialog(
+            kind = kind,
             onDismiss = { pending = null },
             onChoose = { format ->
                 pending = null
@@ -157,12 +166,17 @@ internal fun rememberTemplateTransfer(
 }
 
 @Composable
-private fun FormatDialog(onDismiss: () -> Unit, onChoose: (TemplateFormat) -> Unit) {
+private fun FormatDialog(kind: TemplateKind, onDismiss: () -> Unit, onChoose: (TemplateFormat) -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Формат файла") },
         text = {
             Column {
+                if (kind == TemplateKind.LIBRARY) Text(
+                    "Экспортируется текущее содержимое. Отметки проверки и предыдущие версии остаются на этом устройстве.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
                 FORMAT_HINTS.forEach { (format, hint) ->
                     Text(
                         hint,
@@ -211,7 +225,10 @@ private fun importMessage(r: ImportResult, kind: TemplateKind): String = when (k
         "обновлено: ${r.updated}".takeIf { r.updated > 0 },
     ).joinToString(", ").replaceFirstChar { it.uppercase() }
     // В базе важнее число задач: раздел в файле обычно один.
-    TemplateKind.LIBRARY -> "Загружено задач: ${r.items.sumOf { it.examples.size }}"
+    TemplateKind.LIBRARY -> listOfNotNull(
+        "Добавлено разделов: ${r.added}".takeIf { r.added > 0 },
+        "Без изменений: ${r.unchanged}".takeIf { r.unchanged > 0 },
+    ).joinToString(". ")
 }
 
 private fun toast(context: Context, text: String) = Toast.makeText(context, text, Toast.LENGTH_SHORT).show()

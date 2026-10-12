@@ -80,6 +80,7 @@ fun LibraryScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val sections by vm.library.collectAsState()
+    val storageError by vm.storageError(TemplateKind.LIBRARY).collectAsState()
     val templates by vm.templates.collectAsState()
     // Шаблон, к которому прикрепить загружаемый файл; переживает системный выбор файла.
     var importInto by rememberSaveable { mutableStateOf<String?>(null) }
@@ -146,6 +147,10 @@ fun LibraryScreen(
                 }
             },
         )
+        if (storageError != null) {
+            Text(storageError.orEmpty(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
+            return@Column
+        }
         LazyColumn(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -247,8 +252,11 @@ private fun SectionCard(section: TaskTemplate, canAttach: Boolean, onClick: () -
             Column(modifier = Modifier.weight(1f)) {
                 Text(section.name, style = MaterialTheme.typography.titleMedium)
                 val count = section.examples.size
+                val searchable = section.examples.count { ex ->
+                    ex.library?.let { it.enabled && it.verification != com.smartcalc.app.data.library.LibraryVerification.REJECTED } ?: true
+                }
                 Text(
-                    "$count ${tasksWord(count)}",
+                    "$count ${tasksWord(count)} · в поиске: $searchable",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 2.dp),

@@ -101,6 +101,7 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun items(kind: TemplateKind): StateFlow<List<TaskTemplate>> = store(kind).items
+    fun storageError(kind: TemplateKind): StateFlow<String?> = store(kind).loadError
 
     suspend fun saveTemplate(
         id: String?,
@@ -108,11 +109,11 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
         requirements: String,
         examples: List<ExampleDraft>,
         kind: TemplateKind = TemplateKind.TEMPLATES,
-    ) = store(kind).save(id, name, requirements, examples)
+        expectedSection: TaskTemplate? = null,
+    ) = store(kind).save(id, name, requirements, examples, expectedSection)
 
-    fun deleteTemplate(id: String, kind: TemplateKind = TemplateKind.TEMPLATES) {
-        viewModelScope.launch { store(kind).delete(id) }
-    }
+    suspend fun deleteTemplate(id: String, kind: TemplateKind = TemplateKind.TEMPLATES, expectedSection: TaskTemplate? = null) =
+        store(kind).delete(id, expectedSection)
 
     /** Файл шаблонов (или разделов базы) с [ids] (null — все) — для сохранения или отправки. */
     suspend fun exportTemplates(
@@ -122,8 +123,8 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
         kind: TemplateKind = TemplateKind.TEMPLATES,
     ): Int = store(kind).export(ids, out, format)
 
-    suspend fun importTemplates(input: InputStream, kind: TemplateKind = TemplateKind.TEMPLATES): ImportResult =
-        store(kind).import(input)
+    suspend fun importTemplates(input: InputStream, kind: TemplateKind = TemplateKind.TEMPLATES, sourceName: String? = null): ImportResult =
+        store(kind).import(input, sourceName)
 
     /** Задачи из базы дописываются примерами к шаблону: с ним они уйдут ИИ. Возвращает, сколько добавлено. */
     suspend fun attachToTemplate(templateId: String, examples: List<TemplateExample>): Int =

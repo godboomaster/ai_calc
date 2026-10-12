@@ -98,4 +98,13 @@ class TaskSearchRegressionTest {
             assertEquals(saved, FoundSolution.of(TaskSearch.search(indexed, query).single().entry))
         }
     }
+
+    @Test fun removedLibrarySnapshotRemainsInHistoryButNotInNewSearch() {
+        val example = TemplateExample(condition = "Скорость 12 м/с", solution = "Ответ: 24 м")
+        val saved = FoundSolution.of(entries(example).single())
+        val own = Solution(problem = "Скорость 18 м/с", answer = "36 м")
+        val indexed = TaskSearch.entries(emptyList(), emptyList(), listOf(saved, own))
+        assertEquals(listOf(own), indexed.map { it.history })
+        assertEquals("24 м", saved.answer)
+    }
 }

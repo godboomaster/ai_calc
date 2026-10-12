@@ -39,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -57,32 +58,14 @@ import com.smartcalc.app.SolutionViewModel
 import com.smartcalc.app.data.DocumentException
 import com.smartcalc.app.data.DocumentReader
 import com.smartcalc.app.data.ImageUtils
-import com.smartcalc.app.data.template.ExampleDraft
 import com.smartcalc.app.data.template.ImageDraft
-import com.smartcalc.app.data.template.TemplateExample
 import com.smartcalc.app.data.template.TemplateKind
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.io.File
 
 /** Картинок в одной части примера больше не нужно: каждая уходит ИИ с каждой задачей. */
 private const val MAX_IMAGES = 4
-
-/** Условие или решение примера: текст и картинки, которые редактор меняет на месте. */
-private class SectionState(text: String, images: List<ImageDraft>) {
-    var text by mutableStateOf(text)
-    val images = mutableStateListOf<ImageDraft>().apply { addAll(images) }
-}
-
-private class ExampleState(val condition: SectionState, val solution: SectionState) {
-    fun toDraft() = ExampleDraft(condition.text, condition.images.toList(), solution.text, solution.images.toList())
-}
-
-private fun TemplateExample.toState() = ExampleState(
-    SectionState(condition, conditionImages.map { ImageDraft(path = it) }),
-    SectionState(solution, solutionImages.map { ImageDraft(path = it) }),
-)
-
-private fun emptyExample() = ExampleState(SectionState("", emptyList()), SectionState("", emptyList()))
 
 /** Надписи редактора: шаблон заданий и раздел базы задач устроены одинаково, но называются по-разному. */
 private class EditorWords(
@@ -158,65 +141,80 @@ fun TemplateEditScreen(
     val words = remember(kind) { wordsFor(kind) }
     val existing = remember { templateId?.let { id -> vm.items(kind).value.firstOrNull { it.id == id } } }
     val transfer = rememberTemplateTransfer(vm, kind)
+    val storageError by vm.storageError(kind).collectAsState()
 
     var name by remember { mutableStateOf(existing?.name.orEmpty()) }
     var requirements by remember { mutableStateOf(existing?.requirements.orEmpty()) }
     val examples = remember {
-        mutableStateListOf<ExampleState>().apply {
-            addAll(existing?.examples?.map { it.toState() }?.ifEmpty { null } ?: listOf(emptyExample()))
+        mutableStateListOf<ExampleEditState>().apply {
+            addAll(existing?.examples?.map { ExampleEditState(it) }?.ifEmpty { null } ?: listOf(ExampleEditState()))
         }
     }
     var dirty by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
+    var reading by remember { mutableStateOf(false) }
     var confirmExit by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
 
     // Куда добавить выбранное фото или документ — в условие или решение какого примера.
-    var target by remember { mutableStateOf<SectionState?>(null) }
+    var target by remember { mutableStateOf<ExampleSectionState?>(null) }
     val galleryLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(MAX_IMAGES),
     ) { uris ->
         val section = target ?: return@rememberLauncherForActivityResult
+        if (saving || uris.isEmpty()) return@rememberLauncherForActivityResult
+        reading = true
         scope.launch {
             try {
                 uris.take(MAX_IMAGES - section.images.size).forEach { uri ->
-                    section.images += ImageDraft(bytes = ImageUtils.compressUri(context, uri))
+                    section.addImage(ImageDraft(bytes = ImageUtils.compressUri(context, uri)))
+                    dirty = true
                 }
-                if (uris.isNotEmpty()) dirty = true
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 Toast.makeText(context, "Не удалось открыть изображение", Toast.LENGTH_SHORT).show()
+            } finally {
+                reading = false
             }
         }
     }
     val documentLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         val section = target ?: return@rememberLauncherForActivityResult
-        if (uri == null) return@rememberLauncherForActivityResult
+        if (uri == null || saving) return@rememberLauncherForActivityResult
+        reading = true
         scope.launch {
             try {
                 // Текст документа дописывается в поле, страницы PDF и картинки — к фото.
                 val doc = DocumentReader.read(context, uri)
-                doc.text?.let { section.text = if (section.text.isBlank()) it else section.text.trimEnd() + "\n" + it }
-                doc.images.take(MAX_IMAGES - section.images.size).forEach { section.images += ImageDraft(bytes = it) }
+                doc.text?.let { section.updateText(if (section.text.isBlank()) it else section.text.trimEnd() + "\n" + it) }
+                doc.images.take(MAX_IMAGES - section.images.size).forEach { section.addImage(ImageDraft(bytes = it)) }
                 dirty = true
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: DocumentException) {
                 Toast.makeText(context, e.message, Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
                 Toast.makeText(context, "Не удалось открыть документ", Toast.LENGTH_SHORT).show()
+            } finally {
+                reading = false
             }
         }
     }
 
     fun leave() {
+        if (saving || reading) return
         if (dirty) confirmExit = true else onBack()
     }
     BackHandler(onBack = ::leave)
 
     @Composable
-    fun Section(label: String, placeholder: String, state: SectionState) {
+    fun Section(label: String, placeholder: String, state: ExampleSectionState) {
         SectionEditor(
             label = label,
             placeholder = placeholder,
             state = state,
+            enabled = !saving && !reading,
             onChange = { dirty = true },
             onPickImages = {
                 target = state
@@ -238,6 +236,10 @@ fun TemplateEditScreen(
                 }
             },
         )
+        if (storageError != null) {
+            Text(storageError.orEmpty(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
+            return@Column
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -254,6 +256,7 @@ fun TemplateEditScreen(
                 label = { Text(words.nameLabel) },
                 placeholder = { Text(words.namePlaceholder) },
                 singleLine = true,
+                enabled = !saving && !reading,
                 modifier = Modifier.fillMaxWidth(),
             )
             // У базы требований нет: её задачи ищут, а не отправляют ИИ.
@@ -267,6 +270,7 @@ fun TemplateEditScreen(
                     label = { Text("Требования к таким задачам") },
                     placeholder = { Text("Например: решать методом Гурвица, в конце — вывод об устойчивости") },
                     minLines = 3,
+                    enabled = !saving && !reading,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -292,7 +296,7 @@ fun TemplateEditScreen(
                                 style = MaterialTheme.typography.titleSmall,
                                 modifier = Modifier.weight(1f),
                             )
-                            IconButton(onClick = {
+                            IconButton(enabled = !saving && !reading, onClick = {
                                 examples.removeAt(index)
                                 dirty = true
                             }) {
@@ -302,26 +306,38 @@ fun TemplateEditScreen(
                         Column(modifier = Modifier.padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Section("Условие", "Текст условия", example.condition)
                             Section("Решение", words.solutionPlaceholder, example.solution)
+                            if (kind == TemplateKind.LIBRARY) {
+                                LibraryExampleControls(example, enabled = !saving && !reading) { dirty = true }
+                            }
                         }
                     }
                 }
             }
             OutlinedButton(
                 onClick = {
-                    examples += emptyExample()
+                    examples += ExampleEditState()
                     dirty = true
                 },
+                enabled = !saving && !reading,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(words.addExample) }
             Button(
                 onClick = {
                     saving = true
                     scope.launch {
-                        vm.saveTemplate(existing?.id, name, requirements, examples.map { it.toDraft() }, kind)
-                        onBack()
+                        try {
+                            vm.saveTemplate(existing?.id, name, requirements, examples.map { it.toDraft() }, kind, expectedSection = existing)
+                            onBack()
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            Toast.makeText(context, "Не удалось сохранить. Черновик оставлен на экране. Проверьте свободное место; если запись изменена в другом окне, откройте её заново.", Toast.LENGTH_LONG).show()
+                        } finally {
+                            saving = false
+                        }
                     }
                 },
-                enabled = name.isNotBlank() && !saving,
+                enabled = name.isNotBlank() && !saving && !reading,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Сохранить") }
             if (existing != null) {
@@ -335,16 +351,16 @@ fun TemplateEditScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                         onClick = { transfer.save(listOf(existing), false) },
-                        enabled = !dirty,
+                        enabled = !dirty && !saving && !reading,
                         modifier = Modifier.weight(1f),
                     ) { Text("Сохранить в файл") }
                     OutlinedButton(
                         onClick = { transfer.share(listOf(existing), false) },
-                        enabled = !dirty,
+                        enabled = !dirty && !saving && !reading,
                         modifier = Modifier.weight(1f),
                     ) { Text("Отправить") }
                 }
-                OutlinedButton(onClick = { confirmDelete = true }, modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(enabled = !saving && !reading, onClick = { confirmDelete = true }, modifier = Modifier.fillMaxWidth()) {
                     Text(words.delete)
                 }
             }
@@ -367,8 +383,20 @@ fun TemplateEditScreen(
             text = { Text(words.deleteDetails) },
             confirmButton = {
                 TextButton(onClick = {
-                    vm.deleteTemplate(existing.id, kind)
-                    onBack()
+                    confirmDelete = false
+                    saving = true
+                    scope.launch {
+                        try {
+                            vm.deleteTemplate(existing.id, kind, expectedSection = existing)
+                            onBack()
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            Toast.makeText(context, "Не удалось удалить. Данные сохранены.", Toast.LENGTH_LONG).show()
+                        } finally {
+                            saving = false
+                        }
+                    }
                 }) { Text("Удалить") }
             },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Отмена") } },
@@ -380,7 +408,8 @@ fun TemplateEditScreen(
 private fun SectionEditor(
     label: String,
     placeholder: String,
-    state: SectionState,
+    state: ExampleSectionState,
+    enabled: Boolean,
     onChange: () -> Unit,
     onPickImages: () -> Unit,
     onPickDocument: () -> Unit,
@@ -390,11 +419,12 @@ private fun SectionEditor(
         OutlinedTextField(
             value = state.text,
             onValueChange = {
-                state.text = it
+                state.updateText(it)
                 onChange()
             },
             placeholder = { Text(placeholder) },
             minLines = 2,
+            enabled = enabled,
             modifier = Modifier.fillMaxWidth(),
         )
         if (state.images.isNotEmpty()) {
@@ -423,8 +453,8 @@ private fun SectionEditor(
                                 .padding(4.dp)
                                 .clip(CircleShape)
                                 .background(Color.Black.copy(alpha = 0.55f))
-                                .clickable {
-                                    state.images.removeAt(i)
+                                .clickable(enabled = enabled) {
+                                    state.removeImage(i)
                                     onChange()
                                 }
                                 .padding(3.dp)
@@ -435,11 +465,11 @@ private fun SectionEditor(
             }
         }
         Row {
-            TextButton(onClick = onPickImages, enabled = state.images.size < MAX_IMAGES) {
+            TextButton(onClick = onPickImages, enabled = enabled && state.images.size < MAX_IMAGES) {
                 Icon(Icons.Outlined.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
                 Text("Фото", modifier = Modifier.padding(start = 6.dp))
             }
-            TextButton(onClick = onPickDocument) {
+            TextButton(onClick = onPickDocument, enabled = enabled) {
                 Icon(Icons.Outlined.Description, contentDescription = null, modifier = Modifier.size(18.dp))
                 Text("Документ", modifier = Modifier.padding(start = 6.dp))
             }

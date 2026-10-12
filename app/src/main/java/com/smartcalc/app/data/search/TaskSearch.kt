@@ -1,6 +1,8 @@
 package com.smartcalc.app.data.search
 
 import com.smartcalc.app.data.history.Solution
+import com.smartcalc.app.data.library.LibraryMetadata
+import com.smartcalc.app.data.library.LibraryVerification
 import com.smartcalc.app.data.template.TaskTemplate
 import com.smartcalc.app.data.template.ExampleFingerprint
 import kotlin.math.ln
@@ -13,7 +15,7 @@ enum class FoundSource(val label: String) { BASE("База"), TEMPLATE("Шабл
  * а не на каждую букву запроса.
  */
 class SearchEntry(
-    /** Постоянный ключ задачи: из него же получается id записи в истории, когда её открывают. */
+    /** Ключ снимка содержимого: из него получается id записи в истории. ID сущности — в library. */
     val key: String,
     val source: FoundSource,
     /** Тип задачи — название раздела базы или шаблона; у истории — шаблон, по которому решал ИИ. */
@@ -24,6 +26,7 @@ class SearchEntry(
     val solutionImages: List<String> = emptyList(),
     /** Запись истории открывается как есть — со всеми дополнениями. */
     val history: Solution? = null,
+    val library: LibraryMetadata? = null,
 ) {
     internal val conditionTerms = TaskSearch.terms(condition)
     internal val solutionTerms = TaskSearch.terms(solution)
@@ -164,18 +167,22 @@ object TaskSearch {
         fun addAll(sections: List<TaskTemplate>, source: FoundSource) = sections.forEach { section ->
             section.examples.forEach { ex ->
                 if (ex.isEmpty) return@forEach
+                if (source == FoundSource.BASE && ex.library?.let { !it.enabled || it.verification == LibraryVerification.REJECTED } == true) return@forEach
                 val key = ExampleFingerprint.key(ex)
                 if (seen.add(key)) {
                     val saved = savedById[FoundSolution.idOf(key)]
                     val searchable = listOfNotNull(ex.solution, saved?.searchableText()).joinToString("\n")
-                    result += SearchEntry(key, source, section.name, ex.condition, searchable, ex.conditionImages, ex.solutionImages, history = saved)
+                    result += SearchEntry(key, source, section.name, ex.condition, searchable, ex.conditionImages, ex.solutionImages,
+                        history = saved, library = ex.library.takeIf { source == FoundSource.BASE })
                 }
             }
         }
         addAll(base, FoundSource.BASE)
         addAll(templates, FoundSource.TEMPLATE)
         val opened = result.mapTo(HashSet()) { FoundSolution.idOf(it.key) }
-        history.filter { it.id !in opened }.forEach { s ->
+        // Archived library snapshots remain readable in history, but cannot bypass the current
+        // library's disabled/rejected/deleted state or resurrect superseded versions in search.
+        history.filter { it.id !in opened && it.source?.substringBefore(" · ") != FoundSource.BASE.label }.forEach { s ->
             result += SearchEntry("history:${s.id}", FoundSource.HISTORY, s.template, s.problem, s.searchableText(), history = s)
         }
         return result

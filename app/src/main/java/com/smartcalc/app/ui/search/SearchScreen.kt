@@ -52,6 +52,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.smartcalc.app.SolutionViewModel
+import com.smartcalc.app.data.library.LibraryVerification
+import com.smartcalc.app.data.search.FoundSource
+import com.smartcalc.app.ui.template.label
 import com.smartcalc.app.data.search.FoundSolution
 import com.smartcalc.app.data.search.SearchHit
 import com.smartcalc.app.data.search.TaskSearch
@@ -164,7 +167,7 @@ fun SearchScreen(
         val found = hits
         when {
             found == null -> Unit
-            entries.isNullOrEmpty() -> EmptyBase(onOpenLibrary)
+            entries.isNullOrEmpty() -> EmptyBase(library.any { it.examples.isNotEmpty() }, onOpenLibrary)
             found.isEmpty() -> Text(
                 "Ничего не найдено. Попробуйте меньше слов или только числа из условия.",
                 style = MaterialTheme.typography.bodyLarge,
@@ -209,13 +212,14 @@ fun SearchScreen(
 }
 
 @Composable
-private fun EmptyBase(onOpenLibrary: () -> Unit) {
+private fun EmptyBase(hasLibraryExamples: Boolean, onOpenLibrary: () -> Unit) {
     Column(
         modifier = Modifier.padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            "Искать пока не в чем. Загрузите решённые задачи в базу — файлом Markdown, JSON или ZIP, " +
+            if (hasLibraryExamples) "Нет доступных для поиска задач. Проверьте отметки «Отклонено» и переключатели «Использовать в поиске» в базе."
+            else "Искать пока не в чем. Загрузите решённые задачи в базу — файлом Markdown, JSON или ZIP, " +
                 "как шаблоны, — или решите задачу с ИИ: история тоже участвует в поиске.",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -247,6 +251,18 @@ private fun HitCard(hit: SearchHit, enabled: Boolean, onClick: () -> Unit) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        if (e.source == FoundSource.BASE) {
+            Text(
+                "Исходный пример: " + (e.library?.verification ?: LibraryVerification.UNVERIFIED).label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (e.history?.followUps?.isNotEmpty() == true) Text(
+                "Дополнения ИИ не проверены",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Row(verticalAlignment = Alignment.Top, modifier = Modifier.padding(top = 4.dp)) {
             e.conditionImages.firstOrNull()?.let { path ->
                 AsyncImage(

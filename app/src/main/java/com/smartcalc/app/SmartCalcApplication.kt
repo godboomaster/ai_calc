@@ -6,6 +6,7 @@ import com.smartcalc.app.data.history.HistoryStore
 import com.smartcalc.app.data.settings.SettingsRepository
 import com.smartcalc.app.data.format.FormatStore
 import com.smartcalc.app.data.template.TemplateStore
+import com.smartcalc.app.data.template.TemplateKind
 import com.smartcalc.app.data.request.GenerationController
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
@@ -24,7 +25,7 @@ class SmartCalcApplication : Application() {
     val formatStore by lazy { FormatStore(this) }
     val templateStore by lazy { TemplateStore(filesDir) }
     /** База решённых задач для поиска: тот же формат, что у шаблонов, но в своей папке. */
-    val libraryStore by lazy { TemplateStore(File(filesDir, "library").apply { mkdirs() }) }
+    val libraryStore by lazy { TemplateStore(File(filesDir, "library").apply { mkdirs() }, TemplateKind.LIBRARY) }
     val generation by lazy {
         GenerationController(this, applicationScope, historyStore, sessionStore,
             settingsRepository, formatStore, templateStore)
