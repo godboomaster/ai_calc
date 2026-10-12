@@ -8,6 +8,15 @@
 debug-сборка при push ветки, тега или pull request. Workflow имеет `contents: read`,
 не использует Secrets и не публикует релизы.
 
+Для локальной проверки скриптов и PDF-фикстур сначала установите тестовую зависимость:
+
+```powershell
+python -m pip install -r scripts/requirements-test.txt
+python -m unittest discover -s scripts/tests -v
+```
+
+Workflow устанавливает эту же зависимость в Python 3.12. Сама команда выпуска не требует `pypdf`.
+
 ## Настройка один раз
 
 Нужны Python 3.10+, Git, авторизованный GitHub CLI (`gh auth login`), JDK 17+ и Android SDK
