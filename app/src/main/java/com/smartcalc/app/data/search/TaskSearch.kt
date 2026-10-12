@@ -3,6 +3,8 @@ package com.smartcalc.app.data.search
 import com.smartcalc.app.data.history.Solution
 import com.smartcalc.app.data.library.LibraryMetadata
 import com.smartcalc.app.data.library.LibraryVerification
+import com.smartcalc.app.data.library.source.SourceCatalog
+import com.smartcalc.app.data.library.source.SourceStatus
 import com.smartcalc.app.data.template.TaskTemplate
 import com.smartcalc.app.data.template.ExampleFingerprint
 import kotlin.math.ln
@@ -27,6 +29,7 @@ class SearchEntry(
     /** Запись истории открывается как есть — со всеми дополнениями. */
     val history: Solution? = null,
     val library: LibraryMetadata? = null,
+    val answer: String = "",
 ) {
     internal val conditionTerms = TaskSearch.terms(condition)
     internal val solutionTerms = TaskSearch.terms(solution)
@@ -160,7 +163,7 @@ object TaskSearch {
      * к шаблону, есть в обоих местах — в списке она одна. Решение из базы, однажды открытое, попадает
      * в историю — там оно тоже не повторяется, пока задача есть в базе.
      */
-    fun entries(base: List<TaskTemplate>, templates: List<TaskTemplate>, history: List<Solution>): List<SearchEntry> {
+    fun entries(base: List<TaskTemplate>, templates: List<TaskTemplate>, history: List<Solution>, sources: SourceCatalog = SourceCatalog()): List<SearchEntry> {
         val result = mutableListOf<SearchEntry>()
         val seen = HashSet<String>()
         val savedById = history.associateBy { it.id }
@@ -168,12 +171,14 @@ object TaskSearch {
             section.examples.forEach { ex ->
                 if (ex.isEmpty) return@forEach
                 if (source == FoundSource.BASE && ex.library?.let { !it.enabled || it.verification == LibraryVerification.REJECTED } == true) return@forEach
+                if (source == FoundSource.BASE && ex.library?.sourceRefs.orEmpty().any { ref -> sources.error != null ||
+                    sources.sources.firstOrNull { it.id == ref.sourceId }?.status != SourceStatus.ACTIVE }) return@forEach
                 val key = ExampleFingerprint.key(ex)
                 if (seen.add(key)) {
                     val saved = savedById[FoundSolution.idOf(key)]
-                    val searchable = listOfNotNull(ex.solution, saved?.searchableText()).joinToString("\n")
+                    val searchable = listOfNotNull(ex.solution, ex.answer, saved?.searchableText()).joinToString("\n")
                     result += SearchEntry(key, source, section.name, ex.condition, searchable, ex.conditionImages, ex.solutionImages,
-                        history = saved, library = ex.library.takeIf { source == FoundSource.BASE })
+                        history = saved, library = ex.library.takeIf { source == FoundSource.BASE }, answer = ex.answer)
                 }
             }
         }

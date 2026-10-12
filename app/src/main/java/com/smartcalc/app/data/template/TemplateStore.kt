@@ -8,6 +8,9 @@ import com.smartcalc.app.data.library.LibraryOrigin
 import com.smartcalc.app.data.library.LibraryOriginKind
 import com.smartcalc.app.data.library.LibraryRevision
 import com.smartcalc.app.data.library.LibraryVerification
+import com.smartcalc.app.data.library.importer.PublicationIntent
+import com.smartcalc.app.data.library.importer.ImportReceipt
+import com.smartcalc.app.data.library.importer.PublicationIdentity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,6 +44,7 @@ data class TemplateExample(
     val solutionImages: List<String> = emptyList(),
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val library: LibraryMetadata? = null,
+    val answer: String = "",
 ) {
     val isEmpty: Boolean
         get() = condition.isBlank() && solution.isBlank() && conditionImages.isEmpty() && solutionImages.isEmpty()
@@ -71,6 +75,7 @@ class ExampleDraft(
     val expectedVersion: Int? = null,
     val verification: LibraryVerification? = null,
     val enabled: Boolean? = null,
+    val answer: String? = null,
 )
 
 class TemplateImportException(message: String) : Exception(message)
@@ -116,9 +121,13 @@ private data class ImportedExample(
     val conditionImages: List<String> = emptyList(),
     val solution: String = "",
     val solutionImages: List<String> = emptyList(),
+    val answer: String = "",
 ) {
-    fun local() = TemplateExample(condition, conditionImages, solution, solutionImages)
+    fun local() = TemplateExample(condition, conditionImages, solution, solutionImages, answer = answer)
 }
+
+@Serializable private data class LibrarySnapshot(val schemaVersion: Int = 1,
+    val sections: List<TaskTemplate>, val importReceipts: Map<String, ImportReceipt> = emptyMap())
 
 private const val BUNDLE_FORMAT = "smartcalc-templates"
 private const val MANIFEST = "manifest.json"
@@ -157,6 +166,7 @@ class TemplateStore(private val root: File, val kind: TemplateKind = TemplateKin
     private val file get() = File(root, "templates.json")
     private val imagesDir get() = File(root, "templates").apply { mkdirs() }
     private val mutex = Mutex()
+    @Volatile private var importReceipts: Map<String, ImportReceipt> = emptyMap()
 
     private data class Loaded(val items: List<TaskTemplate>, val error: String? = null)
     private class UnsupportedLibrarySchema : Exception()
@@ -170,13 +180,25 @@ class TemplateStore(private val root: File, val kind: TemplateKind = TemplateKin
     private fun load(): Loaded {
         if (!file.exists()) return Loaded(emptyList())
         return try {
-            val decoded = json.decodeFromString<List<TaskTemplate>>(file.readText())
+            require(file.length() <= MAX_TEXT_BYTES)
+            val raw = file.readText()
+            val legacyArray = raw.trimStart().startsWith("[")
+            val decoded = if (kind == TemplateKind.LIBRARY && !legacyArray) {
+                val snapshot = json.decodeFromString<LibrarySnapshot>(raw)
+                if (snapshot.schemaVersion != 1) throw UnsupportedLibrarySchema()
+                snapshot.importReceipts.forEach { (id, receipt) ->
+                    require(UUID.fromString(id).toString() == id && receipt.commitId == id)
+                    require(receipt.intentSha256.matches(Regex("[0-9a-f]{64}")) && receipt.descriptorSha256.matches(Regex("[0-9a-f]{64}")))
+                }
+                importReceipts = snapshot.importReceipts
+                snapshot.sections
+            } else json.decodeFromString<List<TaskTemplate>>(raw)
             if (kind != TemplateKind.LIBRARY) return Loaded(decoded)
             decoded.flatMap { it.examples }.mapNotNull { it.library }.forEach { metadata ->
                 if (metadata.schemaVersion != LIBRARY_METADATA_SCHEMA_VERSION) throw UnsupportedLibrarySchema()
             }
             validateLibraryMetadata(decoded)
-            var migrated = false
+            var migrated = legacyArray
             val library = decoded.map { template ->
                 template.copy(examples = template.examples.map { example ->
                     if (example.library != null) example else {
@@ -217,6 +239,68 @@ class TemplateStore(private val root: File, val kind: TemplateKind = TemplateKin
         id = UUID.randomUUID().toString(),
         origin = LibraryOrigin(kind, name),
     )
+
+    fun importReceipt(commitId: String): ImportReceipt? {
+        ensureWritable()
+        return importReceipts[commitId]
+    }
+
+    /** One durable snapshot contains both examples and the permanent receipt. */
+    suspend fun publishImport(intent: PublicationIntent, sourceName: String? = null): ImportReceipt = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            ensureWritable(); check(kind == TemplateKind.LIBRARY)
+            importReceipts[intent.commitId]?.let { PublicationIdentity.verify(it, intent); return@withLock it }
+            require(UUID.fromString(intent.commitId).toString() == intent.commitId)
+            require(intent.items.isNotEmpty() && intent.items.map { it.exampleId }.distinct().size == intent.items.size)
+            val previous = _items.value.firstOrNull { it.id == intent.sectionId }
+            check(previous == intent.expectedSection) { "Раздел библиотеки изменился. Обновите его и повторите добавление." }
+            val existingIds = _items.value.flatMap { it.examples }.mapNotNull { it.library?.id }.toSet()
+            require(intent.items.all { it.exampleId !in existingIds && it.condition.isNotBlank() &&
+                (it.solution.isNotBlank() || it.answer.isNotBlank()) && it.refs.isNotEmpty() }) { "Задача уже существует или не заполнена" }
+            require(_items.value.sumOf { it.examples.size } + intent.items.size <= 500) { "В библиотеке можно хранить до 500 задач. Выберите меньше задач для добавления." }
+            val mediaRoots = listOf(File(root, "sources").canonicalFile.toPath(), File(root, "imports").canonicalFile.toPath())
+            intent.items.flatMap { it.conditionImages + it.solutionImages }.forEach { path ->
+                require(mediaRoots.any { File(path).canonicalFile.toPath().startsWith(it) }) { "Медиа вне источников библиотеки" }
+            }
+            val descriptor = PublicationIdentity.descriptor(intent)
+            val media = PublicationIdentity.media(intent)
+            require(media.keys.sumOf { File(it).length() } <= MAX_TOTAL_BYTES) { "Суммарный размер фото больше 100 МиБ" }
+            val receipt = ImportReceipt(intent.commitId, PublicationIdentity.aggregate(descriptor, media), intent.sectionId,
+                intent.items.map { it.exampleId }, descriptor, media)
+            val created = mutableListOf<File>()
+            val copies = mutableMapOf<String, String>()
+            try {
+                fun copy(paths: List<String>): List<String> = paths.map { path ->
+                    copies.getOrPut(path) {
+                        val bytes = File(path).inputStream().use { readLimited(it, MAX_IMAGE_BYTES) }
+                        check(PublicationIdentity.digest(bytes) == media.getValue(path)) { "Фотография изменилась во время добавления" }
+                        val target = File(imagesDir, "${UUID.nameUUIDFromBytes("${intent.commitId}:$path:${media.getValue(path)}".toByteArray())}.jpg")
+                        if (target.isFile) check(PublicationIdentity.file(target) == media.getValue(path)) else {
+                            created += target
+                            val temporary = File(imagesDir, "${target.name}.tmp")
+                            try {
+                                writeImage(temporary, bytes)
+                                Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+                            } finally { temporary.delete() }
+                        }
+                        target.absolutePath
+                    }
+                }
+                val added = intent.items.map { item ->
+                    require(UUID.fromString(item.exampleId).toString() == item.exampleId)
+                    TemplateExample(item.condition.trim(), copy(item.conditionImages), item.solution.trim(), copy(item.solutionImages),
+                        library = LibraryMetadata(id = item.exampleId,
+                            origin = LibraryOrigin(LibraryOriginKind.FILE_IMPORT, sourceName, intent.jobId, item.draftId), sourceRefs = item.refs), answer = item.answer.trim())
+                }
+                val section = TaskTemplate(id = intent.sectionId, name = intent.sectionName.trim(),
+                    requirements = previous?.requirements.orEmpty(), examples = previous?.examples.orEmpty() + added)
+                val updated = listOf(section) + _items.value.filterNot { it.id == section.id }
+                validateLibraryMetadata(updated)
+                publish(updated, created, importReceipts + (receipt.commitId to receipt))
+                receipt
+            } catch (error: Exception) { created.forEach { it.delete() }; throw error }
+        }
+    }
 
     /**
      * Сохраняет шаблон из редактора: новые картинки пишутся в файлы, картинки, убранные из шаблона,
@@ -259,15 +343,16 @@ class TemplateStore(private val root: File, val kind: TemplateKind = TemplateKin
                         id = id ?: UUID.randomUUID().toString(),
                         name = name.trim(),
                         requirements = requirements.trim(),
-                        examples = examples.map { draft ->
+                        examples = examples.mapIndexed { index, draft ->
+                            val old = draft.libraryId?.let(oldById::get)
                             val current = TemplateExample(
                                 condition = draft.condition.trim(),
                                 conditionImages = store(draft.conditionImages),
                                 solution = draft.solution.trim(),
                                 solutionImages = store(draft.solutionImages),
+                                answer = (draft.answer ?: old?.answer ?: if (kind == TemplateKind.TEMPLATES) previous?.examples?.getOrNull(index)?.answer else null).orEmpty().trim(),
                             )
                             if (kind != TemplateKind.LIBRARY) current else {
-                                val old = draft.libraryId?.let(oldById::get)
                                 current.copy(library = metadataForSave(old, current, draft))
                             }
                         }.filterNot { it.isEmpty },
@@ -320,6 +405,7 @@ class TemplateStore(private val root: File, val kind: TemplateKind = TemplateKin
             solutionImages = old.solutionImages,
             verification = previous.verification,
             sourceRefs = previous.sourceRefs,
+            answer = old.answer,
         )
         return previous.copy(
             version = previous.version + 1,
@@ -332,6 +418,7 @@ class TemplateStore(private val root: File, val kind: TemplateKind = TemplateKin
     private fun sameContent(first: TemplateExample, second: TemplateExample): Boolean =
         first.condition.trim() == second.condition.trim() &&
             first.solution.trim() == second.solution.trim() &&
+            first.answer.trim() == second.answer.trim() &&
             sameImages(first.conditionImages, second.conditionImages) &&
             sameImages(first.solutionImages, second.solutionImages)
 
@@ -618,6 +705,7 @@ class TemplateStore(private val root: File, val kind: TemplateKind = TemplateKin
             first.examples.zip(second.examples).all { (left, right) ->
                 left.condition.trim() == right.condition.trim() &&
                     left.solution.trim() == right.solution.trim() &&
+                    left.answer.trim() == right.answer.trim() &&
                     sameImportedImages(left.conditionImages, right.conditionImages, load) &&
                     sameImportedImages(left.solutionImages, right.solutionImages, load)
             }
@@ -702,10 +790,11 @@ class TemplateStore(private val root: File, val kind: TemplateKind = TemplateKin
     }.toSet()
 
     /** Publish metadata first. Shared images belong to the whole library, not one template. */
-    private fun publish(updated: List<TaskTemplate>, created: List<File> = emptyList()) {
+    private fun publish(updated: List<TaskTemplate>, created: List<File> = emptyList(), receipts: Map<String, ImportReceipt> = importReceipts) {
         val candidates = _items.value.flatMap(::imagesOf) + created.map { it.absolutePath }
         val keep = updated.flatMap(::imagesOf).toSet()
-        writeSnapshot(updated)
+        writeSnapshot(updated, receipts)
+        importReceipts = receipts
         _items.value = updated
         // Cleanup failure must never roll back a published library or delete its staged photos.
         runCatching {
@@ -717,12 +806,15 @@ class TemplateStore(private val root: File, val kind: TemplateKind = TemplateKin
         }
     }
 
-    private fun writeSnapshot(updated: List<TaskTemplate>) {
+    private fun writeSnapshot(updated: List<TaskTemplate>, receipts: Map<String, ImportReceipt> = importReceipts) {
         root.mkdirs()
         val temporary = File(root, "templates.json.tmp")
         try {
             FileOutputStream(temporary).use { output ->
-                output.write(json.encodeToString(updated).toByteArray(Charsets.UTF_8))
+                val bytes = (if (kind == TemplateKind.LIBRARY) json.encodeToString(LibrarySnapshot(sections = updated, importReceipts = receipts))
+                    else json.encodeToString(updated)).toByteArray(Charsets.UTF_8)
+                require(bytes.size <= MAX_TEXT_BYTES)
+                output.write(bytes)
                 output.flush()
                 output.fd.sync()
             }

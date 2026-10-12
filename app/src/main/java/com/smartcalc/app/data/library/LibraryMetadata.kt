@@ -21,6 +21,8 @@ data class LibraryMetadata(
 data class LibraryOrigin(
     val kind: LibraryOriginKind,
     val name: String? = null,
+    val importJobId: String? = null,
+    val draftId: String? = null,
 )
 
 @Serializable
@@ -38,4 +40,5 @@ data class LibraryRevision(
     val solutionImages: List<String>,
     val verification: LibraryVerification,
     val sourceRefs: List<SourceSegmentRef> = emptyList(),
+    val answer: String = "",
 )

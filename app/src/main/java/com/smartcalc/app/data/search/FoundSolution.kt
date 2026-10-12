@@ -41,7 +41,7 @@ object FoundSolution {
         return Solution(
             id = idOf(entry.key),
             problem = entry.condition.trim().ifEmpty { if (entry.conditionImages.isNotEmpty()) "Задача с фото" else "Задача" },
-            answer = answer(entry.solution) ?: when {
+            answer = entry.answer.takeIf { it.isNotBlank() } ?: answer(entry.solution) ?: when {
                 entry.solutionImages.isNotEmpty() -> "Решение на фото"
                 else -> "Решения нет"
             },

@@ -37,7 +37,8 @@ internal object ExampleFingerprint {
         images(example.conditionImages)
         field(example.solution.trim().replace(Regex("\\s+"), " "))
         images(example.solutionImages)
-        return "content-v1:${digest.digest().hex()}"
+        if (example.answer.isNotBlank()) { field("answer-v1"); field(example.answer.trim().replace(Regex("\\s+"), " ")) }
+        return "${if (example.answer.isBlank()) "content-v1" else "content-v2"}:${digest.digest().hex()}"
     }
 
     private fun ByteArray.hex() = joinToString("") { "%02x".format(it) }

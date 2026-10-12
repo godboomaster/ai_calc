@@ -38,6 +38,7 @@ object TemplateMarkdown {
                 append("## Пример ${n + 1}\n\n")
                 section("Условие", ex.condition, ex.conditionImages.size)
                 section("Решение", ex.solution, ex.solutionImages.size)
+                section("Ответ", ex.answer, 0)
             }
         }
     }.trimEnd() + "\n"
@@ -58,7 +59,7 @@ object TemplateMarkdown {
         var name: String? = null
         var id: String? = null
         val requirements = StringBuilder()
-        val examples = mutableListOf<Pair<StringBuilder, StringBuilder>>()
+        val examples = mutableListOf<Triple<StringBuilder, StringBuilder, StringBuilder>>()
         // Куда сейчас идёт текст: требования, условие или решение текущего примера.
         var target: StringBuilder? = null
 
@@ -69,7 +70,7 @@ object TemplateMarkdown {
                 name = n,
                 requirements = requirements.toString().trim(),
                 examples = examples
-                    .map { (c, s) -> TemplateExample(condition = c.toString().trim(), solution = s.toString().trim()) }
+                    .map { (c, s, a) -> TemplateExample(condition = c.toString().trim(), solution = s.toString().trim(), answer = a.toString().trim()) }
                     .filterNot { it.isEmpty },
             )
             name = null
@@ -101,7 +102,7 @@ object TemplateMarkdown {
                 level == 2 && title.startsWith("Требования", ignoreCase = true) -> target = requirements
                 // «## Задача 1» — так удобнее писать файл для базы задач; это тот же пример.
                 level == 2 && (title.startsWith("Пример", ignoreCase = true) || title.startsWith("Задача", ignoreCase = true)) -> {
-                    examples += StringBuilder() to StringBuilder()
+                    examples += Triple(StringBuilder(), StringBuilder(), StringBuilder())
                     target = examples.last().first
                 }
 
@@ -110,6 +111,9 @@ object TemplateMarkdown {
 
                 level == 3 && examples.isNotEmpty() && title.startsWith("Условие", ignoreCase = true) ->
                     target = examples.last().first
+
+                level == 3 && examples.isNotEmpty() && title.startsWith("Ответ", ignoreCase = true) ->
+                    target = examples.last().third
 
                 // Другие заголовки внутри текста — его часть.
                 else -> target?.append(line)?.append('\n')

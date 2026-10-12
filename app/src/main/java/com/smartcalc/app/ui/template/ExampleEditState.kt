@@ -17,6 +17,7 @@ internal class ExampleEditState(original: TemplateExample = TemplateExample()) {
     var enabled by mutableStateOf(library?.enabled ?: true)
     val condition = ExampleSectionState(original.condition, original.conditionImages, ::contentChanged)
     val solution = ExampleSectionState(original.solution, original.solutionImages, ::contentChanged)
+    val answer = ExampleSectionState(original.answer, emptyList(), ::contentChanged)
 
     val verification: LibraryVerification
         get() = verificationChoice ?: if (edited) LibraryVerification.UNVERIFIED
@@ -37,6 +38,7 @@ internal class ExampleEditState(original: TemplateExample = TemplateExample()) {
         expectedVersion = library?.version,
         verification = verificationChoice ?: LibraryVerification.UNVERIFIED.takeIf { edited },
         enabled = enabled,
+        answer = answer.text,
     )
 }
 

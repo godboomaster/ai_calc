@@ -26,7 +26,7 @@ import com.smartcalc.app.data.template.TaskTemplate
 @Serializable data class PublicationIntent(val commitId: String, val jobId: String, val sectionId: String,
     val sectionName: String, val expectedSection: TaskTemplate? = null, val items: List<PublicationItem>)
 @Serializable data class ImportReceipt(val commitId: String, val intentSha256: String, val sectionId: String,
-    val exampleIds: List<String>)
+    val exampleIds: List<String>, val descriptorSha256: String = "", val mediaSha256: Map<String, String> = emptyMap())
 @Serializable data class ImportJob(
     val id: String, val sourceIds: List<String>, val selections: Map<String, PageSelection>,
     val status: ImportStatus = ImportStatus.COPIED, val attempt: Long = 0, val postsUsed: Int = 0,
