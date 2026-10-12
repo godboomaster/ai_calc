@@ -4,10 +4,10 @@
 
 **Goal:** Импортировать PDF, DOCX, фотографии и текст в отдельные редактируемые задачи с сохранённым оригиналом и точными ссылками на его фрагменты.
 **Architecture:** Расширить существующую JSON-библиотеку, сохранив её публичный интерфейс; добавить отдельные источники, извлечение, распознавание, журнал импорта и восстанавливаемую публикацию. Черновики публикуются только после проверки пользователем; решение калькулятора и импорт имеют независимые контроллеры.
-**Tech Stack:** Kotlin 2.0.21, Compose, kotlinx.serialization, coroutines, JUnit4, PdfRenderer, XML pull parser, OkHttp; Android minSdk 26 / compileSdk 35. Без Room, нового сервера и обновления стека.
+**Tech Stack:** Kotlin 2.0.21, Compose, kotlinx.serialization, coroutines, JUnit4, PdfRenderer, ограниченный JAXP DOM/SAX, OkHttp; Android minSdk 26 / compileSdk 35. Без Room, нового сервера и обновления стека.
 **Spec:** [утверждённая схема](../specs/2026-10-12-library-document-import-design.md).
 
-Дата: 2026-10-12. Схема подтверждена пользователем. План ожидает проверки и выбора способа выполнения.
+Дата: 2026-10-12. Схема подтверждена пользователем. План подтверждён пользователем; выполнение здесь завершило реализацию tasks 1–7. Доступные проверки task 8 пройдены; незакрытые пункты перечислены в отчёте.
 Ветка: `codex/library-document-import`, основание: интегрированная и опубликованная `main` / `4dc4363`.
 
 ## Global Constraints
@@ -37,7 +37,7 @@
 
 ## Файлы и общие решения
 
-Новые области: `data/library/source/`, `data/library/extract/`, `data/library/import/`, `ui/library/`.
+Новые области: `data/library/source/`, `data/library/extract/`, `data/library/importer/`, `ui/library/`.
 Модели каждого направления находятся в своём `*Models.kt`; операции диска — в соответствующем store,
 обработка жизненного цикла — в controller/service. Все пути ниже относительно корня проекта.
 Существующий `DocumentReader` для решения одной задачи не заменяется новым импортом.
@@ -78,7 +78,7 @@
 - `SourceCatalog(sources: List<LibrarySource>, error: String? = null)`; чтение оригинала проверяет canonical containment и состояние, не принимает пути снаружи.
 - `LibraryMetadata.sourceRefs: List<SourceSegmentRef> = emptyList()` и тот же default в `LibraryRevision`; обычная правка сохраняет происхождение и архивирует старые ссылки.
 
-- [ ] Написать тест повторного копирования и чтения после перезапуска:
+- [x] Написать тест повторного копирования и чтения после перезапуска:
 
 ```kotlin
 val root = temporaryFolder.newFolder()
@@ -90,22 +90,22 @@ assertTrue(second.duplicate)
 assertEquals("Условие", LibrarySourceStore(root).originalFile(first.source.id).readText())
 ```
 
-- [ ] Дополнить тестами предела 100 МиБ (поток без выделения такого массива), сбоя копирования/манифеста,
+- [x] Дополнить тестами предела 100 МиБ (поток без выделения такого массива), сбоя копирования/манифеста,
   одинакового имени с разным содержимым, path traversal, пропавшего/испорченного оригинала при повторе,
   блокировки каталога с ошибкой, ссылок прошлых версий и отсутствия новых полей в старых JSON.
-- [ ] Выполнить `:app:testDebugUnitTest --tests '*LibrarySourceStoreTest' --tests '*LibraryMetadataStoreTest'`;
+- [x] Выполнить `:app:testDebugUnitTest --tests '*LibrarySourceStoreTest' --tests '*LibraryMetadataStoreTest'`;
   ожидается FAIL на отсутствующем API. Общие параметры команд приведены в task 8.
-- [ ] Реализовать потоковое копирование+SHA256 и sniff формата, временный файл/fsync/atomic move,
+- [x] Реализовать потоковое копирование+SHA256 и sniff формата, временный файл/fsync/atomic move,
   атомарный каталог, откат и явное восстановление пропавших байтов при повторной загрузке.
   DOC/OLE, повреждённый ZIP и неподдержанные изображения отклонять с объяснением до распознавания.
-- [ ] Создать фикстуры I01–I14 по `benchmark.json`: TXT UTF-8/1251, двухстраничный PDF и его скан,
+- [x] Создать фикстуры I01–I14 по `benchmark.json`: TXT UTF-8/1251, двухстраничный PDF и его скан,
   DOCX с OMML/таблицей, два наклонённых задания, неясный знак, PDF на 6 страниц, ошибку автора,
   инструкцию внутри текста, защищённый PDF и смешанные границы. I09/I10 — сценарии повторов/сбоев,
   для слишком большого архива использовать потоковый генератор, а не огромный файл в Git.
   Manifest содержит sha256, формат, ожидаемые задачи/сегменты и причины неопределённости.
-- [ ] Применить навыки PDF/Documents при генерации этих артефактов; визуально проверить PDF/DOCX/растры,
+- [x] Применить навыки PDF/Documents при генерации этих артефактов; визуально проверить PDF/DOCX/растры,
   включая формулы и номера страниц. Проверить manifest и генератор через `python -m unittest discover -s scripts/tests -p test_library_fixtures.py -v`.
-- [ ] Повторить целевые JVM-тесты, ожидается PASS; проверить diff и закоммитить «Сохранять оригиналы и ссылки задач библиотеки».
+- [x] Повторить целевые JVM-тесты, ожидается PASS; проверить diff и закоммитить «Сохранять оригиналы и ссылки задач библиотеки».
 
 ### Task 2: Текст, DOCX, таблицы и OMML
 
@@ -123,7 +123,7 @@ assertEquals("Условие", LibrarySourceStore(root).originalFile(first.sourc
   `StructuredParseResult(tasks: List<ParsedTask>, unresolvedSegmentIds: List<String>)`,
   `ParsedTask(condition: String, solution: String, answer: String, refs: List<SourceSegmentRef>, warnings: List<ExtractionWarning>)`.
 
-- [ ] Тесты фиксируют UTF-8/1251, модуль E07, E01/E02 как разные задачи, сквозной порядок абзацев/таблиц,
+- [x] Тесты фиксируют UTF-8/1251, модуль E07, E01/E02 как разные задачи, сквозной порядок абзацев/таблиц,
   OMML-дробь E05, квадрат/индекс/корень; неизвестный оператор создаёт blocking warning:
 
 ```kotlin
@@ -134,17 +134,17 @@ assertTrue(result.warnings.isEmpty())
 assertTrue(OmmlText.convert(unsupportedOmml).warnings.any { it.blocking })
 ```
 
-- [ ] Добавить отказ при DTD/внешних сущностях, ZIP traversal/дублированной части, 8 МиБ XML,
+- [x] Добавить отказ при DTD/внешних сущностях, ZIP traversal/дублированной части, 8 МиБ XML,
   64 МиБ суммарно и 2 МиБ текста; неиспользованные части ZIP тоже расходуют общий лимит.
   Неподдержанный рисунок/объект и объединённая сложная таблица оставляют замечание, не исчезают.
-- [ ] Запустить `:app:testDebugUnitTest --tests '*library.extract.*'`: FAIL на отсутствующих типах.
-- [ ] Реализовать ограниченный ZIP и namespace-aware pull parser без regex-разбора DOCX;
+- [x] Запустить `:app:testDebugUnitTest --tests '*library.extract.*'`: FAIL на отсутствующих типах.
+- [x] Реализовать ограниченный ZIP и namespace-aware DOM/SAX parser без regex-разбора DOCX;
   OMML преобразовать в текст LaTeX для дроби/корня/степеней/индексов, остальное явно пометить.
   Блокам присваивать детерминированные ID по порядку исходного документа.
   StructuredTaskParser принимает только явные заголовки «Задача/Условие/Решение/Ответ»;
   неструктурированный текст возвращает unresolved для распознавания/ручной проверки.
-- [ ] Проверить PASS на реальных файлах I01/I02/I05/I11/I12/I14 и отсутствие автоматической авторской коррекции.
-- [ ] Commit: «Извлекать блоки, таблицы и формулы документов библиотеки».
+- [x] Проверить PASS на реальных файлах I01/I02/I05/I11/I12/I14 и отсутствие автоматической авторской коррекции.
+- [x] Commit: «Извлекать блоки, таблицы и формулы документов библиотеки».
 
 ### Task 3: PDF, фотографии и выбранные диапазоны
 
@@ -161,7 +161,7 @@ assertTrue(OmmlText.convert(unsupportedOmml).warnings.any { it.blocking })
 - `PdfExtractor` и `ImageExtractor` реализуют подготовку сегмента с теми же `SourceSegmentRef` и лимитами task 2;
   `DocumentExtractor` маршрутизирует SourceFormat и сохраняет результат до вызова onSegment.
 
-- [ ] Начать с тестов диапазона и масштабирования; проверить 101 выбранную страницу как отказ и 100 как допустимый предел.
+- [x] Начать с тестов диапазона и масштабирования; проверить 101 выбранную страницу как отказ и 100 как допустимый предел.
 - [ ] На API 26/35 проверять I03/I04/I08: шестая страница действительно извлекается, ссылки 1..6,
   продолжение E06 сохраняет две страницы, изображение белое и читаемое, bitmap не больше 4_000_000 пикселей:
 
@@ -171,23 +171,23 @@ assertEquals(SegmentKind.PDF_PAGE, result.segments.last().ref.kind)
 assertTrue(decodedWidth.toLong() * decodedHeight <= 4_000_000L)
 ```
 
-- [ ] Запустить целевой JVM-тест и device-тест с новым API до реализации: FAIL.
-- [ ] Реализовать sequential PdfRenderer, проверку диапазона против pageCount, сохранение растров
+- [x] Запустить целевой JVM-тест и device-тест с новым API до реализации: FAIL.
+- [x] Реализовать sequential PdfRenderer, проверку диапазона против pageCount, сохранение растров
   и освобождение bitmap/page/descriptor в finally; на API 35+ дополнительно текстовые contents,
   на API 26–34 — raster с теми же ссылками. Ни один путь не берёт первые четыре страницы неявно.
   Изображения подготовить с EXIF и bounded decode; порядок выбранных фотографий сохранять в job.
-- [ ] Проверить отказ для защищённого/повреждённого PDF, отмену между страницами, restart с checkpoint,
+- [x] Проверить отказ для защищённого/повреждённого PDF, отмену между страницами, restart с checkpoint,
   EXIF-повороты и невозможность накопления всех bitmap; повтор локальной страницы не меняет segmentId.
-- [ ] Целевые тесты PASS; commit «Подготавливать выбранные страницы и фото для импорта задач».
+- [x] Целевые тесты PASS; commit «Подготавливать выбранные страницы и фото для импорта задач».
 
 ### Task 4: Распознавание и возможности API
 
 **Files:**
-- Create: `app/src/main/java/com/smartcalc/app/data/library/import/ImportModels.kt`, `RecognitionBatcher.kt` в том же каталоге.
+- Create: `app/src/main/java/com/smartcalc/app/data/library/importer/ImportModels.kt`, `RecognitionBatcher.kt` в том же каталоге.
 - Create: `app/src/main/java/com/smartcalc/app/data/api/DocumentRecognizer.kt`, `DocumentRecognitionTransport.kt` в том же каталоге.
 - Modify: `app/src/main/java/com/smartcalc/app/data/settings/SettingsRepository.kt`, `app/src/main/java/com/smartcalc/app/ui/settings/SettingsScreen.kt`.
 - Create tests: `app/src/test/java/com/smartcalc/app/data/api/DocumentRecognizerTest.kt`, `DocumentRecognitionTransportTest.kt`;
-  `app/src/test/java/com/smartcalc/app/data/library/import/RecognitionBatcherTest.kt`.
+  `app/src/test/java/com/smartcalc/app/data/library/importer/RecognitionBatcherTest.kt`.
 
 **Interfaces:**
 - `ApiSettings.supportsImages: Boolean = false`, сохраняется отдельно от systemPrompt/ключа.
@@ -206,9 +206,9 @@ assertTrue(decodedWidth.toLong() * decodedHeight <= 4_000_000L)
 - `DocumentRecognizer.parseSaved(batch: RecognitionBatch, response: RecognitionHttpResponse): RecognitionResult`:
   только локальный разбор успешного checkpoint, без settings и сети. Сохранённый HTTP error требует явного process.
 
-- [ ] Написать тесты схемы извлечения, отделения ответа и продолжения, приоритета видимого warning для
+- [x] Написать тесты схемы извлечения, отделения ответа и продолжения, приоритета видимого warning для
   неясного знака I07, ссылки только из batch/carry, инструкции I12 как данных и сохранения ошибки E12.
-- [ ] Закрепить fallback и capability gate:
+- [x] Закрепить fallback и capability gate:
 
 ```kotlin
 assertEquals(2, attemptsPersisted) // HTTP 422 + ответ без response_format
@@ -217,27 +217,27 @@ assertEquals(0, textOnlyTransport.calls.size) // растровый batch, suppo
 assertTrue(result.drafts.all { it.refs.all { ref -> ref.segmentId in allowedSegmentIds } })
 ```
 
-- [ ] Запустить целевые тесты `--tests '*DocumentRecognizerTest' --tests '*RecognitionBatcherTest'` до реализации: FAIL.
-- [ ] Реализовать независимый extract-only prompt, типизированный JSON и валидатор ответа;
+- [x] Запустить целевые тесты `--tests '*DocumentRecognizerTest' --tests '*RecognitionBatcherTest'` до реализации: FAIL.
+- [x] Реализовать независимый extract-only prompt, типизированный JSON и валидатор ответа;
   не применять systemPrompt решателя и `parseSolution`. Ответ транспортного уровня ограничить
   2 МиБ фактически прочитанных байтов; неподходящий/слишком большой ответ превращать в ошибку.
   HTTP 400/422 допускает один fallback, остальные ошибки не повторять автоматически.
   Модель возвращает ID сегментов и проверяемые области, а не локальные пути/URI;
   conditionImages/solutionImages строятся приложением из разрешённых медиа этих сегментов.
-- [ ] Реализовать OkHttp transport с тайм-аутом 120 секунд, `retryOnConnectionFailure(false)`,
+- [x] Реализовать OkHttp transport с тайм-аутом 120 секунд, `retryOnConnectionFailure(false)`,
   без автоматических redirect/followup POST и смены провайдера; отмена закрывает response и socket.
   Переиспользовать `apiEndpoint` для проверки URL; существующий OpenAiClient решения не переделывать.
   Добавить настройку «Модель поддерживает изображения» без вывода ключа в диагностику.
-- [ ] Тестировать транспорт на локальном ServerSocket, как в OpenAiClientCancellationTest;
+- [x] Тестировать транспорт на локальном ServerSocket, как в OpenAiClientCancellationTest;
   тесты границы 12_000/12_001, переноса, двух страниц, переполнения тела и отмены должны PASS.
-- [ ] Commit: «Распознавать задачи и проверять возможности модели при импорте».
+- [x] Commit: «Распознавать задачи и проверять возможности модели при импорте».
 
 ### Task 5: Журнал и независимый контроллер
 
 **Files:**
-- Create: `app/src/main/java/com/smartcalc/app/data/library/import/LibraryImportJournal.kt`, `LibraryImportController.kt`, `ImportDraftEditor.kt`, `ImportPublisher.kt` в том же каталоге.
-- Modify: `app/src/main/java/com/smartcalc/app/data/library/import/ImportModels.kt`.
-- Create tests: `app/src/test/java/com/smartcalc/app/data/library/import/LibraryImportControllerTest.kt`, `LibraryImportJournalTest.kt`, `ImportDraftEditorTest.kt`.
+- Create: `app/src/main/java/com/smartcalc/app/data/library/importer/LibraryImportJournal.kt`, `LibraryImportController.kt`, `ImportDraftEditor.kt`, `ImportPublisher.kt` в том же каталоге.
+- Modify: `app/src/main/java/com/smartcalc/app/data/library/importer/ImportModels.kt`.
+- Create tests: `app/src/test/java/com/smartcalc/app/data/library/importer/LibraryImportControllerTest.kt`, `LibraryImportJournalTest.kt`, `ImportDraftEditorTest.kt`.
 
 **Interfaces:**
 - `ImportStatus { COPIED, EXTRACTING, RECOGNIZING, REVIEW_REQUIRED, PUBLISHING, READY, PAUSED, FAILED, INTERRUPTED, CANCELLED }`.
@@ -268,7 +268,7 @@ assertTrue(result.drafts.all { it.refs.all { ref -> ref.segmentId in allowedSegm
   `split(draft: ImportDraft, parts: List<ImportDraft>): List<ImportDraft>` — refs только исходного набора,
   перекрытие ссылок допустимо для разных задач на одной странице, сомнительная граница создаёт warning.
 
-- [ ] Написать тесты с FakeExtractor, FakeRecognizer, FakePublisher и управляемыми clock/сбоем записи:
+- [x] Написать тесты с FakeExtractor, FakeRecognizer, FakePublisher и управляемыми clock/сбоем записи:
 
 ```kotlin
 assertEquals(ImportStatus.INTERRUPTED, recovered.status)
@@ -278,11 +278,11 @@ assertEquals(ImportStatus.PAUSED, limitedJob.status)
 assertEquals(originalSolution, generationState) // импорт не заменяет решение
 ```
 
-- [ ] Добавить red-проверки для checkpoint до/после POST, восстановления saved response без сети,
+- [x] Добавить red-проверки для checkpoint до/после POST, восстановления saved response без сети,
   остановки между страницами, late response отменённой attempt, отказа journal write, сохранения
   edits после Back/restart, merge/split ссылок и >12_000-символьного продолжения без скрытого обрезания.
-- [ ] Запустить `:app:testDebugUnitTest --tests '*library.import.*'` до реализации: FAIL.
-- [ ] Реализовать атомарный журнал и блокировку при ошибке чтения; сохранить activeBatch и попытку
+- [x] Запустить `:app:testDebugUnitTest --tests '*library.import.*'` до реализации: FAIL.
+- [x] Реализовать атомарный журнал и блокировку при ошибке чтения; сохранить activeBatch и попытку
   до сетевого вызова, response-файл и ссылку checkpoint до разбора, intention до publisher.
   Незаписанный исход POST на restart — INTERRUPTED; сохранённый успешный response передаётся
   в parseSaved. Ошибки API показываются без ключа, произвольный серверный error body в логи не попадает.
@@ -291,21 +291,21 @@ assertEquals(originalSolution, generationState) // импорт не замен�
   не прибавляет те же черновики дважды и не пропускает неполное продолжение.
   `saveDraft` сравнивает ревизию; блокирующие замечания разрешаются явной правкой/подтверждением,
   которое записывается в revision черновика, отдельно от математической verification.
-- [ ] Сериализовать выполнение одного job, сохранить ожидающие источники; между пакетами ждать
+- [x] Сериализовать выполнение одного job, сохранить ожидающие источники; между пакетами ждать
   отсутствия активного решения через поток generation, не отменяя его. Ожидание/проверка не держат
   foreground/wake lock; активный тайм-аут 8 минут отсчитывать только во время обработки.
-- [ ] Связать active work с hooks фонового выполнения: отказ старта/тайм-аут переводит импорт
+- [x] Связать active work с hooks фонового выполнения: отказ старта/тайм-аут переводит импорт
   в сохраняемое прерывание; пауза останавливает foreground. Реальная Android-служба подключается в task 7,
   здесь используются fake hooks. Не использовать слот RequestRunner решения.
-- [ ] Проверить PASS и commit «Сохранять и восстанавливать независимый импорт документов».
+- [x] Проверить PASS и commit «Сохранять и восстанавливать независимый импорт документов».
 
 ### Task 6: Атомарная публикация задач и фильтрация источников
 
 **Files:**
 - Modify: `app/src/main/java/com/smartcalc/app/data/template/TemplateStore.kt`, `TemplateMarkdown.kt`, `ExampleFingerprint.kt` в том же каталоге.
 - Modify: `app/src/main/java/com/smartcalc/app/data/library/LibraryMetadata.kt`, `app/src/main/java/com/smartcalc/app/data/search/TaskSearch.kt`, `FoundSolution.kt` в том же каталоге.
-- Create: `app/src/main/java/com/smartcalc/app/data/library/import/TemplateImportPublisher.kt`.
-- Create tests: `app/src/test/java/com/smartcalc/app/data/library/import/ImportPublicationTest.kt`, `app/src/test/java/com/smartcalc/app/data/search/LibrarySourcePolicyTest.kt`.
+- Create: `app/src/main/java/com/smartcalc/app/data/library/importer/TemplateImportPublisher.kt`.
+- Create tests: `app/src/test/java/com/smartcalc/app/data/library/importer/ImportPublicationTest.kt`, `app/src/test/java/com/smartcalc/app/data/search/LibrarySourcePolicyTest.kt`.
 - Modify tests: `app/src/test/java/com/smartcalc/app/data/library/LibraryMetadataStoreTest.kt`, `app/src/test/java/com/smartcalc/app/data/template/TemplateStoreTest.kt`, `TemplateMarkdownTest.kt` в том же каталоге.
 
 **Interfaces:**
@@ -321,7 +321,7 @@ assertEquals(originalSolution, generationState) // импорт не замен�
 - `SearchEntry.answer: String = ""` в конце; FoundSolution предпочитает непустой отдельный ответ,
   иначе использует текущий разбор строки «Ответ». Индексируемый текст включает отдельный ответ.
 
-- [ ] Воспроизвести публикацию, повтор и пользовательское удаление до завершения журнала:
+- [x] Воспроизвести публикацию, повтор и пользовательское удаление до завершения журнала:
 
 ```kotlin
 val first = publisher.publish(intent)
@@ -332,22 +332,22 @@ assertEquals(first, publisher.publish(intent))
 assertTrue(library.items.value.isEmpty()) // постоянная квитанция запрещает воскрешение
 ```
 
-- [ ] Дополнить тестами остановки до/после atomic move, error диска и отсутствия фото, конфликта
+- [x] Дополнить тестами остановки до/после atomic move, error диска и отсутствия фото, конфликта
   expectedSection/изменённого intent с прежним commitId, capacity 500/501, новых детерминированных UUID,
   UNVERIFIED по умолчанию, копий фото независимо от originals/черновиков, сохранения квитанций при save/delete.
   Проверить миграцию массива без потерь и blocking будущей envelope schema.
-- [ ] Red-прогон `--tests '*ImportPublicationTest' --tests '*LibrarySourcePolicyTest' --tests '*TemplateStoreTest'`.
-- [ ] Реализовать внутренний envelope и idempotent квитанцию в том же atomic snapshot, что и задачи.
+- [x] Red-прогон `--tests '*ImportPublicationTest' --tests '*LibrarySourcePolicyTest' --tests '*TemplateStoreTest'`.
+- [x] Реализовать внутренний envelope и idempotent квитанцию в том же atomic snapshot, что и задачи.
   ID новых примеров вычислять `UUID.nameUUIDFromBytes("library-import:<jobId>:<draftId>".toByteArray())`.
   Фото копировать в библиотечный каталог; совпадение квитанции проверять по canonical intent hash,
   включающему SHA256 байтов фотографий. При повторе с квитанцией не проверять уже удалённый раздел
   и не создавать его снова. Ошибка до snapshot откатывает только файлы текущей операции.
-- [ ] Расширить answer сериализацию/редактор/архив/экспорт; импорт внешнего bundle не принимает
+- [x] Расширить answer сериализацию/редактор/архив/экспорт; импорт внешнего bundle не принимает
   локальные provenance/receipts. Пустой answer сохраняет старый fingerprint и ID найденного решения.
   Markdown поддерживает optional «### Ответ»; JSON/ZIP roundtrip сохраняет answer без metadata.
-- [ ] Добавить фильтр источников до дедупликации и не допустить обхода через библиотечную историю.
+- [x] Добавить фильтр источников до дедупликации и не допустить обхода через библиотечную историю.
   Ошибка/удаление исходника сохраняет читаемость текста и собственных фото старой истории.
-- [ ] Проверить PASS, старые регрессии поиска/истории и commit «Публиковать импортированные задачи без дублей и потери ответов».
+- [x] Проверить PASS, старые регрессии поиска/истории и commit «Публиковать импортированные задачи без дублей и потери ответов».
 
 ### Task 7: Файлы, проверка разбора и просмотр оригинала
 
@@ -360,8 +360,8 @@ assertTrue(library.items.value.isEmpty()) // постоянная квитанц
 - Create tests: `app/src/test/java/com/smartcalc/app/ui/library/ImportReviewStateTest.kt`; modify `app/src/test/java/com/smartcalc/app/ui/template/ExampleEditStateTest.kt`.
 
 **Interfaces:**
-- Routes: `library/files`, `library/import/{jobId}`, `library/review/{jobId}`, `library/source/{sourceId}?segment={segmentId}`;
-  только проверенные UUID/segmentId, не filesystem path. Навигация использует URI encoding.
+- Routes: `library/files`, `library/import`, `library/review/{jobId}`, `library/source/{sourceId}?ordinal={ordinal}`;
+  UUID источника и номер выбранного фрагмента, не filesystem path. Навигация использует URI encoding.
 - `LibraryImportViewModel` предоставляет state каталогов и suspend-команды controller/source store;
   экран хранит выбранную вкладку/ожидающее действие/camera target через SavedStateHandle,
   долгие операции — applicationScope controller. Состояние решения не используется как UI импорта.
@@ -371,7 +371,7 @@ assertTrue(library.items.value.isEmpty()) // постоянная квитанц
 - `ImportReviewState.selectedDraftIds: Set<String>` и `canPublish: Boolean` вычисляются по excluded,
   пустым условиям/решениям, unresolved warnings и доступности ссылок; confirm не ставит verification.
 
-- [ ] Проверить состояния review и редакторского ответа:
+- [x] Проверить состояния review и редакторского ответа:
 
 ```kotlin
 assertFalse(stateWithUnresolvedSign.canPublish)
@@ -380,24 +380,24 @@ assertEquals(LibraryVerification.UNVERIFIED, editedAnswerState.verification)
 assertEquals(savedAnswer, unchangedEditor.toDraft().answer)
 ```
 
-- [ ] Red-тесты ревизий, merge/split/exclusion и сохранения answer/sourceRefs в обычном редакторе.
-- [ ] Подключить stores/controller один раз в SmartCalcApplication, VM searchEntries — combine с каталогом sources;
+- [x] Red-тесты ревизий, merge/split/exclusion и сохранения answer/sourceRefs в обычном редакторе.
+- [x] Подключить stores/controller один раз в SmartCalcApplication, VM searchEntries — combine с каталогом sources;
   добавить вкладки «Задачи»/«Файлы», отдельное меню импорта документа и существующий импорт готовой базы.
   Выбор нескольких фото сохраняет порядок и открывает проверку диапазона; камера возвращает оригинал
   в импорт, а не отправляет его на решение. URI сразу копируется до потери разрешения.
-- [ ] Подключить отдельную START_NOT_STICKY-службу dataSync с собственным notification ID,
+- [x] Подключить отдельную START_NOT_STICKY-службу dataSync с собственным notification ID,
   сообщением «Обрабатывается документ», обработкой startForeground отказа и onTimeout к hooks task 5.
   Controller applicationScope не принадлежит Activity; pausing/ready/review прекращают foreground/wake lock.
-- [ ] Экран запуска показывает формат, диапазон, API-профиль/поддержку изображений и предел 10 POST;
+- [x] Экран запуска показывает формат, диапазон, API-профиль/поддержку изображений и предел 10 POST;
   даёт локальную/ручную подготовку без vision. Ошибка не меняет прежний draft/решение.
-- [ ] Экран review: condition/solution/answer, ссылки, предупреждения, исключение, merge/split с явным
+- [x] Экран review: condition/solution/answer, ссылки, предупреждения, исключение, merge/split с явным
   распределением refs, «Добавить выбранные»; Back сохраняет revision. В существующем редакторе
   доступны отдельный answer, оригинал и ссылки прошлых версий, изменение снимает проверку.
-- [ ] PDF viewer открывает настоящий номер страницы; фото — конкретное изображение; DOCX/TXT — blockId.
+- [x] PDF viewer открывает настоящий номер страницы; фото — конкретное изображение; DOCX/TXT — blockId.
   Во внешнее приложение копировать только выбранный оригинал в cache/shared/<uuid>/,
   выдавать FileProvider URI + временный read grant; не расширять provider на корень private files.
   Удаление/выключение исходника требует явного действия и обновляет поиск; missing/deleted явно объясняется.
-- [ ] Проверить PASS, assembleDebug и commit «Добавить проверку импорта и просмотр источников в библиотеке».
+- [x] Проверить PASS, assembleDebug и commit «Добавить проверку импорта и просмотр источников в библиотеке».
 
 ### Task 8: Приёмка импорта, документация и завершение
 
@@ -405,11 +405,11 @@ assertEquals(savedAnswer, unchangedEditor.toDraft().answer)
 - Modify: `docs/library-quality/README.md`, `docs/library-ui.md`, `docs/backlog.md`, `README.md`.
 - Create: `docs/library-quality/import-check-2026-10-12.md`; update completion в этом плане.
 
-- [ ] Для каждого предыдущего task применять цикл red → implementation → green; коммитить только
+- [x] Для каждого предыдущего task применять цикл red → implementation → green; коммитить только
   его файлы, включая необходимые тесно связанные UI/миграции. Не включать пользовательскую фотографию.
-- [ ] Команды JVM: `.\gradlew.bat :app:testDebugUnitTest <фильтры> --offline --console=plain --max-workers=2`.
+- [x] Команды JVM: `.\gradlew.bat :app:testDebugUnitTest <фильтры> --offline --console=plain --max-workers=2`.
   PASS — exit 0 и XML без failures/errors; red записывать с реальным отсутствующим API/дефектом.
-- [ ] Полный итог: `.\gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --offline --console=plain --max-workers=2`;
+- [x] Полный итог: `.\gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --offline --console=plain --max-workers=2`;
   `python -m unittest discover -s scripts/tests -v`; `git diff --check`. Подсчитать свежие XML-результаты.
 - [ ] Установить тестовую сборку на API 26 и 35 без очистки пользовательского пакета; для основного пакета
   сначала проверить подпись, использовать install -r только совместимого APK. Если API 26 недоступен,
@@ -419,11 +419,11 @@ assertEquals(savedAnswer, unchangedEditor.toDraft().answer)
   Сетевые ошибки/паузы/разрывы воспроизводить поддельным transport в тестах, без ключей установленного приложения.
 - [ ] Проверить Activity recreation при выборе файла/камере и review, «Домой» во время импорта,
   независимость решения, запуск dataSync-service и отказ Android, границу пакета и остаток большого документа.
-- [ ] В отчёте перечислить фактические commit/device/API, результаты I01–I14, счётчики POST,
+- [x] В отчёте перечислить фактические commit/device/API, результаты I01–I14, счётчики POST,
   ограничения распознавания и непроведённые проверки. Поддельный API не доказывает качество внешней модели.
-- [ ] Провести итоговое ревью миграции/квитанций, источников/истории, лимитов/POST/отмены и UI;
+- [x] Провести итоговое ревью миграции/квитанций, источников/истории, лимитов/POST/отмены и UI;
   исправить подтверждённые замечания и повторить затронутые проверки.
-- [ ] Обновить backlog только по фактически выполненным критериям: оригиналы/импорт/проверка готовы,
+- [x] Обновить backlog только по фактически выполненным критериям: оригиналы/импорт/проверка готовы,
   автоматический RAG и инструменты агента остаются открытыми. Commit: «Зафиксировать проверку импорта библиотеки».
 - [ ] После зелёных проверок интегрировать ветку выбранным пользователем способом; push/релиз
   не выполнять без соответствующего разрешения. Следующий самостоятельный план — поиск примеров агентом.
@@ -439,3 +439,9 @@ assertEquals(savedAnswer, unchangedEditor.toDraft().answer)
 - Атомарное добавление, квитанции и фильтр источников — task 6; приёмка I01–I14 — task 8.
 - DTO и имена соседних интерфейсов определены выше; task 5 тестируется с FakePublisher до реализации task 6.
 - Продуктовый код ещё не изменён; следующий шаг — пользовательская проверка этого плана и выбор выполнения.
+
+## Фактическое завершение
+
+Реализация и доступные проверки выполнены. [Отчёт](../../library-quality/import-check-2026-10-12.md) содержит результаты I01–I14, решения и ограничения.
+API 26, реальный OCR, полный lifecycle камеры/службы и интеграция ветки остаются открытыми.
+Изменения сохранены в feature-ветке; main, push и релиз не выполнялись.
