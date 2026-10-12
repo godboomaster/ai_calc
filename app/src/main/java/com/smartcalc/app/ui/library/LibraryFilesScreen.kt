@@ -91,6 +91,8 @@ internal val ImportJob.busy: Boolean get() = waitingForSolution || status in set
                             Text(source.name, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
                         }
                         Text("${source.format.name} · ${source.segmentCount?.let { "$it фрагментов" } ?: "ещё не разобран"}", style = MaterialTheme.typography.bodySmall)
+                        val processed = jobs.jobs.flatMap { job -> job.segments.filter { it.ref.sourceId == source.id && it.ref.segmentId in job.processedSegmentIds }.map { it.ref.ordinal } }
+                        if (processed.isNotEmpty()) Text("В сохранённых разборах обработано: ${formatOrdinalRanges(processed)}", style = MaterialTheme.typography.bodySmall)
                         if (source.status == SourceStatus.DELETED) Text("Оригинал удалён; связанные задачи исключены из нового поиска")
                         else {
                             Row(verticalAlignment = Alignment.CenterVertically) {

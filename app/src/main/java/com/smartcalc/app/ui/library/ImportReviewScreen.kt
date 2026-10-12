@@ -28,6 +28,8 @@ import com.smartcalc.app.data.library.extract.ExtractionWarning
     var name by rememberSaveable(jobId) { mutableStateOf("") }
     var menu by remember { mutableStateOf(false) }
     var selectedOnce by rememberSaveable(jobId) { mutableStateOf(false) }
+    var repeatConfirmed by rememberSaveable(jobId) { mutableStateOf(false) }
+    LaunchedEffect(selected, library) { repeatConfirmed = false }
     fun back() { vm.flushInBackground(jobId); onBack() }
     BackHandler(onBack = ::back)
     DisposableEffect(jobId) { onDispose { vm.flushInBackground(jobId) } }
@@ -43,7 +45,9 @@ import com.smartcalc.app.data.library.extract.ExtractionWarning
         if (job == null) { Text("Разбор недоступен", modifier = Modifier.padding(16.dp)); return@Column }
         val busy = job.busy || actionBusy
         val drafts = job.drafts.map { edits[it.id] ?: it }
-        val review = ImportReviewState(drafts, selected.toSet(), job.publishedDraftIds, busy)
+        val comparisons = drafts.associate { it.id to comparableExamples(it, library, jobId) }
+        val repeatRequired = drafts.any { it.id in selected && it.id !in job.publishedDraftIds && comparisons[it.id].orEmpty().isNotEmpty() }
+        val review = ImportReviewState(drafts, selected.toSet(), job.publishedDraftIds, busy, repeatRequired, repeatConfirmed)
         val sourceAvailable = sources.error == null && drafts.filter { it.id in selected }.all { draft ->
             draft.refs.all { ref -> sources.sources.firstOrNull { it.id == ref.sourceId }?.status == SourceStatus.ACTIVE }
         }
@@ -62,6 +66,7 @@ import com.smartcalc.app.data.library.extract.ExtractionWarning
                 if (edits.keys.any { id -> job.drafts.any { it.id == id } }) Text("Сохраняю правки…", style = MaterialTheme.typography.bodySmall)
             }
             items(drafts, key = { it.id }) { draft ->
+                var showComparison by remember { mutableStateOf(false) }
                 val published = draft.id in job.publishedDraftIds
                 val enabled = !busy && !published
                 Card(Modifier.fillMaxWidth()) {
@@ -79,6 +84,23 @@ import com.smartcalc.app.data.library.extract.ExtractionWarning
                         com.smartcalc.app.ui.solution.StepImages(draft.solutionImages)
                         OutlinedTextField(value = draft.answer, onValueChange = { vm.edit(jobId, draft.copy(answer = it)) },
                             label = { Text("Ответ") }, enabled = enabled, modifier = Modifier.fillMaxWidth(), maxLines = 4)
+                        val previous = comparisons[draft.id].orEmpty()
+                        if (!published && previous.isNotEmpty()) {
+                            TextButton(onClick = { showComparison = !showComparison }) { Text("Ранее из этих фрагментов: ${previous.size} · сравнить") }
+                            Text("Сопоставление по ссылкам на источник. Сверьте границы и локальные правки; прежние задачи не заменяются.", style = MaterialTheme.typography.bodySmall)
+                            if (showComparison) previous.forEach { comparison ->
+                                val old = comparison.example
+                                HorizontalDivider()
+                                Text("${comparison.sectionName} · версия ${old.library?.version ?: 1}", style = MaterialTheme.typography.titleSmall)
+                                Text("Прежнее условие", style = MaterialTheme.typography.labelLarge)
+                                com.smartcalc.app.ui.math.MathText(old.condition)
+                                com.smartcalc.app.ui.solution.StepImages(old.conditionImages)
+                                Text("Прежнее решение", style = MaterialTheme.typography.labelLarge)
+                                com.smartcalc.app.ui.math.MathText(old.solution)
+                                com.smartcalc.app.ui.solution.StepImages(old.solutionImages)
+                                if (old.answer.isNotBlank()) { Text("Прежний ответ"); com.smartcalc.app.ui.math.MathText(old.answer) }
+                            }
+                        }
                         draft.warnings.forEach { warning -> Text(warning.detail,
                             color = if (warning.blocking) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall) }
@@ -118,6 +140,10 @@ import com.smartcalc.app.data.library.extract.ExtractionWarning
                 }
                 OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Название раздела") }, modifier = Modifier.fillMaxWidth(), enabled = !busy)
                 if (!sourceAvailable) Text("Включите связанные источники во вкладке «Файлы». Удалённый оригинал нужно загрузить снова.", color = MaterialTheme.colorScheme.error)
+                if (repeatRequired) Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = repeatConfirmed, onCheckedChange = { repeatConfirmed = it }, enabled = !busy)
+                    Text("Сравнил прежние задачи. Добавить выбранные как новые, сохранив прежние правки.", style = MaterialTheme.typography.bodySmall)
+                }
                 Button(onClick = { vm.publish(jobId, selected, sectionId, name) },
                     enabled = review.canPublish && sourceAvailable && name.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Добавить выбранные (${selected.size})") }
             }

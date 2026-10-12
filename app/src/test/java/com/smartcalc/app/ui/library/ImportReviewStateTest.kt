@@ -21,6 +21,18 @@ class ImportReviewStateTest {
         assertFalse(ImportReviewState(listOf(draft.copy(condition = "")), setOf(draft.id)).canPublish)
         assertFalse(ImportReviewState(listOf(draft), setOf(draft.id), publishedIds = setOf(draft.id)).canPublish)
     }
+    @Test fun repeatedSourceRequiresComparisonAcknowledgementAndKeepsLocalEditsVisible() {
+        val previous = TemplateExample("Locally corrected", solution = "Local solution", answer = "43",
+            library = LibraryMetadata(id = UUID.randomUUID().toString(), sourceRefs = listOf(ref)))
+        val section = com.smartcalc.app.data.template.TaskTemplate(name = "Previous", examples = listOf(previous))
+        assertEquals(previous, comparableExamples(draft, listOf(section), "new-job").single().example)
+        assertFalse(ImportReviewState(listOf(draft), setOf(draft.id), repeatRequired = true).canPublish)
+        assertTrue(ImportReviewState(listOf(draft), setOf(draft.id), repeatRequired = true, repeatConfirmed = true).canPublish)
+        assertTrue(comparableExamples(draft.copy(refs = listOf(ref.copy(sourceId = UUID.randomUUID().toString()))), listOf(section), "new-job").isEmpty())
+    }
+    @Test fun processedOrdinalSummaryPreservesGaps() {
+        assertEquals("1-3, 6, 8-9", formatOrdinalRanges(listOf(9, 1, 3, 2, 6, 8, 2)))
+    }
     @Test fun answerEditorPreservesValueAndResetsVerificationWhenChanged() {
         val editor = ExampleEditState(TemplateExample("Condition", solution = "Solution", answer = "42",
             library = LibraryMetadata(id = UUID.randomUUID().toString(), verification = LibraryVerification.VERIFIED_BY_USER)))

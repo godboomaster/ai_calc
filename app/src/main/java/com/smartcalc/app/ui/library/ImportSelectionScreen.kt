@@ -16,6 +16,7 @@ import kotlinx.coroutines.CancellationException
 
 @Composable fun ImportSelectionScreen(vm: LibraryImportViewModel, onBack: () -> Unit, onReview: (String) -> Unit) {
     val sourceIds by vm.pendingSourceIds.collectAsState(); val catalog by vm.sources.collectAsState()
+    val jobs by vm.jobs.collectAsState()
     val settings by vm.settings.collectAsState(initial = ApiSettings())
     var order by rememberSaveable(sourceIds) { mutableStateOf(sourceIds) }
     var counts by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
@@ -40,6 +41,8 @@ import kotlinx.coroutines.CancellationException
                         val count = counts[id]
                         if (count == null) LinearProgressIndicator(Modifier.fillMaxWidth()) else {
                             Text("Всего: $count ${if (source?.format == SourceFormat.PDF) "страниц" else "фрагментов"}")
+                            val processed = jobs.jobs.flatMap { job -> job.segments.filter { it.ref.sourceId == id && it.ref.segmentId in job.processedSegmentIds }.map { it.ref.ordinal } }
+                            if (processed.isNotEmpty()) Text("Уже обработано: ${formatOrdinalRanges(processed)}. Повтор создаст новые черновики для сравнения, прежние задачи сохранятся.", style = MaterialTheme.typography.bodySmall)
                             OutlinedTextField(value = ranges[id].orEmpty(), onValueChange = { ranges = HashMap(ranges).apply { put(id, it) } },
                                 label = { Text(if (source?.format == SourceFormat.PDF) "Страницы, например 1-3,6" else "Фрагменты") }, modifier = Modifier.fillMaxWidth(), enabled = !starting)
                             val selected = runCatching { parsePageSelection(ranges[id].orEmpty(), count).ordinals.size }.getOrNull()
