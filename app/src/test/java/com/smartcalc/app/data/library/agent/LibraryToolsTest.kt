@@ -19,6 +19,17 @@ class LibraryToolsTest {
     private fun JsonObject.status() = getValue("status").jsonPrimitive.content
     private fun readArgs(id: String = this.id, version: Int = 1) = """{"id":"$id","version":$version}"""
 
+    @Test fun legacyFileImportKeepsKnownSourceNameInReadSnapshot() = runBlocking {
+        val imported = example().let { it.copy(library = it.library!!.copy(origin = LibraryOrigin(LibraryOriginKind.FILE_IMPORT, "examples.json"))) }
+        val tools = LibraryTools { catalog(imported) }
+        tools.execute("search_examples", """{"query":"резистор"}""")
+        val response = tools.execute("read_example", readArgs())["example"]!!.jsonObject
+        assertEquals("examples.json", response["originName"]?.jsonPrimitive?.content)
+        assertTrue(tools.examples.single().sources.isEmpty())
+        val restored = Json.decodeFromString(LibraryExampleSnapshot.serializer(), Json.encodeToString(LibraryExampleSnapshot.serializer(), tools.examples.single()))
+        assertTrue(Json.encodeToString(LibraryExampleSnapshot.serializer(), restored).contains("examples.json"))
+    }
+
     @Test fun searchThenReadReturnsFullTextVersionAndNoPaths() = runBlocking {
         val tools = LibraryTools { catalog(example()) }
         assertEquals("not_allowed", tools.execute("read_example", readArgs()).status())

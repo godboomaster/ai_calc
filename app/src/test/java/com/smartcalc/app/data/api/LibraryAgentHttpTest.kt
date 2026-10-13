@@ -12,6 +12,7 @@ import org.junit.Test
 
 private class AgentServer(replies: List<Pair<Int, JsonObject>>) : AutoCloseable {
     val requests = CopyOnWriteArrayList<JsonObject>()
+    val responseHeaders = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val pending = ArrayDeque(replies)
     private val server = ServerSocket(0)
     private val worker = thread(isDaemon = true, name = "library-agent-http-test") {
@@ -34,7 +35,8 @@ private class AgentServer(replies: List<Pair<Int, JsonObject>>) : AutoCloseable 
             val response = if (code == 200) buildJsonObject { putJsonArray("choices") { add(buildJsonObject { put("message", message) }) } } else message
             val bytes = response.toString().toByteArray(Charsets.UTF_8)
             socket.getOutputStream().use { output ->
-                output.write("HTTP/1.1 $code Response\r\nContent-Type: application/json\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray(Charsets.US_ASCII))
+                val extra = responseHeaders.entries.joinToString("") { "${it.key}: ${it.value}\r\n" }
+                output.write("HTTP/1.1 $code Response\r\nContent-Type: application/json\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n$extra\r\n".toByteArray(Charsets.US_ASCII))
                 output.write(bytes)
             }
         } } catch (e: Exception) { if (!server.isClosed) throw e }
@@ -44,6 +46,50 @@ private class AgentServer(replies: List<Pair<Int, JsonObject>>) : AutoCloseable 
 }
 
 class LibraryAgentHttpTest {
+    @Test fun explicitJsonFallbackAndTwoToolRoundsUseExactlyFourPhysicalPosts() = runBlocking {
+        AgentServer(listOf(422 to buildJsonObject { }, 200 to toolTurn(),
+            200 to toolTurn("read_example", "read-1", """{"id":"$AGENT_EXAMPLE_ID","version":1}"""), 200 to finalTurn())).use { server ->
+            val progress = mutableListOf<Int>()
+            val result = OpenAiClient().solve(server.settings, emptyList(), "Найди похожую про резистор",
+                libraryTools = agentTools(), agentProgress = { progress += it.posts })
+            assertEquals(4, server.requests.size)
+            assertEquals(server.requests.size, result.agentReport!!.posts)
+            assertTrue((1..4).all { it in progress })
+            assertEquals("none", server.requests.last()["tool_choice"]!!.jsonPrimitive.content)
+            assertFalse(server.requests.drop(1).any { it.containsKey("response_format") })
+        }
+    }
+
+    @Test fun retryAfterZeroDoesNotReplayPost() = runBlocking {
+        AgentServer(listOf(503 to buildJsonObject { }, 200 to finalTurn())).use { server ->
+            server.responseHeaders["Retry-After"] = "0"
+            try { OpenAiClient().solve(server.settings, emptyList(), "Задача", libraryTools = agentTools()); fail("POST replayed") }
+            catch (e: ApiException) { assertEquals(503, e.httpCode) }
+            assertEquals(1, server.requests.size)
+        }
+    }
+
+    @Test fun redirectsDoNotReplayPost() = runBlocking {
+        for (code in listOf(307, 308)) AgentServer(listOf(code to buildJsonObject { }, 200 to finalTurn())).use { server ->
+            server.responseHeaders["Location"] = server.settings.baseUrl + "/v1/chat/completions"
+            try { OpenAiClient().solve(server.settings, emptyList(), "Задача", libraryTools = agentTools()); fail("POST redirected") }
+            catch (e: ApiException) { assertEquals(code, e.httpCode) }
+            assertEquals(1, server.requests.size)
+        }
+    }
+
+    @Test fun credentialInPlotMapKeysNeverEntersPersistedResult() = runBlocking {
+        val echoed = buildJsonObject { put("role", "assistant"); put("content", """{"problem":"x","answer":"1","steps":[{"title":"plot","content":"","plot":{"params":{"fixture-token":"1","prefix-fixture-token":"2","[скрыто]":"3","k":"4"},"series":[]}}]}""") }
+        AgentServer(listOf(200 to echoed)).use { server ->
+            val result = OpenAiClient().solve(server.settings, emptyList(), "Задача", libraryTools = agentTools())
+            val graph = result.steps.single().plot!!
+            assertEquals(mapOf("[скрыто]" to "3", "k" to "4"), graph.params)
+            val stored = com.smartcalc.app.data.history.Solution(problem = result.problem, answer = result.answer,
+                steps = result.steps.map { com.smartcalc.app.data.history.SolutionStep(it.title, it.content, plot = it.plot) })
+            assertFalse(Json.encodeToString(com.smartcalc.app.data.history.Solution.serializer(), stored).contains("fixture-token"))
+        }
+    }
+
     @Test fun providerEchoedCredentialNeverEntersResultOrProgress() = runBlocking {
         val echoed = buildJsonObject { put("role", "assistant"); put("content", """{"problem":"fixture-token","answer":"fixture-token","steps":[{"title":"fixture-token","content":"fixture-token"}]}""") }
         AgentServer(listOf(200 to echoed)).use { server ->

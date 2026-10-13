@@ -20,7 +20,8 @@ class LibraryAgentCheckpointTest {
         events = listOf(LibraryToolEvent("search_examples", "matches"), LibraryToolEvent("read_example", "ok")),
         examples = listOf(LibraryExampleSnapshot("11111111-1111-1111-1111-111111111111", version, "Раздел $token",
             "Условие $token", "Решение $token", "42 $token", LibraryVerification.UNVERIFIED, "FILE_IMPORT",
-            listOf(LibraryExampleSource("22222222-2222-2222-2222-222222222222", "book $token.pdf", SegmentKind.PDF_PAGE, 2)))))
+            listOf(LibraryExampleSource("22222222-2222-2222-2222-222222222222", "book $token.pdf", SegmentKind.PDF_PAGE, 2)),
+            originName = "Imported $token.json")))
 
     @Test fun agentCheckpointSurvivesReloadIsIdBoundAndClearLeavesOtherFiles() = runBlocking {
         val directory = temporary.newFolder()
@@ -37,14 +38,15 @@ class LibraryAgentCheckpointTest {
 
     @Test fun historyKeepsIndependentReportsAndImmutableSourceVersions() = runBlocking {
         val directory = temporary.newFolder()
-        val original = Solution(id = "solution", problem = "Задача", answer = "42", agentReport = report(),
-            followUps = listOf(FollowUp("А при другом K?", "43", agentReport = report(version = 2))))
+        val original = Solution(id = "solution", problem = "Задача", answer = "42", timestamp = 10, agentReport = report(),
+            followUps = listOf(FollowUp("А при другом K?", "43", timestamp = 20, agentReport = report(version = 2))))
         HistoryStore(directory).add(original)
         val restored = HistoryStore(directory).items.value.single()
         assertEquals(original, restored)
         assertEquals(1, restored.agentReport!!.examples.single().version)
         assertEquals(2, restored.followUps.single().agentReport!!.examples.single().version)
         assertEquals(2, restored.agentReport!!.examples.single().sources.single().ordinal)
+        assertEquals("Imported .json", restored.agentReport!!.examples.single().originName)
     }
 
     @Test fun oldHistoryAndDisabledSettingUseLegacyRequestPathWithoutLoadingLibrary() = runBlocking {

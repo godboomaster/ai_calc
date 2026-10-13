@@ -31,8 +31,10 @@ import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.Response
 import okhttp3.RequestBody.Companion.toRequestBody
+import okio.BufferedSink
 import java.io.IOException
 import java.io.File
 import java.io.ByteArrayOutputStream
@@ -116,6 +118,8 @@ class OpenAiClient {
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .retryOnConnectionFailure(false)
+        .followRedirects(false)
+        .followSslRedirects(false)
         .build()
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -430,7 +434,7 @@ class OpenAiClient {
         val request = Request.Builder()
             .url(url)
             .header("Authorization", "Bearer ${settings.apiKey}")
-            .post(body.toString().toRequestBody("application/json".toMediaType()))
+            .post(body.toString().toRequestBody("application/json".toMediaType()).oneShot())
             .build()
         val resp = client.newCall(request).awaitResponse()
         val respBody = resp.body
@@ -450,6 +454,18 @@ class OpenAiClient {
         }
         val choice = (root["choices"] as? JsonArray)?.firstOrNull() as? JsonObject
         return choice?.get("message") as? JsonObject ?: throw ApiException("Модель вернула пустой ответ")
+    }
+
+    // OkHttp's HTTP follow-ups (e.g. 503 Retry-After: 0) otherwise replay even with
+    // retryOnConnectionFailure(false). Only the counted application fallback may send again.
+    private fun RequestBody.oneShot(): RequestBody {
+        val delegate = this
+        return object : RequestBody() {
+            override fun contentType() = delegate.contentType()
+            override fun contentLength() = delegate.contentLength()
+            override fun isOneShot() = true
+            override fun writeTo(sink: BufferedSink) = delegate.writeTo(sink)
+        }
     }
 
     internal fun parseSolution(raw: String): SolutionPayload {

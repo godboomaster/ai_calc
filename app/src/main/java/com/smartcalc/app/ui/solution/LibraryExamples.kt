@@ -47,13 +47,14 @@ import com.smartcalc.app.ui.math.MathText
                     Text("Авторское решение", style = MaterialTheme.typography.labelLarge); MathText(example.solution)
                     if (example.answer.isNotBlank()) { Text("Ответ", style = MaterialTheme.typography.labelLarge); MathText(example.answer) }
                     Text("Источник", style = MaterialTheme.typography.labelLarge)
-                    if (example.sources.isEmpty()) Text(if (example.origin == "MANUAL") "Ручной ввод в библиотеку" else "Раздел библиотеки")
+                    if (example.sources.isEmpty()) Text(example.originName?.takeIf { it.isNotBlank() }
+                        ?: if (example.origin == "MANUAL") "Ручной ввод в библиотеку" else "Раздел библиотеки")
                     example.sources.forEach { source -> Text(source.name + " · " + when (source.kind) {
                         SegmentKind.PDF_PAGE -> "страница ${source.ordinal}"
                         SegmentKind.DOCUMENT_BLOCK -> "фрагмент ${source.ordinal}"
                         SegmentKind.IMAGE -> "изображение ${source.ordinal}"
                     }) }
-                    if (example.imagesNotSent) Text("В карточке есть фотографии. В этот запрос передан только текст.", style = MaterialTheme.typography.bodySmall)
+                    if (example.imagesNotSent) Text("В карточке есть фотографии. Из этого примера агенту передан только текст.", style = MaterialTheme.typography.bodySmall)
                     Text("Сохранённый снимок прочитанного примера. Запросов к API в этом ответе: ${report.posts}.", style = MaterialTheme.typography.bodySmall)
                 }
             }, confirmButton = { TextButton(onClick = { selected = null }) { Text("Закрыть") } })

@@ -73,7 +73,8 @@ class LibraryTools(private val catalog: suspend () -> LibraryCatalog) {
             val snapshot = LibraryExampleSnapshot(id, version, entry.type.orEmpty(), ex.condition, ex.solution, ex.answer,
                 metadata.verification, metadata.origin.kind.name,
                 metadata.sourceRefs.map { ref -> LibraryExampleSource(ref.sourceId,
-                    current.sources.sources.first { it.id == ref.sourceId }.name, ref.kind, ref.ordinal) }, hasImages)
+                    current.sources.sources.first { it.id == ref.sourceId }.name, ref.kind, ref.ordinal) }, hasImages,
+                originName = metadata.origin.name)
             val response = buildJsonObject { put("status", "ok"); put("example", json.encodeToJsonElement(LibraryExampleSnapshot.serializer(), snapshot)) }
             if (response.toString().unicodeSize() > 4000) return status("too_large")
             pending = snapshot

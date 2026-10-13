@@ -26,6 +26,7 @@ data class LibraryExampleSnapshot(
     val sources: List<LibraryExampleSource> = emptyList(),
     val hasImages: Boolean = false,
     val imagesNotSent: Boolean = hasImages,
+    val originName: String? = null,
 )
 
 @Serializable data class LibraryToolEvent(val name: String, val status: String)
@@ -41,11 +42,14 @@ fun LibraryAgentReport.redact(secret: String): LibraryAgentReport {
     return copy(events = events.map { it.copy(name = clean(it.name), status = clean(it.status)) },
         examples = examples.map { ex -> ex.copy(id = clean(ex.id), section = clean(ex.section),
         condition = clean(ex.condition), solution = clean(ex.solution), answer = clean(ex.answer),
-        origin = clean(ex.origin), sources = ex.sources.map { it.copy(sourceId = clean(it.sourceId), name = clean(it.name)) }) })
+        origin = clean(ex.origin), originName = ex.originName?.let(::clean),
+        sources = ex.sources.map { it.copy(sourceId = clean(it.sourceId), name = clean(it.name)) }) })
 }
 
 internal fun JsonElement.redactSecret(secret: String): JsonElement = if (secret.isBlank()) this else when (this) {
-    is JsonObject -> JsonObject(mapValues { it.value.redactSecret(secret) })
+    // Drop secret-bearing keys instead of renaming: replacement could collide with a
+    // legitimate parameter name and silently overwrite its value.
+    is JsonObject -> JsonObject(filterKeys { !it.contains(secret) }.mapValues { it.value.redactSecret(secret) })
     is JsonArray -> JsonArray(map { it.redactSecret(secret) })
     is JsonPrimitive -> if (isString) JsonPrimitive(content.replace(secret, "[скрыто]")) else this
 }

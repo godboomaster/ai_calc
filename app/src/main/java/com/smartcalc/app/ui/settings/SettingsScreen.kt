@@ -172,7 +172,7 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
                 Text("Разрешить агенту поиск в библиотеке", modifier = Modifier.weight(1f))
                 Switch(checked = libraryToolsEnabled, onCheckedChange = null)
             }
-            Text("Агент сам выбирает поиск и чтение. Прочитанные тексты передаются выбранному API. До 4 запросов на ответ; фотографии примеров не передаются.",
+            Text("Агент сам выбирает поиск и чтение. Прочитанные тексты передаются выбранному API. До 4 запросов на ответ; фотографии из библиотеки этим поиском не передаются.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
             Row(
