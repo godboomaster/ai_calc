@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBars
@@ -30,6 +31,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.verticalScroll
@@ -47,6 +49,7 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Icon
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -175,6 +178,7 @@ fun CalculatorScreen(
     val onDisplay = display.visible
     val solving by vm.solving.collectAsState()
     val error by vm.error.collectAsState()
+    var showErrorDetails by remember(error) { mutableStateOf(false) }
     val pending by vm.pending.collectAsState()
     val request by vm.request.collectAsState()
     val solution by vm.current.collectAsState()
@@ -382,6 +386,15 @@ fun CalculatorScreen(
     BackHandler(enabled = editing) { stopEditing() }
     BackHandler(enabled = aiKeys && !editing) { aiKeys = false }
 
+    if (showErrorDetails && error != null) {
+        AlertDialog(onDismissRequest = { showErrorDetails = false }, title = { Text("Ошибка запроса") },
+            text = {
+                SelectionContainer {
+                    Text(error.orEmpty(), modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()))
+                }
+            }, confirmButton = { TextButton(onClick = { showErrorDetails = false }) { Text("Закрыть") } })
+    }
+
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
@@ -559,13 +572,15 @@ fun CalculatorScreen(
                         error != null -> Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
                             Box(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
                                 contentAlignment = Alignment.BottomEnd) {
-                                DisplayCaption(error.orEmpty(), maxLines = 4)
+                                Text(error.orEmpty(), fontSize = 20.sp, textAlign = TextAlign.End,
+                                    maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
                             }
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically) {
                                 Text(if (request?.status == RequestStatus.INTERRUPTED) "Прервано" else "Ошибка",
                                     style = MaterialTheme.typography.titleLarge,
                                     color = MaterialTheme.colorScheme.error)
+                                TextButton(onClick = { showErrorDetails = true }) { Text("Подробнее") }
                                 TextButton(onClick = vm::retryRequest) { Text("Повторить запрос") }
                             }
                         }
