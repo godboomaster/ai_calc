@@ -3,11 +3,15 @@ package com.smartcalc.app.data.search
 import com.smartcalc.app.data.history.Solution
 import com.smartcalc.app.data.template.TaskTemplate
 import com.smartcalc.app.data.template.TemplateExample
+import com.smartcalc.app.data.template.TemplateKind
 import com.smartcalc.app.data.template.TemplateMarkdown
+import com.smartcalc.app.data.template.TemplateStore
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import kotlin.io.path.createTempDirectory
 
 class TaskSearchTest {
 
@@ -110,6 +114,47 @@ class TaskSearchTest {
         val block = TaskSearch.search(entries, "ускорение бруска").first().entry
         assertTrue(block.condition.startsWith("Брусок"))
         assertEquals("2 м/с²", FoundSolution.of(block).answer)
+    }
+
+    @Test
+    fun repositoryMmusBaseIsSearchable() {
+        val examples = File("../examples").takeIf { it.exists() } ?: File("examples")
+        val sections = TemplateMarkdown.parse(File(examples, "mmus-laplace.md").readText())
+        assertEquals(listOf("ММУС 1. Преобразование Лапласа"), sections.map { it.name })
+        assertEquals(12, sections.single().examples.size)
+        val entries = TaskSearch.entries(sections, emptyList(), emptyList())
+
+        val step = FoundSolution.of(TaskSearch.search(entries, "1.1").first().entry)
+        assertEquals("${'$'}\\dfrac{1}{s}${'$'}", step.answer)
+        assertEquals(3, step.steps.size)
+
+        val damped = TaskSearch.search(entries, "затухающий синус").first().entry
+        assertTrue(damped.condition.startsWith("1.3 в)"))
+    }
+
+    @Test
+    fun repositoryMmusLibraryImportsSevenSections() = runBlocking {
+        val examples = File("../examples").takeIf { it.exists() } ?: File("examples")
+        val root = createTempDirectory("mmus-library").toFile()
+        try {
+            val library = TemplateStore(root, TemplateKind.LIBRARY)
+            val result = File(examples, "mmus-library.zip").inputStream().use { library.import(it, "mmus-library.zip") }
+            assertEquals(7, result.added)
+            val sections = library.items.value
+            assertEquals((1..7).map { "mmus-razdel-$it" }.toSet(), sections.map { it.id }.toSet())
+            assertEquals(118, sections.sumOf { it.examples.size })
+            val photos = sections.flatMap { it.examples }.flatMap { it.conditionImages + it.solutionImages }
+            assertTrue(photos.isNotEmpty() && photos.all { File(it).isFile })
+
+            val entries = TaskSearch.entries(sections, emptyList(), emptyList())
+            val found = TaskSearch.search(entries, "7.2 последовательно соединённые звенья").first().entry
+            assertTrue(found.condition.startsWith("[Методичка, новое решение] 7.2 ж)"))
+            val solution = FoundSolution.of(found)
+            assertEquals("разомкнутая система неустойчива (два правых корня), замкнутая — неустойчива", solution.answer)
+            assertTrue(solution.steps.last().images.isNotEmpty())
+        } finally {
+            root.deleteRecursively()
+        }
     }
 
     @Test
