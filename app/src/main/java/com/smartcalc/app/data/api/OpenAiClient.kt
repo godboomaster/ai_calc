@@ -273,7 +273,7 @@ class OpenAiClient {
 
     private fun systemMessage(settings: ApiSettings) = message(
         "system",
-        JsonPrimitive(listOf(settings.systemPrompt.trimEnd(), FORMULA_RULE, PLOT_RULE, SCHEME_RULE).joinToString("\n")),
+        JsonPrimitive(listOf(settings.systemPrompt.trimEnd(), SOLUTION_STEPS_RULE, FORMULA_RULE, PLOT_RULE, SCHEME_RULE).joinToString("\n")),
     )
 
     private fun message(role: String, content: JsonElement) = buildJsonObject {
@@ -285,10 +285,14 @@ class OpenAiClient {
         forceSearch: Boolean = false, progress: suspend (LibraryAgentReport) -> Unit = {}): SolutionPayload {
         if (libraryTools != null) {
             if (settings.apiKey.isBlank()) throw ApiConfigurationException("API-ключ не задан. Откройте настройки и введите ключ.")
+            val capability = reasoningCapability(settings)
+            if (!capability.chatToolsSupported) throw ApiConfigurationException("Эта модель OpenAI не поддерживает инструменты через Chat Completions. Выберите совместимую модель или выключите поиск агентом.")
             val result = LibraryAgentLoop(settings.model, libraryTools,
                 { progress(it.redact(settings.apiKey)) },
                 { it.redactSecret(settings.apiKey).jsonObject },
-                deepSeekThinkingMode = officialDeepSeekTools(settings.baseUrl) && settings.thinkingEnabled) { executeMessage(settings, it) }.run(messages, forceSearch)
+                thinkingToolMode = if (capability.controlled) settings.thinkingEnabled || !capability.canDisable else capability.requireReasoning,
+                requireReasoning = capability.requireReasoning,
+                autoToolsOnly = capability.autoToolsOnly) { executeMessage(settings, it) }.run(messages, forceSearch)
             val parsed = parseSolution(result.content)
             fun clean(value: String) = value.replace(settings.apiKey, "[скрыто]")
             return parsed.copy(problem = clean(parsed.problem), answer = clean(parsed.answer),

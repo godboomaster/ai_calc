@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.map
 
 private val Context.dataStore by preferencesDataStore(name = "settings")
 
+enum class ReasoningFormat { AUTO, THINKING_TYPE, ENABLE_THINKING, REASONING_EFFORT, SERVER_DEFAULT }
+
 data class ApiSettings(
     val baseUrl: String = DEFAULT_BASE_URL,
     val apiKey: String = "",
@@ -18,6 +20,7 @@ data class ApiSettings(
     val supportsImages: Boolean = false,
     val libraryToolsEnabled: Boolean = false,
     val thinkingEnabled: Boolean = true,
+    val reasoningFormat: ReasoningFormat = ReasoningFormat.AUTO,
 ) {
     companion object {
         const val DEFAULT_BASE_URL = "https://api.openai.com/v1"
@@ -42,6 +45,7 @@ class SettingsRepository(private val context: Context) {
         val SUPPORTS_IMAGES = booleanPreferencesKey("supports_images")
         val LIBRARY_TOOLS = booleanPreferencesKey("library_tools")
         val THINKING = booleanPreferencesKey("thinking_enabled")
+        val REASONING_FORMAT = stringPreferencesKey("reasoning_format")
         val SWIPE_TO_RESTORE = booleanPreferencesKey("swipe_to_restore")
     }
 
@@ -62,6 +66,7 @@ class SettingsRepository(private val context: Context) {
             supportsImages = p[Keys.SUPPORTS_IMAGES] ?: false,
             libraryToolsEnabled = p[Keys.LIBRARY_TOOLS] ?: false,
             thinkingEnabled = p[Keys.THINKING] ?: true,
+            reasoningFormat = ReasoningFormat.entries.firstOrNull { it.name == p[Keys.REASONING_FORMAT] } ?: ReasoningFormat.AUTO,
         )
     }
 
@@ -74,6 +79,7 @@ class SettingsRepository(private val context: Context) {
             p[Keys.SUPPORTS_IMAGES] = s.supportsImages
             p[Keys.LIBRARY_TOOLS] = s.libraryToolsEnabled
             p[Keys.THINKING] = s.thinkingEnabled
+            p[Keys.REASONING_FORMAT] = s.reasoningFormat.name
         }
     }
 }

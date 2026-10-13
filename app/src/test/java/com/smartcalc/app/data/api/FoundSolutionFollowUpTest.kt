@@ -16,6 +16,13 @@ class FoundSolutionFollowUpTest {
     @get:Rule val tmp = TemporaryFolder()
     private val client = OpenAiClient()
 
+    @Test fun followUpAlsoRequestsOnlySubjectStepsWithCustomPrompt() {
+        val messages = client.followUpMessages(ApiSettings(systemPrompt = "Custom prompt"), Solution(problem = "Условие", answer = "42"), "Почему?")
+        val system = messages.first().jsonObject["content"]!!.jsonPrimitive.content
+        assertTrue(system.contains("только содержательные этапы решения задачи"))
+        assertTrue(system.contains("Не добавляй в problem, answer и steps"))
+    }
+
     @Test fun photoOnlyLibraryFollowUpIncludesConditionAndSolutionImagesOnce() {
         val condition = tmp.newFile().apply { writeBytes(byteArrayOf(1, 2, 3)) }
         val solution = tmp.newFile().apply { writeBytes(byteArrayOf(4, 5, 6)) }

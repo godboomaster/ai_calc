@@ -1,6 +1,7 @@
 package com.smartcalc.app.data.api
 
 import com.smartcalc.app.data.settings.ApiSettings
+import com.smartcalc.app.data.settings.ReasoningFormat
 import java.net.ServerSocket
 import java.io.ByteArrayOutputStream
 import kotlin.concurrent.thread
@@ -46,6 +47,65 @@ private class AgentServer(replies: List<Pair<Int, JsonObject>>) : AutoCloseable 
 }
 
 class LibraryAgentHttpTest {
+    @Test fun explicitFormatsReachActualOrdinaryAndFollowUpPostsInBothStates() = runBlocking {
+        for (format in listOf(ReasoningFormat.THINKING_TYPE, ReasoningFormat.ENABLE_THINKING, ReasoningFormat.REASONING_EFFORT))
+            for (enabled in listOf(true, false)) AgentServer(listOf(200 to finalTurn(), 200 to finalTurn())).use { server ->
+                val settings = server.settings.copy(reasoningFormat = format, thinkingEnabled = enabled)
+                OpenAiClient().solve(settings, emptyList(), "Задача")
+                OpenAiClient().followUp(settings, com.smartcalc.app.data.history.Solution(problem = "Задача", answer = "1"), "Почему?")
+                assertEquals(2, server.requests.size)
+                server.requests.forEach { request -> when (format) {
+                    ReasoningFormat.THINKING_TYPE -> assertEquals(if (enabled) "enabled" else "disabled", request["thinking"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+                    ReasoningFormat.ENABLE_THINKING -> { assertEquals(enabled, request["enable_thinking"]!!.jsonPrimitive.boolean); assertFalse(request.containsKey("thinking")) }
+                    else -> { assertEquals(if (enabled) "high" else "none", request["reasoning_effort"]!!.jsonPrimitive.content); assertFalse(request.containsKey("thinking")) }
+                } }
+            }
+    }
+
+    @Test fun qwenAndOpenAiToolTurnsCanOmitReasoningAndNeverGetDeepSeekParameters() = runBlocking {
+        for (format in listOf(ReasoningFormat.ENABLE_THINKING, ReasoningFormat.REASONING_EFFORT)) {
+            AgentServer(listOf(200 to toolTurn(), 200 to finalTurn())).use { server ->
+                val result = OpenAiClient().solve(server.settings.copy(reasoningFormat = format), emptyList(), "Найди похожую задачу", libraryTools = agentTools())
+                assertEquals(2, result.agentReport!!.posts)
+                assertTrue(server.requests.none { it.containsKey("thinking") })
+                assertEquals("auto", server.requests.first()["tool_choice"]!!.jsonPrimitive.content)
+            }
+        }
+    }
+
+    @Test fun glmToolsUseAutoEvenWhenThinkingOffAndFinalizeWithoutTools() = runBlocking {
+        for (enabled in listOf(true, false)) AgentServer(listOf(200 to toolTurn(),
+            200 to toolTurn("read_example", "read-1", """{"id":"$AGENT_EXAMPLE_ID","version":1}"""), 200 to finalTurn())).use { server ->
+            val settings = server.settings.copy(model = "glm-4.7", reasoningFormat = ReasoningFormat.THINKING_TYPE, thinkingEnabled = enabled)
+            val result = OpenAiClient().solve(settings, emptyList(), "Найди похожую", libraryTools = agentTools())
+            assertEquals(3, result.agentReport!!.posts)
+            assertEquals("auto", server.requests.first()["tool_choice"]!!.jsonPrimitive.content)
+            assertFalse(server.requests.last().containsKey("tools"))
+            assertFalse(server.requests.last().containsKey("tool_choice"))
+            assertTrue(server.requests.all { it["thinking"]!!.jsonObject["type"]!!.jsonPrimitive.content == if (enabled) "enabled" else "disabled" })
+        }
+    }
+
+    @Test fun unsupportedOpenAiChatToolModelsStopBeforeAnyPost() = runBlocking {
+        AgentServer(listOf(200 to finalTurn())).use { server ->
+            try {
+                OpenAiClient().solve(server.settings.copy(model = "gpt-6-astra", reasoningFormat = ReasoningFormat.REASONING_EFFORT), emptyList(), "Найди похожую", libraryTools = agentTools())
+                fail("Unsupported chat tools must stop locally")
+            } catch (e: ApiConfigurationException) { assertTrue(e.message!!.contains("Chat Completions")) }
+            assertTrue(server.requests.isEmpty())
+        }
+    }
+    @Test fun ordinaryAndAgentRequestsAskForSubjectStepsInsteadOfOperationalNarration() = runBlocking {
+        for (agent in listOf(false, true)) AgentServer(listOf(200 to finalTurn())).use { server ->
+            OpenAiClient().solve(server.settings.copy(systemPrompt = "Custom prompt"), emptyList(), "Задача",
+                libraryTools = if (agent) agentTools() else null)
+            val policy = server.requests.single()["messages"]!!.jsonArray.map { it.jsonObject }
+                .filter { it["role"]!!.jsonPrimitive.content == "system" }.joinToString("\n") { it["content"]!!.jsonPrimitive.content }
+            assertTrue(policy.contains("только содержательные этапы решения задачи"))
+            assertTrue(policy.contains("Не добавляй в problem, answer и steps"))
+            assertTrue(policy.contains("поиск похожих примеров"))
+        }
+    }
     @Test fun explicitJsonFallbackAndTwoToolRoundsUseExactlyFourPhysicalPosts() = runBlocking {
         AgentServer(listOf(422 to buildJsonObject { }, 200 to toolTurn(),
             200 to toolTurn("read_example", "read-1", """{"id":"$AGENT_EXAMPLE_ID","version":1}"""), 200 to finalTurn())).use { server ->

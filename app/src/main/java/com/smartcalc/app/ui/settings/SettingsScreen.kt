@@ -1,6 +1,7 @@
 package com.smartcalc.app.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,6 +15,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -36,8 +39,9 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.smartcalc.app.SolutionViewModel
-import com.smartcalc.app.data.api.officialDeepSeekTools
+import com.smartcalc.app.data.api.reasoningCapability
 import com.smartcalc.app.data.settings.ApiSettings
+import com.smartcalc.app.data.settings.ReasoningFormat
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,6 +59,8 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
     var supportsImages by remember { mutableStateOf(false) }
     var libraryToolsEnabled by remember { mutableStateOf(false) }
     var thinkingEnabled by remember { mutableStateOf(true) }
+    var reasoningFormat by remember { mutableStateOf(ReasoningFormat.AUTO) }
+    var reasoningMenu by remember { mutableStateOf(false) }
 
     LaunchedEffect(settings) {
         if (!loaded) {
@@ -65,6 +71,7 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
             supportsImages = settings.supportsImages
             libraryToolsEnabled = settings.libraryToolsEnabled
             thinkingEnabled = settings.thinkingEnabled
+            reasoningFormat = settings.reasoningFormat
             loaded = true
         }
     }
@@ -81,6 +88,7 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
         supportsImages = supportsImages,
         libraryToolsEnabled = libraryToolsEnabled,
         thinkingEnabled = thinkingEnabled,
+        reasoningFormat = reasoningFormat,
     )
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -163,14 +171,36 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
                 minLines = 4,
                 modifier = Modifier.fillMaxWidth(),
             )
-            if (runCatching { officialDeepSeekTools(baseUrl) }.getOrDefault(false)) {
+            val reasoning = runCatching { reasoningCapability(currentSettings()) }.getOrNull()
+            Box {
+                OutlinedButton(onClick = { reasoningMenu = true }) {
+                    Text("Формат рассуждения: ${reasoningFormat.label()}")
+                }
+                DropdownMenu(expanded = reasoningMenu, onDismissRequest = { reasoningMenu = false }) {
+                    ReasoningFormat.entries.forEach { format ->
+                        DropdownMenuItem(text = { Text(format.label()) }, onClick = {
+                            reasoningFormat = format; reasoningMenu = false
+                        })
+                    }
+                }
+            }
+            if (reasoning?.controlled == true) {
                 Row(modifier = Modifier.fillMaxWidth().toggleable(value = thinkingEnabled, role = Role.Switch,
                     onValueChange = { thinkingEnabled = it }).padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Режим рассуждения (DeepSeek)", modifier = Modifier.weight(1f))
+                    Text(if (reasoning.canDisable) "Рассуждение модели" else "Подробное рассуждение", modifier = Modifier.weight(1f))
                     Switch(checked = thinkingEnabled, onCheckedChange = null)
                 }
                 Text("Модель рассуждает перед ответом. Это может увеличить время и расход токенов. Текст рассуждений не отображается.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (!reasoning.canDisable) Text("Эта модель постоянно рассуждает. Выключенный переключатель снижает интенсивность до минимума, включённый задаёт high.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                Text("Параметр рассуждения не передаётся: используется режим сервера. Для другой модели или совместимого API выберите формат по документации провайдера.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (reasoningFormat != ReasoningFormat.AUTO && reasoningFormat != ReasoningFormat.SERVER_DEFAULT) {
+                Text("Формат должен поддерживаться выбранной моделью. Для Qwen нужен режим без потоковой выдачи; reasoning_effort поддерживается не всеми моделями OpenAI.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row(modifier = Modifier.fillMaxWidth().toggleable(value = supportsImages, role = Role.Switch,
@@ -238,9 +268,19 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
                 baseUrl = ApiSettings.DEFAULT_BASE_URL
                 model = ApiSettings.DEFAULT_MODEL
                 systemPrompt = ApiSettings.DEFAULT_SYSTEM_PROMPT
+                thinkingEnabled = true
+                reasoningFormat = ReasoningFormat.AUTO
             })
         }
     }
+}
+
+private fun ReasoningFormat.label(): String = when (this) {
+    ReasoningFormat.AUTO -> "Авто"
+    ReasoningFormat.THINKING_TYPE -> "DeepSeek / Kimi / GLM (thinking)"
+    ReasoningFormat.ENABLE_THINKING -> "Qwen (enable_thinking)"
+    ReasoningFormat.REASONING_EFFORT -> "OpenAI (reasoning_effort)"
+    ReasoningFormat.SERVER_DEFAULT -> "Как задано на сервере"
 }
 
 @Composable

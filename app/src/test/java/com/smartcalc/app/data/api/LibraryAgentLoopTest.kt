@@ -24,13 +24,28 @@ private fun reasoningTurn(turn: JsonObject, text: String) = JsonObject(turn + ("
 private val initialMessages = buildJsonArray { add(buildJsonObject { put("role", "user"); put("content", "Новая задача с другими числами") }) }
 
 class LibraryAgentLoopTest {
+    @Test fun serverDefaultModeStillReplaysReturnedReasoningWithoutSavingIt() = runBlocking {
+        var posts = 0
+        val reports = mutableListOf<LibraryAgentReport>()
+        val result = LibraryAgentLoop("provider-default", agentTools(), { reports += it }) { body ->
+            posts++
+            if (posts == 1) reasoningTurn(toolTurn(), "private-default-reasoning") else {
+                val assistant = body["messages"]!!.jsonArray.map { it.jsonObject }.single { it["role"]!!.jsonPrimitive.content == "assistant" }
+                assertEquals("private-default-reasoning", assistant["reasoning_content"]?.jsonPrimitive?.content)
+                finalTurn()
+            }
+        }.run(initialMessages)
+        assertEquals(2, posts)
+        assertFalse(result.toString().contains("private-default-reasoning"))
+        assertFalse(reports.toString().contains("private-default-reasoning"))
+    }
     @Test fun deepSeekUsesThinkingAndAutoWhileExplicitSearchRemainsMandatory() = runBlocking {
         val requests = mutableListOf<JsonObject>()
         val replies = ArrayDeque(listOf(reasoningTurn(toolTurn(), "reason-a"),
             reasoningTurn(toolTurn("read_example", "read-1", """{"id":"$AGENT_EXAMPLE_ID","version":1}"""), "reason-b"), finalTurn()))
-        val result = LibraryAgentLoop("deepseek-flash", agentTools(), deepSeekThinkingMode = true) { body ->
+        val result = LibraryAgentLoop("deepseek-flash", agentTools(), thinkingToolMode = true) { body ->
             requests += body
-            assertEquals("enabled", body["thinking"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+            assertFalse(body.containsKey("thinking")) // Provider fields belong to the transport adapter.
             if (requests.size == 1) {
                 assertEquals("auto", body["tool_choice"]!!.jsonPrimitive.content)
                 assertEquals(listOf("search_examples"), body["tools"]!!.jsonArray.map { it.jsonObject["function"]!!.jsonObject["name"]!!.jsonPrimitive.content })
@@ -38,7 +53,7 @@ class LibraryAgentLoopTest {
             replies.removeFirst()
         }.run(initialMessages, forceSearch = true)
         assertEquals(3, result.report.posts)
-        assertTrue(requests.all { it["thinking"]!!.jsonObject["type"]!!.jsonPrimitive.content == "enabled" })
+        assertTrue(requests.none { it.containsKey("thinking") })
         assertEquals("none", requests.last()["tool_choice"]!!.jsonPrimitive.content)
         assertEquals(AGENT_EXAMPLE_ID, result.report.examples.single().id)
     }
@@ -61,9 +76,9 @@ class LibraryAgentLoopTest {
         var posts = 0
         val replies = ArrayDeque(listOf(reasoningTurn(toolTurn(), "reason-a"),
             reasoningTurn(toolTurn("read_example", "read-1", """{"id":"$AGENT_EXAMPLE_ID","version":1}"""), "reason-b"), finalTurn()))
-        val result = LibraryAgentLoop("deepseek-flash", agentTools(), deepSeekThinkingMode = true) { body ->
+        val result = LibraryAgentLoop("deepseek-flash", agentTools(), thinkingToolMode = true) { body ->
             posts++
-            assertEquals("enabled", body["thinking"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+            assertFalse(body.containsKey("thinking"))
             if (posts == 1) throw ApiException("unsupported response_format", 422)
             assertFalse(body.containsKey("response_format"))
             if (posts == 4) assertEquals("none", body["tool_choice"]!!.jsonPrimitive.content)
@@ -79,7 +94,7 @@ class LibraryAgentLoopTest {
         val reasonB = "private-fixture-reasoning-B"
         var posts = 0
         val progress = mutableListOf<LibraryAgentReport>()
-        val result = LibraryAgentLoop("deepseek-flash", agentTools(), { progress += it }, deepSeekThinkingMode = true) { body ->
+        val result = LibraryAgentLoop("deepseek-flash", agentTools(), { progress += it }, thinkingToolMode = true) { body ->
             posts++
             val assistant = body["messages"]!!.jsonArray.map { it.jsonObject }.filter { it["role"]!!.jsonPrimitive.content == "assistant" }
             when (posts) {
@@ -99,7 +114,7 @@ class LibraryAgentLoopTest {
             var posts = 0
             val reply = if (reason == null) toolTurn() else JsonObject(toolTurn() + ("reasoning_content" to reason))
             try {
-                LibraryAgentLoop("deepseek-flash", agentTools(), deepSeekThinkingMode = true) { posts++; if (posts == 1) reply else finalTurn() }.run(initialMessages)
+                LibraryAgentLoop("deepseek-flash", agentTools(), thinkingToolMode = true) { posts++; if (posts == 1) reply else finalTurn() }.run(initialMessages)
                 fail("Invalid reasoning must stop the loop")
             } catch (e: LibraryAgentException) { assertTrue(e.message!!.contains("reasoning_content")) }
             assertEquals(1, posts)
@@ -109,7 +124,7 @@ class LibraryAgentLoopTest {
     @Test fun oversizedReasoningIsNotTruncatedOrSentAgain() = runBlocking {
         var posts = 0
         try {
-            LibraryAgentLoop("deepseek-flash", agentTools(), deepSeekThinkingMode = true) {
+            LibraryAgentLoop("deepseek-flash", agentTools(), thinkingToolMode = true) {
                 posts++; if (posts == 1) reasoningTurn(toolTurn(), "r".repeat(100001)) else finalTurn()
             }.run(initialMessages)
             fail("Reasoning must count against outgoing context budget")
@@ -120,7 +135,7 @@ class LibraryAgentLoopTest {
     @Test fun thinkingAutoCannotSilentlySkipExplicitSearch() = runBlocking {
         var posts = 0
         try {
-            LibraryAgentLoop("deepseek-flash", agentTools(), deepSeekThinkingMode = true) { posts++; finalTurn() }.run(initialMessages, forceSearch = true)
+            LibraryAgentLoop("deepseek-flash", agentTools(), thinkingToolMode = true) { posts++; finalTurn() }.run(initialMessages, forceSearch = true)
             fail("Explicit search must actually happen")
         } catch (_: LibraryAgentException) { }
         assertEquals(1, posts)
@@ -136,7 +151,7 @@ class LibraryAgentLoopTest {
             add(buildJsonObject { put("role", "user"); put("content", "Найди похожую для нового вопроса") })
         }
         var posts = 0
-        LibraryAgentLoop("deepseek-flash", agentTools(), deepSeekThinkingMode = true) { body ->
+        LibraryAgentLoop("deepseek-flash", agentTools(), thinkingToolMode = true) { body ->
             posts++
             if (posts == 1) {
                 val messages = body["messages"]!!.jsonArray.map { it.jsonObject }
