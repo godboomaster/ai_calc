@@ -14,6 +14,10 @@ internal class ApiConfigurationException(message: String) : ApiException(message
 /** Official DeepSeek uses auto tool choice and requires reasoning_content in thinking tool turns. */
 internal fun officialDeepSeekTools(baseUrl: String): Boolean = apiEndpoint(baseUrl).host == "api.deepseek.com"
 
+private val MIMO_THINKING_MODELS = setOf(
+    "mimo-v2.5", "mimo-v2.5-pro", "mimo-v2.6-flash", "mimo-v2.6-pro", "mimo-v2.6-pro-ultraspeed",
+)
+
 internal data class ReasoningCapability(
     val format: ReasoningFormat,
     val offEffort: String = "none",
@@ -30,10 +34,12 @@ internal fun reasoningCapability(settings: ApiSettings): ReasoningCapability {
     val host = apiEndpoint(settings.baseUrl).host
     val model = settings.model.trim().lowercase()
     val glm = host in setOf("api.z.ai", "open.bigmodel.cn") || model.startsWith("glm-")
+    val mimo = model in MIMO_THINKING_MODELS
     val openaiModel = model.startsWith("gpt-5") || model.startsWith("gpt-6") ||
         model.matches(Regex("o[134](?:-.*)?"))
     val format = if (settings.reasoningFormat != ReasoningFormat.AUTO) settings.reasoningFormat else when {
         host == "api.deepseek.com" -> ReasoningFormat.THINKING_TYPE
+        host in setOf("api.xiaomimimo.com", "token-plan-cn.xiaomimimo.com") && mimo -> ReasoningFormat.THINKING_TYPE
         host in setOf("api.moonshot.ai", "api.moonshot.cn", "api.kimi.ai") && model.startsWith("kimi-k2.5") -> ReasoningFormat.THINKING_TYPE
         host in setOf("api.z.ai", "open.bigmodel.cn") && model.matches(Regex("glm-(?:4\\.[567]|5(?:\\.[123])?)(?:-.*)?")) -> ReasoningFormat.THINKING_TYPE
         (host in setOf("dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com", "dashscope-us.aliyuncs.com") || host.endsWith(".maas.aliyuncs.com")) &&
@@ -48,8 +54,8 @@ internal fun reasoningCapability(settings: ApiSettings): ReasoningCapability {
         else -> "none"
     }
     return ReasoningCapability(format, off, canDisable = off == "none",
-        requireReasoning = host == "api.deepseek.com" || model.startsWith("deepseek-"),
-        autoToolsOnly = glm, chatToolsSupported = !model.startsWith("gpt-6"))
+        requireReasoning = host == "api.deepseek.com" || model.startsWith("deepseek-") || mimo,
+        autoToolsOnly = glm || mimo, chatToolsSupported = !model.startsWith("gpt-6"))
 }
 
 /** Shared by solution/follow-up/test requests and document recognition. */
@@ -65,7 +71,7 @@ internal fun configuredApiBody(settings: ApiSettings, body: JsonObject): JsonObj
         ReasoningFormat.REASONING_EFFORT -> fields["reasoning_effort"] = kotlinx.serialization.json.JsonPrimitive(if (settings.thinkingEnabled) "high" else capability.offEffort)
         else -> Unit
     }
-    // GLM documents only auto. Finalization without tools preserves our local round/POST guards.
+    // GLM and MiMo support only auto. Finalization without tools preserves local round/POST guards.
     if (capability.autoToolsOnly && fields["tool_choice"] == kotlinx.serialization.json.JsonPrimitive("none")) {
         fields.remove("tools"); fields.remove("tool_choice")
     }

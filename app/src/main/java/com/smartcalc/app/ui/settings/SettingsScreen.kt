@@ -277,7 +277,7 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
 
 private fun ReasoningFormat.label(): String = when (this) {
     ReasoningFormat.AUTO -> "Авто"
-    ReasoningFormat.THINKING_TYPE -> "DeepSeek / Kimi / GLM (thinking)"
+    ReasoningFormat.THINKING_TYPE -> "DeepSeek / Kimi / GLM / MiMo (thinking)"
     ReasoningFormat.ENABLE_THINKING -> "Qwen (enable_thinking)"
     ReasoningFormat.REASONING_EFFORT -> "OpenAI (reasoning_effort)"
     ReasoningFormat.SERVER_DEFAULT -> "Как задано на сервере"

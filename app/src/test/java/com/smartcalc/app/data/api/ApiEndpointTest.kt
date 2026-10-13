@@ -7,6 +7,42 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ApiEndpointTest {
+    @Test fun officialMiMoHostsDetectDocumentedThinkingModelsAndBothSwitchStates() {
+        val body = buildJsonObject { put("messages", buildJsonArray {}) }
+        for (host in listOf("api.xiaomimimo.com", "token-plan-cn.xiaomimimo.com"))
+            for (model in listOf("mimo-v2.5", "mimo-v2.5-pro", "mimo-v2.6-flash", "mimo-v2.6-pro", "mimo-v2.6-pro-ultraspeed")) {
+                val settings = ApiSettings(baseUrl = "https://$host/v1", model = model)
+                val capability = reasoningCapability(settings)
+                assertEquals(ReasoningFormat.THINKING_TYPE, capability.format)
+                assertTrue(capability.requireReasoning)
+                assertTrue(capability.autoToolsOnly)
+                assertTrue(capability.canDisable)
+                for (enabled in listOf(true, false)) {
+                    val request = configuredApiBody(settings.copy(thinkingEnabled = enabled), body)
+                    assertEquals(if (enabled) "enabled" else "disabled", request["thinking"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+                    assertFalse(request.containsKey("enable_thinking"))
+                    assertFalse(request.containsKey("reasoning_effort"))
+                }
+                assertEquals(body, configuredApiBody(settings.copy(baseUrl = "https://$host.evil.test/v1"), body))
+            }
+        for (model in listOf("mimo-v2.5-tts", "mimo-v2.5-asr", "unknown")) {
+            assertEquals(body, configuredApiBody(ApiSettings(baseUrl = "https://api.xiaomimimo.com/v1", model = model), body))
+        }
+    }
+
+    @Test fun miMoProxyAndServerDefaultKeepItsRequiredToolProtocol() {
+        for (settings in listOf(
+            ApiSettings(baseUrl = "https://proxy.example/v1", model = "mimo-v2.6-pro", reasoningFormat = ReasoningFormat.THINKING_TYPE),
+            ApiSettings(baseUrl = "https://api.xiaomimimo.com/v1", model = "mimo-v2.5", reasoningFormat = ReasoningFormat.SERVER_DEFAULT),
+        )) {
+            assertTrue(reasoningCapability(settings).requireReasoning)
+            assertTrue(reasoningCapability(settings).autoToolsOnly)
+            val final = buildJsonObject { put("tools", buildJsonArray {}); put("tool_choice", "none"); put("messages", buildJsonArray {}) }
+            val configured = configuredApiBody(settings, final)
+            assertFalse(configured.containsKey("tools"))
+            assertFalse(configured.containsKey("tool_choice"))
+        }
+    }
     @Test fun qwenThinkingOnlyVariantsAreNotOfferedAnAutomaticOffSwitch() {
         val body = buildJsonObject { put("messages", buildJsonArray { }) }
         for (model in listOf("qwen3.7-max-preview", "qwen3.7-max-2026-05-17")) {

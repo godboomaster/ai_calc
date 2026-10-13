@@ -47,6 +47,45 @@ private class AgentServer(replies: List<Pair<Int, JsonObject>>) : AutoCloseable 
 }
 
 class LibraryAgentHttpTest {
+    @Test fun miMoThinkingToolExchangeReplaysReasoningAndFinalizesWithinFourPosts() = runBlocking {
+        for (fallback in listOf(false, true)) {
+            val replies = mutableListOf<Pair<Int, JsonObject>>()
+            if (fallback) replies += 422 to buildJsonObject {}
+            replies += 200 to JsonObject(toolTurn() + ("reasoning_content" to JsonPrimitive("private-mimo-search")))
+            replies += 200 to JsonObject(toolTurn("read_example", "read-1", """{"id":"$AGENT_EXAMPLE_ID","version":1}""") + ("reasoning_content" to JsonPrimitive("private-mimo-read")))
+            replies += 200 to finalTurn()
+            AgentServer(replies).use { server ->
+                val settings = server.settings.copy(model = "mimo-v2.6-pro", reasoningFormat = ReasoningFormat.THINKING_TYPE)
+                val result = OpenAiClient().solve(settings, emptyList(), "Найди похожую", libraryTools = agentTools())
+                assertEquals(if (fallback) 4 else 3, server.requests.size)
+                assertEquals(server.requests.size, result.agentReport!!.posts)
+                assertEquals(AGENT_EXAMPLE_ID, result.agentReport!!.examples.single().id)
+                assertTrue(server.requests.all { it["thinking"]!!.jsonObject["type"]!!.jsonPrimitive.content == "enabled" })
+                assertTrue(server.requests.dropLast(1).all { it["tool_choice"]!!.jsonPrimitive.content == "auto" })
+                val last = server.requests.last()
+                assertFalse(last.containsKey("tools")); assertFalse(last.containsKey("tool_choice"))
+                assertEquals(listOf("private-mimo-search", "private-mimo-read"), last["messages"]!!.jsonArray.map { it.jsonObject }
+                    .filter { it["role"]!!.jsonPrimitive.content == "assistant" }.map { it["reasoning_content"]!!.jsonPrimitive.content })
+                assertFalse(result.toString().contains("private-mimo"))
+            }
+        }
+    }
+
+    @Test fun miMoMissingReasoningStopsBeforeContinuingAndOffModeAcceptsNoReasoning() = runBlocking {
+        AgentServer(listOf(200 to toolTurn(), 200 to finalTurn())).use { server ->
+            val settings = server.settings.copy(model = "mimo-v2.5", reasoningFormat = ReasoningFormat.THINKING_TYPE)
+            try { OpenAiClient().solve(settings, emptyList(), "Найди похожую", libraryTools = agentTools()); fail("Missing reasoning must stop") }
+            catch (e: LibraryAgentException) { assertTrue(e.message!!.contains("reasoning_content")) }
+            assertEquals(1, server.requests.size)
+        }
+        AgentServer(listOf(200 to toolTurn(), 200 to finalTurn())).use { server ->
+            val settings = server.settings.copy(model = "mimo-v2.5", reasoningFormat = ReasoningFormat.THINKING_TYPE, thinkingEnabled = false)
+            val result = OpenAiClient().solve(settings, emptyList(), "Найди похожую", libraryTools = agentTools())
+            assertEquals(2, result.agentReport!!.posts)
+            assertEquals("auto", server.requests.first()["tool_choice"]!!.jsonPrimitive.content)
+            assertTrue(server.requests.all { it["thinking"]!!.jsonObject["type"]!!.jsonPrimitive.content == "disabled" })
+        }
+    }
     @Test fun explicitFormatsReachActualOrdinaryAndFollowUpPostsInBothStates() = runBlocking {
         for (format in listOf(ReasoningFormat.THINKING_TYPE, ReasoningFormat.ENABLE_THINKING, ReasoningFormat.REASONING_EFFORT))
             for (enabled in listOf(true, false)) AgentServer(listOf(200 to finalTurn(), 200 to finalTurn())).use { server ->
