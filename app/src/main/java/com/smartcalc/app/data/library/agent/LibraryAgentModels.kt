@@ -5,6 +5,7 @@ import com.smartcalc.app.data.library.source.SourceCatalog
 import com.smartcalc.app.data.library.source.SegmentKind
 import com.smartcalc.app.data.template.TaskTemplate
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.*
 
 data class LibraryCatalog(val sections: List<TaskTemplate>, val sources: SourceCatalog = SourceCatalog(), val error: String? = null)
 
@@ -37,9 +38,16 @@ data class LibraryExampleSnapshot(
 fun LibraryAgentReport.redact(secret: String): LibraryAgentReport {
     if (secret.isBlank()) return this
     fun clean(value: String) = value.replace(secret, "[скрыто]")
-    return copy(examples = examples.map { ex -> ex.copy(section = clean(ex.section),
+    return copy(events = events.map { it.copy(name = clean(it.name), status = clean(it.status)) },
+        examples = examples.map { ex -> ex.copy(id = clean(ex.id), section = clean(ex.section),
         condition = clean(ex.condition), solution = clean(ex.solution), answer = clean(ex.answer),
-        origin = clean(ex.origin), sources = ex.sources.map { it.copy(name = clean(it.name)) }) })
+        origin = clean(ex.origin), sources = ex.sources.map { it.copy(sourceId = clean(it.sourceId), name = clean(it.name)) }) })
+}
+
+internal fun JsonElement.redactSecret(secret: String): JsonElement = if (secret.isBlank()) this else when (this) {
+    is JsonObject -> JsonObject(mapValues { it.value.redactSecret(secret) })
+    is JsonArray -> JsonArray(map { it.redactSecret(secret) })
+    is JsonPrimitive -> if (isString) JsonPrimitive(content.replace(secret, "[скрыто]")) else this
 }
 
 internal fun String.unicodeSize(): Int = codePointCount(0, length)

@@ -5,6 +5,10 @@ import com.smartcalc.app.data.DocumentException
 import com.smartcalc.app.data.history.SolutionStep
 import com.smartcalc.app.data.plot.Plot
 import com.smartcalc.app.data.settings.ApiSettings
+import com.smartcalc.app.data.library.agent.LibraryTools
+import com.smartcalc.app.data.library.agent.LibraryAgentReport
+import com.smartcalc.app.data.library.agent.redact
+import com.smartcalc.app.data.library.agent.redactSecret
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -103,6 +107,7 @@ data class SolutionPayload(
     val problem: String,
     val answer: String,
     val steps: List<StepPayload>,
+    val agentReport: LibraryAgentReport? = null,
 )
 
 class OpenAiClient {
@@ -145,6 +150,8 @@ class OpenAiClient {
         formatText: String? = null,
         formatSampleBase64: String? = null,
         template: TemplatePrompt? = null,
+        libraryTools: LibraryTools? = null,
+        agentProgress: suspend (LibraryAgentReport) -> Unit = {},
     ): SolutionPayload =
         withContext(Dispatchers.IO) {
             val userContent = taskContent(images, text, formatText, formatSampleBase64, template)
@@ -152,7 +159,7 @@ class OpenAiClient {
                 add(systemMessage(settings))
                 add(message("user", userContent))
             }
-            complete(settings, messages)
+            complete(settings, messages, libraryTools, LibraryTools.explicitSearch(text.orEmpty()), agentProgress)
         }
 
     /**
@@ -165,9 +172,11 @@ class OpenAiClient {
         base: Solution,
         question: String,
         template: TemplatePrompt? = null,
+        libraryTools: LibraryTools? = null,
+        agentProgress: suspend (LibraryAgentReport) -> Unit = {},
     ): SolutionPayload =
         withContext(Dispatchers.IO) {
-            complete(settings, followUpMessages(settings, base, question, template))
+            complete(settings, followUpMessages(settings, base, question, template), libraryTools, LibraryTools.explicitSearch(question), agentProgress)
         }
 
     /** [template] — шаблон, по которому нужно ответить на дополнение: уходит прямо перед вопросом. */
@@ -268,7 +277,21 @@ class OpenAiClient {
         put("content", content)
     }
 
-    private suspend fun complete(settings: ApiSettings, messages: JsonArray): SolutionPayload {
+    private suspend fun complete(settings: ApiSettings, messages: JsonArray, libraryTools: LibraryTools? = null,
+        forceSearch: Boolean = false, progress: suspend (LibraryAgentReport) -> Unit = {}): SolutionPayload {
+        if (libraryTools != null) {
+            if (settings.apiKey.isBlank()) throw ApiConfigurationException("API-ключ не задан. Откройте настройки и введите ключ.")
+            val result = LibraryAgentLoop(settings.model, libraryTools,
+                { progress(it.redact(settings.apiKey)) },
+                { it.redactSecret(settings.apiKey).jsonObject }) { executeMessage(settings, it) }.run(messages, forceSearch)
+            val parsed = parseSolution(result.content)
+            fun clean(value: String) = value.replace(settings.apiKey, "[скрыто]")
+            return parsed.copy(problem = clean(parsed.problem), answer = clean(parsed.answer),
+                steps = parsed.steps.map { step -> step.copy(title = clean(step.title), content = clean(step.content),
+                    svg = step.svg?.let(::clean), plot = step.plot?.let {
+                        plotJson.decodeFromJsonElement(Plot.serializer(), json.encodeToJsonElement(Plot.serializer(), it).redactSecret(settings.apiKey))
+                    }) }, agentReport = result.report.redact(settings.apiKey))
+        }
         fun body(jsonMode: Boolean) = buildJsonObject {
             put("model", settings.model)
             put("messages", messages)
@@ -396,7 +419,10 @@ class OpenAiClient {
         "Соединение успешно: модель отвечает"
     }
 
-    private suspend fun execute(settings: ApiSettings, body: JsonObject): String {
+    private suspend fun execute(settings: ApiSettings, body: JsonObject): String =
+        (executeMessage(settings, body)["content"] as? JsonPrimitive)?.contentOrNull ?: throw ApiException("Модель вернула пустой ответ")
+
+    private suspend fun executeMessage(settings: ApiSettings, body: JsonObject): JsonObject {
         if (settings.apiKey.isBlank()) {
             throw ApiConfigurationException("API-ключ не задан. Откройте настройки и введите ключ.")
         }
@@ -422,9 +448,8 @@ class OpenAiClient {
         } catch (e: Exception) {
             throw ApiException("Сервер вернул некорректный ответ")
         }
-        return root["choices"]?.jsonArray?.firstOrNull()?.jsonObject
-            ?.get("message")?.jsonObject?.get("content")?.jsonPrimitive?.contentOrNull
-            ?: throw ApiException("Модель вернула пустой ответ")
+        val choice = (root["choices"] as? JsonArray)?.firstOrNull() as? JsonObject
+        return choice?.get("message") as? JsonObject ?: throw ApiException("Модель вернула пустой ответ")
     }
 
     internal fun parseSolution(raw: String): SolutionPayload {
