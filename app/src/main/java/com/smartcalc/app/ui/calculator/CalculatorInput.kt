@@ -25,3 +25,22 @@ internal fun inputSubmission(text: String, editing: Boolean, followUp: Boolean):
 
 private const val ARITHMETIC = "0123456789.,+-−×÷*/()%Ee∞"
 internal fun isArithmetic(text: String) = text.all { it in ARITHMETIC || it.isWhitespace() }
+
+/** Код, скрывающий кнопку ✦: только цифры, чтобы его можно было набрать на клавишах калькулятора. */
+internal val ASSISTANT_CODE_LENGTH = 2..12
+
+internal fun isValidAssistantCode(code: String) =
+    code.length in ASSISTANT_CODE_LENGTH && code.all { it in '0'..'9' }
+
+/** Кнопка ✦ видна, если кода нет или его набрали. Пока настройка не прочитана ([code] = null), её нет. */
+internal fun assistantButtonVisible(code: String?, revealed: Boolean) = code != null && (code.isEmpty() || revealed)
+
+/** Помощник спрятан кодом: недоступны и кнопка, и строка ввода задачи, и возврат к ответу. */
+internal fun assistantConcealed(code: String?, revealed: Boolean) = !code.isNullOrEmpty() && !revealed
+
+/**
+ * «=» после набранного на клавишах кода показывает или снова прячет ✦. Повторное «=» по результату
+ * ([evaluated]) ничего не переключает: иначе «42 = =» открыло бы и тут же закрыло кнопку.
+ */
+internal fun togglesAssistant(expression: String, evaluated: Boolean, code: String?) =
+    !code.isNullOrEmpty() && !evaluated && expression == code

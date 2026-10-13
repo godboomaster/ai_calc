@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -33,10 +34,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.smartcalc.app.SolutionViewModel
 import com.smartcalc.app.data.settings.ApiSettings
+import com.smartcalc.app.ui.calculator.ASSISTANT_CODE_LENGTH
+import com.smartcalc.app.ui.calculator.isValidAssistantCode
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,7 +48,11 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
     val settings by vm.settings.collectAsState()
     val swipeToRestore by vm.swipeToRestore.collectAsState()
+    val assistantLock by vm.assistantLock.collectAsState()
+    val assistantCode = assistantLock?.code
     val scope = rememberCoroutineScope()
+    var codeInput by remember { mutableStateOf("") }
+    var codeStatus by remember { mutableStateOf<String?>(null) }
 
     var loaded by remember { mutableStateOf(false) }
     var baseUrl by remember { mutableStateOf("") }
@@ -118,6 +126,56 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
                     )
                 }
                 Switch(checked = swipeToRestore, onCheckedChange = null)
+            }
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Код кнопки ✦", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    if (assistantCode.isNullOrEmpty()) {
+                        "Без кода ✦ видна всегда. С кодом её можно спрятать: наберите код на калькуляторе " +
+                            "и нажмите «=». Тот же код и «=» показывают её снова."
+                    } else {
+                        "Код задан: код и «=» на калькуляторе показывают или прячут ✦. " +
+                            "После перезапуска приложения кнопка остаётся такой, какой была."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = codeInput,
+                    onValueChange = { codeInput = it.filter(Char::isDigit).take(ASSISTANT_CODE_LENGTH.last) },
+                    label = { Text(if (assistantCode.isNullOrEmpty()) "Код из цифр" else "Новый код") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    supportingText = { Text("От ${ASSISTANT_CODE_LENGTH.first} до ${ASSISTANT_CODE_LENGTH.last} цифр") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(
+                        enabled = isValidAssistantCode(codeInput),
+                        onClick = {
+                            scope.launch {
+                                vm.setAssistantCode(codeInput)
+                                codeInput = ""
+                                codeStatus = "Код сохранён. Чтобы спрятать ✦, наберите его на калькуляторе и нажмите «=»"
+                            }
+                        },
+                    ) { Text("Сохранить код") }
+                    if (!assistantCode.isNullOrEmpty()) {
+                        OutlinedButton(
+                            onClick = {
+                                scope.launch {
+                                    vm.setAssistantCode("")
+                                    codeInput = ""
+                                    codeStatus = "Код убран: ✦ видна всегда"
+                                }
+                            },
+                        ) { Text("Убрать код") }
+                    }
+                }
+                codeStatus?.let {
+                    Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
+                }
             }
             Text(
                 "OpenAI-совместимый API",

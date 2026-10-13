@@ -20,6 +20,7 @@ import com.smartcalc.app.data.search.TaskSearch
 import com.smartcalc.app.data.format.SolutionFormat
 import com.smartcalc.app.data.history.Solution
 import com.smartcalc.app.data.settings.ApiSettings
+import com.smartcalc.app.data.settings.AssistantLock
 import com.smartcalc.app.data.session.CalculatorSession
 import com.smartcalc.app.data.session.ListPosition
 import com.smartcalc.app.data.session.ReadingSession
@@ -145,6 +146,18 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
     }
     val settings = settingsRepo.settings.stateIn(viewModelScope, SharingStarted.Eagerly, ApiSettings())
     val swipeToRestore = settingsRepo.swipeToRestore.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** Код кнопки ✦ и её состояние; null — настройки ещё не прочитаны. Состояние переживает перезапуск. */
+    val assistantLock: StateFlow<AssistantLock?> =
+        settingsRepo.assistantLock.stateIn<AssistantLock?>(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** На калькуляторе набрали код и «=»: ✦ появляется или прячется (ответ с дисплея убирает калькулятор). */
+    fun toggleAssistant() {
+        viewModelScope.launch { settingsRepo.toggleAssistantRevealed() }
+    }
+
+    /** Новый код не прячет кнопку сразу — её скрывает первый набор кода на калькуляторе. */
+    suspend fun setAssistantCode(code: String) = settingsRepo.setAssistantCode(code)
 
     private val _current = MutableStateFlow(history.value.firstOrNull { it.id == restoredSession.reading.solutionId })
     val current: StateFlow<Solution?> = _current

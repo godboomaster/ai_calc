@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -172,6 +173,10 @@ fun CalculatorScreen(
 
     val display by vm.display.collectAsState()
     val swipeToRestore by vm.swipeToRestore.collectAsState()
+    val assistantLock by vm.assistantLock.collectAsState()
+    val assistantCode = assistantLock?.code
+    val assistantRevealed = assistantLock?.revealed == true
+    val concealed = assistantConcealed(assistantCode, assistantRevealed)
     val onDisplay = display.visible
     val solving by vm.solving.collectAsState()
     val error by vm.error.collectAsState()
@@ -184,7 +189,7 @@ fun CalculatorScreen(
     val templates by vm.templates.collectAsState()
     val steps = solution?.latestSteps.orEmpty()
     val answerVisible = onDisplay && !solving && error == null && solution != null
-    val canSwipeToRestore = swipeToRestore && !onDisplay && !editing && !aiKeys &&
+    val canSwipeToRestore = swipeToRestore && !concealed && !onDisplay && !editing && !aiKeys &&
         (solving || solution != null || error != null)
     val answerScroll = key(solution?.id, solution?.followUps?.size) {
         val initialScroll = remember { vm.session.value.reading.answerScroll }
@@ -286,6 +291,8 @@ fun CalculatorScreen(
      * ответ ИИ, задать к нему дополнительный вопрос. Новая задача вместо дополнения — после «C».
      */
     fun tapDisplay() {
+        // Спрятанный помощник не выдаёт себя строкой ввода: дисплей ведёт себя как у обычного калькулятора.
+        if (concealed) return
         when {
             !onDisplay -> startEditing(taskDraft.ifEmpty { if (evaluated && !isArithmetic(expr)) "" else expr })
             solving -> Unit
@@ -314,6 +321,8 @@ fun CalculatorScreen(
     fun equals() {
         val text = (if (editing) field.text.toString() else expr).trim()
         if (!editing) leaveAi()
+        // Код считается как обычное число: со стороны это просто «42 = 42».
+        if (!editing && togglesAssistant(text, evaluated, assistantCode)) vm.toggleAssistant()
         val submission = inputSubmission(text, editing, followUp)
         if (submission == InputSubmission.NONE) return
         if (submission == InputSubmission.FOLLOW_UP) {
@@ -381,6 +390,14 @@ fun CalculatorScreen(
     }
     BackHandler(enabled = editing) { stopEditing() }
     BackHandler(enabled = aiKeys && !editing) { aiKeys = false }
+    // Код набран повторно или приложение запущено со спрятанной ✦ — помощник прячется целиком.
+    LaunchedEffect(concealed) {
+        if (concealed) {
+            stopEditing()
+            aiKeys = false
+            vm.hideFromDisplay()
+        }
+    }
 
     BoxWithConstraints(
         modifier = Modifier
@@ -424,8 +441,11 @@ fun CalculatorScreen(
                     .weight(1f),
                 horizontalAlignment = Alignment.End,
             ) {
-                // Помощник скрыт: на экране только калькулятор и неприметный значок в углу.
-                Box(
+                // Помощник скрыт: на экране только калькулятор и неприметный значок в углу. С кодом пропадает
+                // и значок, а его место остаётся пустым, чтобы дисплей не сдвигался.
+                if (!assistantButtonVisible(assistantCode, assistantRevealed)) {
+                    Spacer(Modifier.size(48.dp))
+                } else Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier.size(48.dp).clip(CircleShape).combinedClickable(
                         role = Role.Button,

@@ -30,6 +30,9 @@ data class ApiSettings(
     }
 }
 
+/** Код кнопки ✦ (пустой — кнопка видна всегда) и открыта ли она этим кодом сейчас. */
+data class AssistantLock(val code: String = "", val revealed: Boolean = false)
+
 class SettingsRepository(private val context: Context) {
 
     private object Keys {
@@ -39,6 +42,8 @@ class SettingsRepository(private val context: Context) {
         val SYSTEM_PROMPT = stringPreferencesKey("system_prompt")
         val SUPPORTS_IMAGES = booleanPreferencesKey("supports_images")
         val SWIPE_TO_RESTORE = booleanPreferencesKey("swipe_to_restore")
+        val ASSISTANT_CODE = stringPreferencesKey("assistant_code")
+        val ASSISTANT_REVEALED = booleanPreferencesKey("assistant_revealed")
     }
 
     val swipeToRestore: Flow<Boolean> = context.dataStore.data.map { p ->
@@ -47,6 +52,29 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setSwipeToRestore(enabled: Boolean) {
         context.dataStore.edit { p -> p[Keys.SWIPE_TO_RESTORE] = enabled }
+    }
+
+    /** Код и состояние кнопки ✦ читаются вместе: при запуске кнопка не мелькает между ними. */
+    val assistantLock: Flow<AssistantLock> = context.dataStore.data.map { p ->
+        AssistantLock(code = p[Keys.ASSISTANT_CODE] ?: "", revealed = p[Keys.ASSISTANT_REVEALED] ?: false)
+    }
+
+    /** Новый код сразу кнопку не прячет; без кода состояние не хранится. */
+    suspend fun setAssistantCode(code: String) {
+        context.dataStore.edit { p ->
+            if (code.isEmpty()) {
+                p.remove(Keys.ASSISTANT_CODE)
+                p.remove(Keys.ASSISTANT_REVEALED)
+            } else {
+                p[Keys.ASSISTANT_CODE] = code
+                p[Keys.ASSISTANT_REVEALED] = true
+            }
+        }
+    }
+
+    /** Код набран на калькуляторе: кнопка ✦ показывается или прячется до следующего набора, и после перезапуска. */
+    suspend fun toggleAssistantRevealed() {
+        context.dataStore.edit { p -> p[Keys.ASSISTANT_REVEALED] = !(p[Keys.ASSISTANT_REVEALED] ?: false) }
     }
 
     val settings: Flow<ApiSettings> = context.dataStore.data.map { p ->
