@@ -2,6 +2,7 @@ package com.smartcalc.app.data.request
 
 import com.smartcalc.app.data.api.TemplatePrompt
 import com.smartcalc.app.data.history.Solution
+import com.smartcalc.app.data.library.agent.LibraryAgentReport
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.charset.StandardCharsets
@@ -40,6 +41,7 @@ class RequestFiles(
     private val mutex = Mutex()
     private val inputFile = File(directory, INPUT_FILE_NAME)
     private val resultFile = File(directory, RESULT_FILE_NAME)
+    private val agentFile = File(directory, "request-agent.json")
 
     suspend fun saveInput(
         id: String,
@@ -67,11 +69,20 @@ class RequestFiles(
         read<ResultEnvelope>(resultFile)?.takeIf { it.requestId == id }?.solution
     }
 
+    suspend fun saveAgentReport(id: String, report: LibraryAgentReport) = mutex.withLock {
+        write(agentFile) { json.encodeToString(AgentEnvelope(id, report)) }
+    }
+
+    suspend fun readAgentReport(id: String): LibraryAgentReport? = mutex.withLock {
+        read<AgentEnvelope>(agentFile)?.takeIf { it.requestId == id }?.report
+    }
+
     suspend fun clear() {
         mutex.withLock {
             withContext(NonCancellable + Dispatchers.IO) {
                 Files.deleteIfExists(inputFile.toPath())
                 Files.deleteIfExists(resultFile.toPath())
+                Files.deleteIfExists(agentFile.toPath())
             }
         }
     }
@@ -128,6 +139,8 @@ class RequestFiles(
         val requestId: String,
         val solution: Solution,
     )
+
+    @Serializable private data class AgentEnvelope(val requestId: String, val report: LibraryAgentReport)
 
     private companion object {
         const val INPUT_FILE_NAME = "prepared-request.json"

@@ -52,6 +52,7 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
     var model by remember { mutableStateOf("") }
     var systemPrompt by remember { mutableStateOf("") }
     var supportsImages by remember { mutableStateOf(false) }
+    var libraryToolsEnabled by remember { mutableStateOf(false) }
 
     LaunchedEffect(settings) {
         if (!loaded) {
@@ -60,6 +61,7 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
             model = settings.model
             systemPrompt = settings.systemPrompt
             supportsImages = settings.supportsImages
+            libraryToolsEnabled = settings.libraryToolsEnabled
             loaded = true
         }
     }
@@ -74,6 +76,7 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
         model = model.trim().ifBlank { ApiSettings.DEFAULT_MODEL },
         systemPrompt = systemPrompt.trim().ifBlank { ApiSettings.DEFAULT_SYSTEM_PROMPT },
         supportsImages = supportsImages,
+        libraryToolsEnabled = libraryToolsEnabled,
     )
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -162,6 +165,15 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
                 Text("Модель поддерживает изображения", modifier = Modifier.weight(1f))
                 Switch(checked = supportsImages, onCheckedChange = null)
             }
+
+            Row(modifier = Modifier.fillMaxWidth().toggleable(value = libraryToolsEnabled, role = Role.Switch,
+                onValueChange = { libraryToolsEnabled = it }).padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Разрешить агенту поиск в библиотеке", modifier = Modifier.weight(1f))
+                Switch(checked = libraryToolsEnabled, onCheckedChange = null)
+            }
+            Text("Агент сам выбирает поиск и чтение. Прочитанные тексты передаются выбранному API. До 4 запросов на ответ; фотографии примеров не передаются.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),

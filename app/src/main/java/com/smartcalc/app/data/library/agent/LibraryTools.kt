@@ -89,7 +89,7 @@ class LibraryTools(private val catalog: suspend () -> LibraryCatalog) {
 
     companion object {
         fun status(value: String) = buildJsonObject { put("status", value) }
-        fun explicitSearch(text: String): Boolean = Regex("(?i)(найд[иь]|найти|поищи|ищи|find|search)").containsMatchIn(text) &&
-            Regex("(?i)(похож|пример|образец|similar|example)").containsMatchIn(text)
+        fun explicitSearch(text: String): Boolean = Regex("(?iu)(найд[иь]|найти|поищи|ищи|find|search)").containsMatchIn(text) &&
+            Regex("(?iu)(похож|пример|образец|similar|example)").containsMatchIn(text)
     }
 }
