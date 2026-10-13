@@ -1,13 +1,25 @@
 package com.smartcalc.app.data.api
 
+import com.smartcalc.app.data.settings.ApiSettings
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /** Messages originate locally and can be shown without exposing a server response or credentials. */
 internal class ApiConfigurationException(message: String) : ApiException(message)
 
-/** Named tool_choice is rejected by DeepSeek's default-enabled thinking mode. */
+/** Official DeepSeek uses auto tool choice and requires reasoning_content in thinking tool turns. */
 internal fun officialDeepSeekTools(baseUrl: String): Boolean = apiEndpoint(baseUrl).host == "api.deepseek.com"
+
+/** Applies the saved mode to every DeepSeek request without adding vendor fields elsewhere. */
+internal fun configuredApiBody(settings: ApiSettings, body: JsonObject): JsonObject =
+    if (officialDeepSeekTools(settings.baseUrl)) {
+        JsonObject(body + ("thinking" to buildJsonObject {
+            put("type", if (settings.thinkingEnabled) "enabled" else "disabled")
+        }))
+    } else body
 
 internal fun apiEndpoint(baseUrl: String): HttpUrl {
     val url = (baseUrl.trim().trimEnd('/') + "/chat/completions").toHttpUrlOrNull()

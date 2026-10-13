@@ -15,11 +15,13 @@ class LibraryAgentLoop(
     private val tools: LibraryTools,
     private val progress: suspend (LibraryAgentReport) -> Unit = {},
     private val protect: (JsonObject) -> JsonObject = { it },
-    private val nonThinkingMode: Boolean = false,
+    private val deepSeekThinkingMode: Boolean = false,
     private val send: suspend (JsonObject) -> JsonObject,
 ) {
     suspend fun run(initial: JsonArray, forceSearch: Boolean = false): AgentCompletion {
-        val messages = initial.toMutableList()
+        // Completed answers have no retained reasoning. Treat them as quoted user context,
+        // not as live assistant turns with fabricated or missing reasoning_content.
+        val messages = (if (deepSeekThinkingMode) completedAnswersAsContext(initial) else initial.toList()).toMutableList()
         val systemEnd = messages.indexOfLast { (it as? JsonObject)?.get("role")?.jsonPrimitive?.contentOrNull == "system" } + 1
         messages.add(systemEnd, buildJsonObject { put("role", "system"); put("content", POLICY) })
         var posts = 0
@@ -36,11 +38,12 @@ class LibraryAgentLoop(
                 throw LibraryAgentException("Контекст слишком большой. Сократите задачу, образец или историю дополнений.")
             val final = rounds >= 2 || posts == 3
             val body = buildJsonObject {
-                put("model", model); put("messages", JsonArray(messages)); put("tools", DEFINITIONS)
-                if (nonThinkingMode) put("thinking", buildJsonObject { put("type", "disabled") })
+                put("model", model); put("messages", JsonArray(messages))
+                put("tools", if (deepSeekThinkingMode && forceSearch && rounds == 0) JsonArray(DEFINITIONS.take(1)) else DEFINITIONS)
+                if (deepSeekThinkingMode) put("thinking", buildJsonObject { put("type", "enabled") })
                 put("tool_choice", when {
                     final -> JsonPrimitive("none")
-                    forceSearch && rounds == 0 -> buildJsonObject { put("type", "function"); put("function", buildJsonObject { put("name", "search_examples") }) }
+                    forceSearch && rounds == 0 && !deepSeekThinkingMode -> buildJsonObject { put("type", "function"); put("function", buildJsonObject { put("name", "search_examples") }) }
                     else -> JsonPrimitive("auto")
                 })
                 if (jsonMode) put("response_format", buildJsonObject { put("type", "json_object") })
@@ -63,7 +66,7 @@ class LibraryAgentLoop(
             currentCoroutineContext().ensureActive()
             val calls = parseCalls(turn)
             if (calls.isEmpty()) {
-                if (forceSearch && rounds == 0) throw LibraryAgentException("Модель не вызвала инструмент поиска. Проверьте поддержку инструментов выбранным API.")
+                if (forceSearch && rounds == 0) throw LibraryAgentException("Агент ответил без обязательного поиска примеров. Автоматического повтора нет.")
                 val content = (turn["content"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() }
                     ?: throw LibraryAgentException("Модель вернула пустой ответ агента.")
                 progress(report())
@@ -76,6 +79,13 @@ class LibraryAgentLoop(
             callIds.addAll(calls.map { it.id })
             messages += buildJsonObject {
                 put("role", "assistant"); put("content", turn["content"] ?: JsonNull); put("tool_calls", turn.getValue("tool_calls"))
+                if (deepSeekThinkingMode) {
+                    val reasoning = turn["reasoning_content"]
+                        ?: throw LibraryAgentException("Модель не вернула reasoning_content для продолжения thinking с инструментами.")
+                    if (reasoning != JsonNull && (reasoning !is JsonPrimitive || !reasoning.isString))
+                        throw LibraryAgentException("Некорректное reasoning_content в ответе модели.")
+                    put("reasoning_content", reasoning)
+                }
             }
             for (call in calls) {
                 currentCoroutineContext().ensureActive()
@@ -120,7 +130,24 @@ class LibraryAgentLoop(
 
     private fun messageSize(message: JsonElement): Int {
         val obj = message as? JsonObject ?: return 0
-        return contentSize(obj["content"]) + ((obj["tool_calls"] as? JsonArray)?.sumOf { it.toString().unicodeSize() } ?: 0)
+        return contentSize(obj["content"]) + contentSize(obj["reasoning_content"]) +
+            ((obj["tool_calls"] as? JsonArray)?.sumOf { it.toString().unicodeSize() } ?: 0)
+    }
+
+    private fun completedAnswersAsContext(initial: JsonArray): List<JsonElement> = initial.map { element ->
+        val obj = element as? JsonObject ?: return@map element
+        if (obj["role"]?.jsonPrimitive?.contentOrNull != "assistant") return@map element
+        buildJsonObject {
+            put("role", "user")
+            put("content", buildJsonArray {
+                add(buildJsonObject { put("type", "text"); put("text", "Сохранённый ответ из предыдущей переписки (справочный контекст):") })
+                when (val content = obj["content"]) {
+                    is JsonArray -> content.forEach { add(it) }
+                    is JsonPrimitive -> if (content.isString) add(buildJsonObject { put("type", "text"); put("text", content.content) })
+                    else -> Unit
+                }
+            })
+        }
     }
 
     companion object {

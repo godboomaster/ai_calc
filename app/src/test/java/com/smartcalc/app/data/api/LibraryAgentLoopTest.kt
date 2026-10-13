@@ -20,22 +20,25 @@ internal fun toolTurn(name: String = "search_examples", id: String = "search-1",
     }) }
 }
 internal fun finalTurn() = buildJsonObject { put("role", "assistant"); put("content", """{"problem":"Новая задача","answer":"4 A","steps":[]}""") }
+private fun reasoningTurn(turn: JsonObject, text: String) = JsonObject(turn + ("reasoning_content" to JsonPrimitive(text)))
 private val initialMessages = buildJsonArray { add(buildJsonObject { put("role", "user"); put("content", "Новая задача с другими числами") }) }
 
 class LibraryAgentLoopTest {
-    @Test fun deepSeekNamedSearchDisablesThinkingThroughoutToolConversation() = runBlocking {
+    @Test fun deepSeekUsesThinkingAndAutoWhileExplicitSearchRemainsMandatory() = runBlocking {
         val requests = mutableListOf<JsonObject>()
-        val replies = ArrayDeque(listOf(toolTurn(), toolTurn("read_example", "read-1", """{"id":"$AGENT_EXAMPLE_ID","version":1}"""), finalTurn()))
-        val result = LibraryAgentLoop("deepseek-flash", agentTools(), nonThinkingMode = true) { body ->
+        val replies = ArrayDeque(listOf(reasoningTurn(toolTurn(), "reason-a"),
+            reasoningTurn(toolTurn("read_example", "read-1", """{"id":"$AGENT_EXAMPLE_ID","version":1}"""), "reason-b"), finalTurn()))
+        val result = LibraryAgentLoop("deepseek-flash", agentTools(), deepSeekThinkingMode = true) { body ->
             requests += body
-            // Official DeepSeek rejects named tool_choice with default-enabled thinking.
-            if (body["thinking"]?.jsonObject?.get("type")?.jsonPrimitive?.content != "disabled")
-                throw ApiException("named tool_choice is not supported in thinking mode", 400)
+            assertEquals("enabled", body["thinking"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+            if (requests.size == 1) {
+                assertEquals("auto", body["tool_choice"]!!.jsonPrimitive.content)
+                assertEquals(listOf("search_examples"), body["tools"]!!.jsonArray.map { it.jsonObject["function"]!!.jsonObject["name"]!!.jsonPrimitive.content })
+            }
             replies.removeFirst()
         }.run(initialMessages, forceSearch = true)
         assertEquals(3, result.report.posts)
-        assertEquals("search_examples", requests.first()["tool_choice"]!!.jsonObject["function"]!!.jsonObject["name"]!!.jsonPrimitive.content)
-        assertTrue(requests.all { it["thinking"]!!.jsonObject["type"]!!.jsonPrimitive.content == "disabled" })
+        assertTrue(requests.all { it["thinking"]!!.jsonObject["type"]!!.jsonPrimitive.content == "enabled" })
         assertEquals("none", requests.last()["tool_choice"]!!.jsonPrimitive.content)
         assertEquals(AGENT_EXAMPLE_ID, result.report.examples.single().id)
     }
@@ -56,10 +59,11 @@ class LibraryAgentLoopTest {
 
     @Test fun deepSeekJsonFallbackPreservesModeAndFourPostBudget() = runBlocking {
         var posts = 0
-        val replies = ArrayDeque(listOf(toolTurn(), toolTurn("read_example", "read-1", """{"id":"$AGENT_EXAMPLE_ID","version":1}"""), finalTurn()))
-        val result = LibraryAgentLoop("deepseek-flash", agentTools(), nonThinkingMode = true) { body ->
+        val replies = ArrayDeque(listOf(reasoningTurn(toolTurn(), "reason-a"),
+            reasoningTurn(toolTurn("read_example", "read-1", """{"id":"$AGENT_EXAMPLE_ID","version":1}"""), "reason-b"), finalTurn()))
+        val result = LibraryAgentLoop("deepseek-flash", agentTools(), deepSeekThinkingMode = true) { body ->
             posts++
-            assertEquals("disabled", body["thinking"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+            assertEquals("enabled", body["thinking"]!!.jsonObject["type"]!!.jsonPrimitive.content)
             if (posts == 1) throw ApiException("unsupported response_format", 422)
             assertFalse(body.containsKey("response_format"))
             if (posts == 4) assertEquals("none", body["tool_choice"]!!.jsonPrimitive.content)
@@ -68,6 +72,82 @@ class LibraryAgentLoopTest {
         assertEquals(4, posts)
         assertEquals(4, result.report.posts)
         assertEquals(AGENT_EXAMPLE_ID, result.report.examples.single().id)
+    }
+
+    @Test fun reasoningReturnsVerbatimToProviderButNeverEntersResultOrProgress() = runBlocking {
+        val reasonA = "private-fixture-reasoning-A\n😀"
+        val reasonB = "private-fixture-reasoning-B"
+        var posts = 0
+        val progress = mutableListOf<LibraryAgentReport>()
+        val result = LibraryAgentLoop("deepseek-flash", agentTools(), { progress += it }, deepSeekThinkingMode = true) { body ->
+            posts++
+            val assistant = body["messages"]!!.jsonArray.map { it.jsonObject }.filter { it["role"]!!.jsonPrimitive.content == "assistant" }
+            when (posts) {
+                1 -> reasoningTurn(toolTurn(), reasonA)
+                2 -> { assertEquals(reasonA, assistant.single()["reasoning_content"]?.jsonPrimitive?.content)
+                    reasoningTurn(toolTurn("read_example", "read-1", """{"id":"$AGENT_EXAMPLE_ID","version":1}"""), reasonB) }
+                else -> { assertEquals(listOf(reasonA, reasonB), assistant.map { it["reasoning_content"]?.jsonPrimitive?.content }); finalTurn() }
+            }
+        }.run(initialMessages, forceSearch = true)
+        assertEquals(3, posts)
+        assertFalse(result.toString().contains("private-fixture-reasoning"))
+        assertFalse(Json.encodeToString(LibraryAgentReport.serializer(), progress.last()).contains("private-fixture-reasoning"))
+    }
+
+    @Test fun malformedOrMissingReasoningStopsBeforeAnotherPost() = runBlocking {
+        for (reason in listOf(null, JsonPrimitive(42), buildJsonArray { add("wrong") })) {
+            var posts = 0
+            val reply = if (reason == null) toolTurn() else JsonObject(toolTurn() + ("reasoning_content" to reason))
+            try {
+                LibraryAgentLoop("deepseek-flash", agentTools(), deepSeekThinkingMode = true) { posts++; if (posts == 1) reply else finalTurn() }.run(initialMessages)
+                fail("Invalid reasoning must stop the loop")
+            } catch (e: LibraryAgentException) { assertTrue(e.message!!.contains("reasoning_content")) }
+            assertEquals(1, posts)
+        }
+    }
+
+    @Test fun oversizedReasoningIsNotTruncatedOrSentAgain() = runBlocking {
+        var posts = 0
+        try {
+            LibraryAgentLoop("deepseek-flash", agentTools(), deepSeekThinkingMode = true) {
+                posts++; if (posts == 1) reasoningTurn(toolTurn(), "r".repeat(100001)) else finalTurn()
+            }.run(initialMessages)
+            fail("Reasoning must count against outgoing context budget")
+        } catch (e: LibraryAgentException) { assertTrue(e.message!!.contains("Контекст")) }
+        assertEquals(1, posts)
+    }
+
+    @Test fun thinkingAutoCannotSilentlySkipExplicitSearch() = runBlocking {
+        var posts = 0
+        try {
+            LibraryAgentLoop("deepseek-flash", agentTools(), deepSeekThinkingMode = true) { posts++; finalTurn() }.run(initialMessages, forceSearch = true)
+            fail("Explicit search must actually happen")
+        } catch (_: LibraryAgentException) { }
+        assertEquals(1, posts)
+    }
+
+    @Test fun completedHistoryIsQuotedContextWithoutInventingReasoningAndKeepsImages() = runBlocking {
+        val image = buildJsonObject { put("type", "image_url"); put("image_url", buildJsonObject { put("url", "data:image/png;base64,c3ludGhldGlj") }) }
+        val pastAnswer = """{"problem":"old","answer":"3 A","steps":[]}"""
+        val conversation = buildJsonArray {
+            add(buildJsonObject { put("role", "system"); put("content", "existing rules") })
+            add(buildJsonObject { put("role", "user"); put("content", buildJsonArray { add(image) }) })
+            add(buildJsonObject { put("role", "assistant"); put("content", pastAnswer) })
+            add(buildJsonObject { put("role", "user"); put("content", "Найди похожую для нового вопроса") })
+        }
+        var posts = 0
+        LibraryAgentLoop("deepseek-flash", agentTools(), deepSeekThinkingMode = true) { body ->
+            posts++
+            if (posts == 1) {
+                val messages = body["messages"]!!.jsonArray.map { it.jsonObject }
+                assertTrue(messages.none { it["role"]!!.jsonPrimitive.content == "assistant" })
+                assertTrue(messages.any { it["content"] is JsonArray && image in it["content"]!!.jsonArray })
+                assertTrue(messages.any { it["role"]!!.jsonPrimitive.content == "user" && it["content"].toString().contains("3 A") })
+                assertEquals("Найди похожую для нового вопроса", messages.last()["content"]!!.jsonPrimitive.content)
+                reasoningTurn(toolTurn(), "reason-a")
+            } else finalTurn()
+        }.run(conversation, forceSearch = true)
+        assertEquals(pastAnswer, conversation[2].jsonObject["content"]!!.jsonPrimitive.content)
     }
 
     @Test fun searchReadFinalUsesCorrectCallIdsAndOnlyReadSnapshots() = runBlocking {

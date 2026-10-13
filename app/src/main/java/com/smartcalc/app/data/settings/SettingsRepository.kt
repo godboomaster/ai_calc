@@ -17,6 +17,7 @@ data class ApiSettings(
     val systemPrompt: String = DEFAULT_SYSTEM_PROMPT,
     val supportsImages: Boolean = false,
     val libraryToolsEnabled: Boolean = false,
+    val thinkingEnabled: Boolean = true,
 ) {
     companion object {
         const val DEFAULT_BASE_URL = "https://api.openai.com/v1"
@@ -40,6 +41,7 @@ class SettingsRepository(private val context: Context) {
         val SYSTEM_PROMPT = stringPreferencesKey("system_prompt")
         val SUPPORTS_IMAGES = booleanPreferencesKey("supports_images")
         val LIBRARY_TOOLS = booleanPreferencesKey("library_tools")
+        val THINKING = booleanPreferencesKey("thinking_enabled")
         val SWIPE_TO_RESTORE = booleanPreferencesKey("swipe_to_restore")
     }
 
@@ -59,6 +61,7 @@ class SettingsRepository(private val context: Context) {
             systemPrompt = p[Keys.SYSTEM_PROMPT] ?: ApiSettings.DEFAULT_SYSTEM_PROMPT,
             supportsImages = p[Keys.SUPPORTS_IMAGES] ?: false,
             libraryToolsEnabled = p[Keys.LIBRARY_TOOLS] ?: false,
+            thinkingEnabled = p[Keys.THINKING] ?: true,
         )
     }
 
@@ -70,6 +73,7 @@ class SettingsRepository(private val context: Context) {
             p[Keys.SYSTEM_PROMPT] = s.systemPrompt
             p[Keys.SUPPORTS_IMAGES] = s.supportsImages
             p[Keys.LIBRARY_TOOLS] = s.libraryToolsEnabled
+            p[Keys.THINKING] = s.thinkingEnabled
         }
     }
 }

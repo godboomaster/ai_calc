@@ -288,7 +288,7 @@ class OpenAiClient {
             val result = LibraryAgentLoop(settings.model, libraryTools,
                 { progress(it.redact(settings.apiKey)) },
                 { it.redactSecret(settings.apiKey).jsonObject },
-                nonThinkingMode = officialDeepSeekTools(settings.baseUrl)) { executeMessage(settings, it) }.run(messages, forceSearch)
+                deepSeekThinkingMode = officialDeepSeekTools(settings.baseUrl) && settings.thinkingEnabled) { executeMessage(settings, it) }.run(messages, forceSearch)
             val parsed = parseSolution(result.content)
             fun clean(value: String) = value.replace(settings.apiKey, "[скрыто]")
             return parsed.copy(problem = clean(parsed.problem), answer = clean(parsed.answer),
@@ -435,7 +435,7 @@ class OpenAiClient {
         val request = Request.Builder()
             .url(url)
             .header("Authorization", "Bearer ${settings.apiKey}")
-            .post(body.toString().toRequestBody("application/json".toMediaType()).oneShot())
+            .post(configuredApiBody(settings, body).toString().toRequestBody("application/json".toMediaType()).oneShot())
             .build()
         val resp = client.newCall(request).awaitResponse()
         val respBody = resp.body

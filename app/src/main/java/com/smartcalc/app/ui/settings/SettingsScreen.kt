@@ -36,6 +36,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.smartcalc.app.SolutionViewModel
+import com.smartcalc.app.data.api.officialDeepSeekTools
 import com.smartcalc.app.data.settings.ApiSettings
 import kotlinx.coroutines.launch
 
@@ -53,6 +54,7 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
     var systemPrompt by remember { mutableStateOf("") }
     var supportsImages by remember { mutableStateOf(false) }
     var libraryToolsEnabled by remember { mutableStateOf(false) }
+    var thinkingEnabled by remember { mutableStateOf(true) }
 
     LaunchedEffect(settings) {
         if (!loaded) {
@@ -62,6 +64,7 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
             systemPrompt = settings.systemPrompt
             supportsImages = settings.supportsImages
             libraryToolsEnabled = settings.libraryToolsEnabled
+            thinkingEnabled = settings.thinkingEnabled
             loaded = true
         }
     }
@@ -77,6 +80,7 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
         systemPrompt = systemPrompt.trim().ifBlank { ApiSettings.DEFAULT_SYSTEM_PROMPT },
         supportsImages = supportsImages,
         libraryToolsEnabled = libraryToolsEnabled,
+        thinkingEnabled = thinkingEnabled,
     )
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -149,7 +153,7 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
                 label = { Text("Модель") },
                 placeholder = { Text(ApiSettings.DEFAULT_MODEL) },
                 singleLine = true,
-                supportingText = { Text("Например: gpt-4o-mini, kimi-latest, qwen-vl-max, deepseek-chat") },
+                supportingText = { Text("Например: gpt-4o-mini, kimi-latest, qwen-vl-max, deepseek-flash") },
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
@@ -159,6 +163,16 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
                 minLines = 4,
                 modifier = Modifier.fillMaxWidth(),
             )
+            if (runCatching { officialDeepSeekTools(baseUrl) }.getOrDefault(false)) {
+                Row(modifier = Modifier.fillMaxWidth().toggleable(value = thinkingEnabled, role = Role.Switch,
+                    onValueChange = { thinkingEnabled = it }).padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Режим рассуждения (DeepSeek)", modifier = Modifier.weight(1f))
+                    Switch(checked = thinkingEnabled, onCheckedChange = null)
+                }
+                Text("Модель рассуждает перед ответом. Это может увеличить время и расход токенов. Текст рассуждений не отображается.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             Row(modifier = Modifier.fillMaxWidth().toggleable(value = supportsImages, role = Role.Switch,
                 onValueChange = { supportsImages = it }).padding(vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
