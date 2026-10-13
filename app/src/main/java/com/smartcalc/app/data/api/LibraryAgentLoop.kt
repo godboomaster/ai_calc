@@ -5,7 +5,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.*
 
-class LibraryAgentException(message: String) : ApiException(message)
+class LibraryAgentException(message: String, httpCode: Int? = null) : ApiException(message, httpCode)
 data class AgentCompletion(val content: String, val report: LibraryAgentReport)
 private data class LibraryCall(val id: String, val name: String, val arguments: String)
 
@@ -15,6 +15,7 @@ class LibraryAgentLoop(
     private val tools: LibraryTools,
     private val progress: suspend (LibraryAgentReport) -> Unit = {},
     private val protect: (JsonObject) -> JsonObject = { it },
+    private val nonThinkingMode: Boolean = false,
     private val send: suspend (JsonObject) -> JsonObject,
 ) {
     suspend fun run(initial: JsonArray, forceSearch: Boolean = false): AgentCompletion {
@@ -36,6 +37,7 @@ class LibraryAgentLoop(
             val final = rounds >= 2 || posts == 3
             val body = buildJsonObject {
                 put("model", model); put("messages", JsonArray(messages)); put("tools", DEFINITIONS)
+                if (nonThinkingMode) put("thinking", buildJsonObject { put("type", "disabled") })
                 put("tool_choice", when {
                     final -> JsonPrimitive("none")
                     forceSearch && rounds == 0 -> buildJsonObject { put("type", "function"); put("function", buildJsonObject { put("name", "search_examples") }) }
@@ -50,7 +52,11 @@ class LibraryAgentLoop(
             val turn = try { send(body) } catch (e: ApiException) {
                 if (e.httpCode in setOf(400, 422)) {
                     if (jsonMode && posts < 4) { jsonMode = false; continue }
-                    throw LibraryAgentException("Модель отклонила инструменты библиотеки. Проверьте совместимость API или выключите поиск агентом в настройках.")
+                    // Remote bodies may echo credentials. Keep the status and our own diagnostics,
+                    // without asserting that the model itself lacks tools or persisting raw text.
+                    throw LibraryAgentException("API отклонил параметры запроса (HTTP ${e.httpCode}). " +
+                        "Повтор без JSON-режима не помог. Проверьте имя модели и совместимость параметров инструментов. " +
+                        "Запросов к API: $posts.", e.httpCode)
                 }
                 throw e
             }

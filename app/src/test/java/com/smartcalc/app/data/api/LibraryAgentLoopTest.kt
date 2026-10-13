@@ -23,6 +23,53 @@ internal fun finalTurn() = buildJsonObject { put("role", "assistant"); put("cont
 private val initialMessages = buildJsonArray { add(buildJsonObject { put("role", "user"); put("content", "Новая задача с другими числами") }) }
 
 class LibraryAgentLoopTest {
+    @Test fun deepSeekNamedSearchDisablesThinkingThroughoutToolConversation() = runBlocking {
+        val requests = mutableListOf<JsonObject>()
+        val replies = ArrayDeque(listOf(toolTurn(), toolTurn("read_example", "read-1", """{"id":"$AGENT_EXAMPLE_ID","version":1}"""), finalTurn()))
+        val result = LibraryAgentLoop("deepseek-flash", agentTools(), nonThinkingMode = true) { body ->
+            requests += body
+            // Official DeepSeek rejects named tool_choice with default-enabled thinking.
+            if (body["thinking"]?.jsonObject?.get("type")?.jsonPrimitive?.content != "disabled")
+                throw ApiException("named tool_choice is not supported in thinking mode", 400)
+            replies.removeFirst()
+        }.run(initialMessages, forceSearch = true)
+        assertEquals(3, result.report.posts)
+        assertEquals("search_examples", requests.first()["tool_choice"]!!.jsonObject["function"]!!.jsonObject["name"]!!.jsonPrimitive.content)
+        assertTrue(requests.all { it["thinking"]!!.jsonObject["type"]!!.jsonPrimitive.content == "disabled" })
+        assertEquals("none", requests.last()["tool_choice"]!!.jsonPrimitive.content)
+        assertEquals(AGENT_EXAMPLE_ID, result.report.examples.single().id)
+    }
+
+    @Test fun rejectedParametersKeepStatusAndCounterWithoutBlamingModelOrEchoingSecret() = runBlocking {
+        var posts = 0
+        val error = try {
+            LibraryAgentLoop("model", agentTools()) { posts++; throw ApiException("server echoed fixture-secret", 400) }.run(initialMessages)
+            error("Expected failure")
+        } catch (e: LibraryAgentException) { e }
+        assertEquals(2, posts)
+        assertEquals(400, error.httpCode)
+        assertTrue(error.message!!.contains("HTTP 400"))
+        assertTrue(error.message!!.contains("Запросов к API: 2"))
+        assertFalse(error.message!!.contains("fixture-secret"))
+        assertFalse(error.message!!.contains("Модель отклонила инструменты"))
+    }
+
+    @Test fun deepSeekJsonFallbackPreservesModeAndFourPostBudget() = runBlocking {
+        var posts = 0
+        val replies = ArrayDeque(listOf(toolTurn(), toolTurn("read_example", "read-1", """{"id":"$AGENT_EXAMPLE_ID","version":1}"""), finalTurn()))
+        val result = LibraryAgentLoop("deepseek-flash", agentTools(), nonThinkingMode = true) { body ->
+            posts++
+            assertEquals("disabled", body["thinking"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+            if (posts == 1) throw ApiException("unsupported response_format", 422)
+            assertFalse(body.containsKey("response_format"))
+            if (posts == 4) assertEquals("none", body["tool_choice"]!!.jsonPrimitive.content)
+            replies.removeFirst()
+        }.run(initialMessages, forceSearch = true)
+        assertEquals(4, posts)
+        assertEquals(4, result.report.posts)
+        assertEquals(AGENT_EXAMPLE_ID, result.report.examples.single().id)
+    }
+
     @Test fun searchReadFinalUsesCorrectCallIdsAndOnlyReadSnapshots() = runBlocking {
         val requests = mutableListOf<JsonObject>()
         val replies = ArrayDeque(listOf(toolTurn(), toolTurn("read_example", "read-1", """{"id":"$AGENT_EXAMPLE_ID","version":1}"""), finalTurn()))

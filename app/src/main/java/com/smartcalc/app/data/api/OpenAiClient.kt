@@ -287,7 +287,8 @@ class OpenAiClient {
             if (settings.apiKey.isBlank()) throw ApiConfigurationException("API-ключ не задан. Откройте настройки и введите ключ.")
             val result = LibraryAgentLoop(settings.model, libraryTools,
                 { progress(it.redact(settings.apiKey)) },
-                { it.redactSecret(settings.apiKey).jsonObject }) { executeMessage(settings, it) }.run(messages, forceSearch)
+                { it.redactSecret(settings.apiKey).jsonObject },
+                nonThinkingMode = officialDeepSeekTools(settings.baseUrl)) { executeMessage(settings, it) }.run(messages, forceSearch)
             val parsed = parseSolution(result.content)
             fun clean(value: String) = value.replace(settings.apiKey, "[скрыто]")
             return parsed.copy(problem = clean(parsed.problem), answer = clean(parsed.answer),

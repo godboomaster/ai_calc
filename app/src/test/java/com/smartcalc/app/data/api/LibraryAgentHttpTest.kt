@@ -109,6 +109,7 @@ class LibraryAgentHttpTest {
             assertEquals(3, result.agentReport!!.posts)
             assertEquals(AGENT_EXAMPLE_ID, result.agentReport!!.examples.single().id)
             assertTrue(server.requests.first().containsKey("tools"))
+            assertTrue(server.requests.none { it.containsKey("thinking") })
             val user = server.requests.first()["messages"].toString()
             assertTrue(user.contains("По шагам")); assertTrue(user.contains("Использовать закон Ома"))
             assertEquals("search-1", server.requests[1]["messages"]!!.jsonArray.last().jsonObject["tool_call_id"]!!.jsonPrimitive.content)
@@ -131,6 +132,7 @@ class LibraryAgentHttpTest {
             assertNull(result.agentReport)
             assertEquals(1, server.requests.size)
             assertFalse(server.requests.single().containsKey("tools"))
+            assertFalse(server.requests.single().containsKey("thinking"))
         }
     }
 }

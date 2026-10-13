@@ -6,6 +6,9 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 /** Messages originate locally and can be shown without exposing a server response or credentials. */
 internal class ApiConfigurationException(message: String) : ApiException(message)
 
+/** Named tool_choice is rejected by DeepSeek's default-enabled thinking mode. */
+internal fun officialDeepSeekTools(baseUrl: String): Boolean = apiEndpoint(baseUrl).host == "api.deepseek.com"
+
 internal fun apiEndpoint(baseUrl: String): HttpUrl {
     val url = (baseUrl.trim().trimEnd('/') + "/chat/completions").toHttpUrlOrNull()
         ?: throw ApiConfigurationException("Некорректный адрес API. Проверьте Base URL в настройках.")
