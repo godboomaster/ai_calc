@@ -5,6 +5,10 @@ import androidx.compose.animation.ExitTransition
 import android.net.Uri
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.CompositionLocalProvider
+import com.smartcalc.app.ui.components.LocalReadingHeight
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -53,7 +57,7 @@ object Routes {
     const val TEMPLATE_EDIT = "template?id={id}"
     const val SEARCH = "search?q={q}"
     const val LIBRARY = "library"
-    const val LIBRARY_EDIT = "library/section?id={id}"
+    const val LIBRARY_EDIT = "library/section?id={id}&example={example}"
     const val LIBRARY_FILES = "library/files"
     const val LIBRARY_ADD = "library/add"
     const val LIBRARY_IMPORT = "library/import"
@@ -63,7 +67,8 @@ object Routes {
 
     fun templateEdit(id: String?) = if (id == null) "template" else "template?id=$id"
     fun search(query: String) = if (query.isBlank()) "search" else "search?q=${Uri.encode(query)}"
-    fun libraryEdit(id: String?) = if (id == null) "library/section" else "library/section?id=$id"
+    fun libraryEdit(id: String?, exampleIndex: Int? = null) = if (id == null) "library/section"
+        else "library/section?id=${Uri.encode(id)}" + (exampleIndex?.let { "&example=$it" } ?: "")
     fun step(index: Int) = "step/$index"
     fun libraryReview(id: String) = "library/review/$id"
     fun librarySource(id: String, ordinal: Int) = "library/source/$id?ordinal=$ordinal"
@@ -154,6 +159,8 @@ private fun AppSession(vm: SolutionViewModel) {
     }
 
     Scaffold { padding ->
+        BoxWithConstraints(Modifier.padding(padding).consumeWindowInsets(padding)) {
+        CompositionLocalProvider(LocalReadingHeight provides maxHeight) {
         NavHost(
             navController = nav,
             startDestination = Routes.CALCULATOR,
@@ -162,9 +169,7 @@ private fun AppSession(vm: SolutionViewModel) {
             popEnterTransition = { EnterTransition.None },
             popExitTransition = { ExitTransition.None },
             // consumeWindowInsets: калькулятор поднимает «=» над системной клавиатурой без лишнего отступа.
-            modifier = Modifier
-                .padding(padding)
-                .consumeWindowInsets(padding),
+            modifier = Modifier.fillMaxSize(),
         ) {
             composable(Routes.CALCULATOR) {
                 CalculatorScreen(
@@ -207,16 +212,19 @@ private fun AppSession(vm: SolutionViewModel) {
                     onOpenFiles = { libraryTab(Routes.LIBRARY_FILES) },
                     onAddMaterial = { nav.navigate(Routes.LIBRARY_ADD) },
                     onOpenSolution = ::backToCalculator,
+                    onSource = { ref -> nav.navigate(Routes.librarySource(ref.sourceId, ref.ordinal)) },
                 )
             }
             composable(Routes.LIBRARY) {
                 LibraryScreen(
                     vm = vm,
                     onBack = { nav.popBackStack() },
-                    onEdit = { id -> nav.navigate(Routes.libraryEdit(id)) },
+                    onEdit = { id, index -> nav.navigate(Routes.libraryEdit(id, index)) },
                     onFiles = { libraryTab(Routes.LIBRARY_FILES) },
                     onSearch = { libraryTab(Routes.search("")) },
                     onAddMaterial = { nav.navigate(Routes.LIBRARY_ADD) },
+                    onUse = ::backToCalculator,
+                    onSource = { ref -> nav.navigate(Routes.librarySource(ref.sourceId, ref.ordinal)) },
                 )
             }
             composable(Routes.LIBRARY_FILES) {
@@ -261,6 +269,7 @@ private fun AppSession(vm: SolutionViewModel) {
             composable(
                 Routes.LIBRARY_EDIT,
                 arguments = listOf(
+                    navArgument("example") { type = NavType.IntType; defaultValue = -1 },
                     navArgument("id") {
                         type = NavType.StringType
                         nullable = true
@@ -273,6 +282,7 @@ private fun AppSession(vm: SolutionViewModel) {
                     templateId = entry.arguments?.getString("id"),
                     onBack = { nav.popBackStack() },
                     kind = TemplateKind.LIBRARY,
+                    exampleIndex = entry.arguments?.getInt("example")?.takeIf { it >= 0 },
                     onOpenSource = { ref -> nav.navigate(Routes.librarySource(ref.sourceId, ref.ordinal)) },
                 )
             }
@@ -354,6 +364,8 @@ private fun AppSession(vm: SolutionViewModel) {
             composable(Routes.SETTINGS) {
                 SettingsScreen(vm = vm, onBack = { nav.popBackStack() })
             }
+        }
+        }
         }
     }
 }

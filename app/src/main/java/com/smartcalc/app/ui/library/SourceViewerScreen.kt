@@ -37,7 +37,7 @@ import kotlinx.coroutines.launch
             if (preview == null && error == null) CircularProgressIndicator()
             preview?.let { segment ->
                 if (segment.text.isNotBlank()) MathText(segment.text)
-                segment.imagePaths.forEach { path -> AsyncImage(model = path, contentDescription = "Изображение оригинала", modifier = Modifier.fillMaxWidth()) }
+                segment.imagePaths.forEach { path -> com.smartcalc.app.ui.components.ReadableImage(path, "Изображение оригинала", Modifier.fillMaxWidth()) }
                 segment.warnings.forEach { Text(it.detail, color = MaterialTheme.colorScheme.error) }
             }
         }

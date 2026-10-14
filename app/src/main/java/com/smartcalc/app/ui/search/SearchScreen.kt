@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -37,14 +38,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
@@ -62,9 +60,7 @@ import com.smartcalc.app.data.search.TaskSearch
 import com.smartcalc.app.ui.math.MathText
 import com.smartcalc.app.ui.library.LibraryTabs
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -73,8 +69,8 @@ private const val TYPING_PAUSE_MS = 150L
 
 /**
  * Поиск готовых решений по базе задач, примерам шаблонов и истории — без ИИ и без сети. Набирают числа
- * из условия, слова (что дано, что найти) и выбирают тип. Выбранная задача — на дисплее калькулятора,
- * шаги — на цифрах. [initialQuery] — числа, набранные на калькуляторе перед поиском.
+ * из условия, слова (что дано, что найти) и выбирают тип. Результат открывается для чтения;
+ * перенос на калькулятор выполняется отдельным действием. [initialQuery] — числа, набранные на калькуляторе перед поиском.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -86,6 +82,7 @@ fun SearchScreen(
     onOpenFiles: () -> Unit,
     onAddMaterial: () -> Unit,
     onOpenSolution: () -> Unit,
+    onSource: (com.smartcalc.app.data.library.source.SourceSegmentRef) -> Unit,
 ) {
     // null — список ещё собирается: «искать не в чем» до этого не показываем.
     val entries = vm.searchEntries.collectAsState().value
@@ -93,21 +90,21 @@ fun SearchScreen(
     var query by rememberSaveable { mutableStateOf(initialQuery) }
     var type by rememberSaveable { mutableStateOf<String?>(null) }
     var hits by remember { mutableStateOf<List<SearchHit>?>(null) }
-    var openError by rememberSaveable { mutableStateOf<String?>(null) }
-    // The scope is cancelled with this composition, so its in-flight marker must have the same life.
-    var openingKey by remember { mutableStateOf<String?>(null) }
+    var selectedKey by rememberSaveable { mutableStateOf<String?>(null) }
+    val listState = rememberLazyListState()
     val types = remember(entries) { entries.orEmpty().mapNotNull { it.type }.distinct() }
     val keyboard = LocalSoftwareKeyboardController.current
-    val focus = remember { FocusRequester() }
-    val scope = rememberCoroutineScope()
 
     LaunchedEffect(entries, query, type) {
         val all = entries ?: return@LaunchedEffect
         if (hits != null) delay(TYPING_PAUSE_MS)
         hits = withContext(Dispatchers.Default) { TaskSearch.search(all, query, type) }
     }
-    // Числа уже набраны на калькуляторе — сразу видны результаты, клавиатура их не закрывает.
-    LaunchedEffect(Unit) { if (initialQuery.isBlank()) focus.requestFocus() }
+    val selected = entries?.firstOrNull { it.key == selectedKey }
+    if (selected != null) {
+        TaskPreviewScreen(vm, selected, onBack = { selectedKey = null }, onUse = onOpenSolution, onSource = onSource)
+        return
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
@@ -139,8 +136,7 @@ fun SearchScreen(
             keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .focusRequester(focus),
+                .padding(horizontal = 16.dp),
         )
         if (types.isNotEmpty()) {
             LazyRow(
@@ -159,14 +155,6 @@ fun SearchScreen(
                 }
             }
         }
-        openError?.let { message ->
-            Text(
-                message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-        }
         val found = hits
         when {
             found == null -> Unit
@@ -178,6 +166,7 @@ fun SearchScreen(
                 modifier = Modifier.padding(16.dp),
             )
             else -> LazyColumn(
+                state = listState,
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -191,22 +180,9 @@ fun SearchScreen(
                     }
                 }
                 items(found, key = { it.entry.key }) { hit ->
-                    HitCard(hit, enabled = openingKey == null) {
+                    HitCard(hit, enabled = true) {
                         keyboard?.hide()
-                        openError = null
-                        openingKey = hit.entry.key
-                        scope.launch {
-                            try {
-                                vm.openFound(hit.entry)
-                                onOpenSolution()
-                            } catch (cancelled: CancellationException) {
-                                throw cancelled
-                            } catch (_: Exception) {
-                                openError = "Не удалось сохранить задачу. Проверьте, что фотографии доступны, и попробуйте ещё раз."
-                            } finally {
-                                openingKey = null
-                            }
-                        }
+                        selectedKey = hit.entry.key
                     }
                 }
             }

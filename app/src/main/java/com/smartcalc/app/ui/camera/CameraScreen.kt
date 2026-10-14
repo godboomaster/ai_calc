@@ -325,7 +325,7 @@ fun CameraScreen(
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(MaterialTheme.colorScheme.primary, CircleShape),
+                                .background(if (camera != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f), CircleShape),
                         )
                     }
                 }

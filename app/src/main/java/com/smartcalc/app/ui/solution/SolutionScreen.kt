@@ -319,10 +319,9 @@ private fun LazyListScope.stepsAndAnswer(
 @Composable
 internal fun StepImages(images: List<String>) {
     images.forEach { path ->
-        AsyncImage(
-            model = File(path),
-            contentDescription = "Фото решения",
-            contentScale = ContentScale.FillWidth,
+        com.smartcalc.app.ui.components.ReadableImage(
+            path = path,
+            description = "Фото решения",
             modifier = Modifier
                 .padding(top = 12.dp)
                 .fillMaxWidth()

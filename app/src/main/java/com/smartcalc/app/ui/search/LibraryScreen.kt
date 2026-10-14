@@ -43,6 +43,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -69,10 +71,12 @@ import kotlinx.coroutines.launch
 fun LibraryScreen(
     vm: SolutionViewModel,
     onBack: () -> Unit,
-    onEdit: (id: String?) -> Unit,
+    onEdit: (id: String?, exampleIndex: Int?) -> Unit,
     onFiles: () -> Unit = {},
     onSearch: () -> Unit,
     onAddMaterial: () -> Unit,
+    onUse: () -> Unit,
+    onSource: (com.smartcalc.app.data.library.source.SourceSegmentRef) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -81,6 +85,14 @@ fun LibraryScreen(
     val templates by vm.templates.collectAsState()
     var choosing by remember { mutableStateOf<TaskTemplate?>(null) }
     var exportMenu by remember { mutableStateOf(false) }
+    var selectedSection by rememberSaveable { mutableStateOf<String?>(null) }
+    val listState = rememberLazyListState()
+    val selected = sections.firstOrNull { it.id == selectedSection }
+    if (selected != null) {
+        LibrarySectionScreen(vm, selected, onBack = { selectedSection = null },
+            onEdit = { onEdit(selected.id, it) }, onUse = onUse, onSource = onSource)
+        return
+    }
 
     suspend fun attach(templateId: String, examples: List<TemplateExample>) {
         val name = vm.templates.value.firstOrNull { it.id == templateId }?.name ?: return
@@ -143,16 +155,10 @@ fun LibraryScreen(
             return@Column
         }
         LazyColumn(
+            state = listState,
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item {
-                ExplanationCard(
-                    title = "Ваши решённые задачи",
-                    text = "Храните примеры по разделам и находите готовые решения во вкладке «Поиск».",
-                    details = "Документы и фото сохраняются во вкладке «Файлы». После разбора вы проверяете задачи и добавляете их сюда.\n\nЧтобы задать способ решения новой задачи, добавьте нужные примеры в «По образцу».",
-                )
-            }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
@@ -163,6 +169,13 @@ fun LibraryScreen(
                         Text("Добавить материал", modifier = Modifier.padding(start = 8.dp))
                     }
                 }
+            }
+            item {
+                ExplanationCard(
+                    title = "Ваши решённые задачи",
+                    text = "Храните примеры по разделам и находите готовые решения во вкладке «Поиск».",
+                    details = "Документы и фото сохраняются во вкладке «Файлы». После разбора вы проверяете задачи и добавляете их сюда.\n\nЧтобы задать способ решения новой задачи, добавьте нужные примеры в «По образцу».",
+                )
             }
             if (sections.isEmpty()) {
                 item {
@@ -178,7 +191,7 @@ fun LibraryScreen(
                 SectionCard(
                     section = section,
                     canAttach = templates.isNotEmpty(),
-                    onClick = { onEdit(section.id) },
+                    onClick = { selectedSection = section.id },
                     onAttach = { choosing = section },
                 )
             }
