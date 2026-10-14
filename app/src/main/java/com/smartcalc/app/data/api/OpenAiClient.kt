@@ -283,16 +283,17 @@ class OpenAiClient {
 
     private suspend fun complete(settings: ApiSettings, messages: JsonArray, libraryTools: LibraryTools? = null,
         forceSearch: Boolean = false, progress: suspend (LibraryAgentReport) -> Unit = {}): SolutionPayload {
+        requireImageSupport(settings, messages)
         if (libraryTools != null) {
             if (settings.apiKey.isBlank()) throw ApiConfigurationException("API-ключ не задан. Откройте настройки и введите ключ.")
-            val capability = reasoningCapability(settings)
-            if (!capability.chatToolsSupported) throw ApiConfigurationException("Эта модель OpenAI не поддерживает инструменты через Chat Completions. Выберите совместимую модель или выключите поиск агентом.")
+            val adapter = apiAdapter(settings)
+            if (!adapter.chatToolsSupported) throw ApiConfigurationException("Эта модель OpenAI не поддерживает инструменты через Chat Completions. Выберите совместимую модель или выключите поиск агентом.")
             val result = LibraryAgentLoop(settings.model, libraryTools,
                 { progress(it.redact(settings.apiKey)) },
                 { it.redactSecret(settings.apiKey).jsonObject },
-                thinkingToolMode = if (capability.controlled) settings.thinkingEnabled || !capability.canDisable else capability.requireReasoning,
-                requireReasoning = capability.requireReasoning,
-                autoToolsOnly = capability.autoToolsOnly) { executeMessage(settings, it) }.run(messages, forceSearch)
+                thinkingToolMode = adapter.thinkingToolMode(settings),
+                requireReasoning = adapter.requireReasoning,
+                autoToolsOnly = adapter.autoToolsOnly) { executeMessage(settings, it) }.run(messages, forceSearch)
             val parsed = parseSolution(result.content)
             fun clean(value: String) = value.replace(settings.apiKey, "[скрыто]")
             return parsed.copy(problem = clean(parsed.problem), answer = clean(parsed.answer),

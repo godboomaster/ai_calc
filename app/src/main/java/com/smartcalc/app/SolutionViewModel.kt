@@ -20,6 +20,7 @@ import com.smartcalc.app.data.search.TaskSearch
 import com.smartcalc.app.data.format.SolutionFormat
 import com.smartcalc.app.data.history.Solution
 import com.smartcalc.app.data.settings.ApiSettings
+import com.smartcalc.app.data.settings.ConnectionList
 import com.smartcalc.app.data.settings.AssistantLock
 import com.smartcalc.app.data.session.CalculatorSession
 import com.smartcalc.app.data.session.ListPosition
@@ -145,6 +146,15 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
         open(historyStore.add(solution))
     }
     val settings = settingsRepo.settings.stateIn(viewModelScope, SharingStarted.Eagerly, ApiSettings())
+
+    /** Сохранённые подключения; null — настройки ещё не прочитаны. */
+    val connections: StateFlow<ConnectionList?> =
+        settingsRepo.connections.stateIn<ConnectionList?>(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** Следующий запрос, в том числе повтор, уйдёт через это подключение. */
+    fun selectConnection(id: String) {
+        viewModelScope.launch { settingsRepo.selectConnection(id) }
+    }
     val swipeToRestore = settingsRepo.swipeToRestore.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     /** Код кнопки ✦ и её состояние; null — настройки ещё не прочитаны. Состояние переживает перезапуск. */

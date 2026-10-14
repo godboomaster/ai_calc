@@ -38,6 +38,7 @@ import com.smartcalc.app.ui.format.FormatScreen
 import com.smartcalc.app.ui.search.LibraryScreen
 import com.smartcalc.app.ui.library.*
 import com.smartcalc.app.ui.search.SearchScreen
+import com.smartcalc.app.ui.settings.ConnectionScreen
 import com.smartcalc.app.ui.settings.SettingsScreen
 import com.smartcalc.app.ui.solution.HistoryScreen
 import com.smartcalc.app.ui.solution.SolutionScreen
@@ -52,6 +53,7 @@ object Routes {
     const val SOLUTION = "solution"
     const val STEP = "step/{index}"
     const val SETTINGS = "settings"
+    const val CONNECTION = "connection?id={id}"
     const val FORMAT = "format"
     const val TEMPLATES = "templates"
     const val TEMPLATE_EDIT = "template?id={id}"
@@ -66,6 +68,7 @@ object Routes {
     const val LIBRARY_CAMERA = "library/camera"
 
     fun templateEdit(id: String?) = if (id == null) "template" else "template?id=$id"
+    fun connection(id: String?) = if (id == null) "connection" else "connection?id=${Uri.encode(id)}"
     fun search(query: String) = if (query.isBlank()) "search" else "search?q=${Uri.encode(query)}"
     fun libraryEdit(id: String?, exampleIndex: Int? = null) = if (id == null) "library/section"
         else "library/section?id=${Uri.encode(id)}" + (exampleIndex?.let { "&example=$it" } ?: "")
@@ -362,7 +365,28 @@ private fun AppSession(vm: SolutionViewModel) {
                 }
             }
             composable(Routes.SETTINGS) {
-                SettingsScreen(vm = vm, onBack = { nav.popBackStack() })
+                SettingsScreen(vm = vm, onBack = { nav.popBackStack() },
+                    onOpenConnection = { nav.navigate(Routes.connection(it)) })
+            }
+            composable(
+                Routes.CONNECTION,
+                arguments = listOf(
+                    navArgument("id") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                ),
+            ) { entry ->
+                ConnectionScreen(
+                    vm = vm,
+                    connectionId = entry.arguments?.getString("id"),
+                    onBack = { nav.popBackStack() },
+                    // Копия открывается вместо исходного подключения: «назад» ведёт к списку.
+                    onOpenConnection = { id ->
+                        nav.navigate(Routes.connection(id)) { popUpTo(Routes.CONNECTION) { inclusive = true } }
+                    },
+                )
             }
         }
         }

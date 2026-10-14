@@ -13,7 +13,7 @@ class DocumentRecognizer(private val transport: RecognitionTransport) {
     suspend fun recognize(settings: ApiSettings, batch: RecognitionBatch, beforePost: suspend () -> Unit,
         afterPost: suspend (RecognitionHttpResponse) -> Unit): RecognitionResult {
         val visualSegments = batch.segments + batch.carry?.segments.orEmpty()
-        require(settings.supportsImages || visualSegments.none { it.imagePaths.isNotEmpty() }) { "Выбранная модель не подтверждена как поддерживающая изображения. Сохраните исходник и выберите подходящую модель или введите текст." }
+        require(settings.supportsImages || visualSegments.none { it.imagePaths.isNotEmpty() }) { "Подключение «${settings.connectionName}» не принимает фото. Сохраните исходник и выберите подключение с фото или введите текст." }
         require(settings.apiKey.isNotBlank()) { "API-ключ не задан. Можно подготовить задачи вручную." }
         apiEndpoint(settings.baseUrl)
         val messages = messages(batch)

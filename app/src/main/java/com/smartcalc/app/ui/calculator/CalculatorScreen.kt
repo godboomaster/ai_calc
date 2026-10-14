@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -101,6 +102,7 @@ import com.smartcalc.app.data.session.CalculatorSession
 import com.smartcalc.app.data.request.RequestStatus
 import com.smartcalc.app.data.DocumentReader
 import com.smartcalc.app.ui.math.MathMarkup
+import com.smartcalc.app.ui.settings.ConnectionPicker
 import com.smartcalc.app.ui.math.MathText
 import kotlinx.coroutines.delay
 
@@ -175,6 +177,7 @@ fun CalculatorScreen(
     val keyboard = LocalSoftwareKeyboardController.current
 
     val display by vm.display.collectAsState()
+    val connections by vm.connections.collectAsState()
     val swipeToRestore by vm.swipeToRestore.collectAsState()
     val assistantLock by vm.assistantLock.collectAsState()
     val assistantCode = assistantLock?.code
@@ -454,34 +457,45 @@ fun CalculatorScreen(
                     .weight(1f),
                 horizontalAlignment = Alignment.End,
             ) {
-                // Помощник скрыт: на экране только калькулятор и неприметный значок в углу. С кодом пропадает
-                // и значок, а его место остаётся пустым, чтобы дисплей не сдвигался.
-                if (!assistantButtonVisible(assistantCode, assistantRevealed)) {
-                    Spacer(Modifier.size(48.dp))
-                } else Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.size(48.dp).clip(CircleShape).combinedClickable(
-                        role = Role.Button,
-                        onLongClickLabel = "Вернуться к ответу",
-                        onLongClick = ::restoreAssistant,
-                        onClick = {
-                            stopEditing()
-                            aiKeys = !aiKeys
-                        },
-                    ),
-                ) {
-                    Icon(
-                        if (aiKeys) Icons.Outlined.Calculate else Icons.Outlined.AutoAwesome,
-                        contentDescription = if (aiKeys) "К калькулятору" else "ИИ-помощник",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    )
-                    if (display.unread) {
-                        Box(
-                            Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp)
-                                .size(5.dp).background(
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.7f), CircleShape,
-                                ),
+                // Подключение меняют, пока открыт помощник или на дисплее ошибка: «Повторить запрос»
+                // уйдёт через выбранное. С одним подключением выбирать нечего, и плашки нет.
+                val connectionList = connections
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    if (connectionList != null && connectionList.items.size > 1 && !concealed &&
+                        (aiKeys || (onDisplay && error != null))) {
+                        ConnectionPicker(connectionList, vm::selectConnection, onOpenSettings,
+                            Modifier.widthIn(max = 240.dp))
+                    }
+                    Spacer(Modifier.weight(1f))
+                    // Помощник скрыт: на экране только калькулятор и неприметный значок в углу. С кодом пропадает
+                    // и значок, а его место остаётся пустым, чтобы дисплей не сдвигался.
+                    if (!assistantButtonVisible(assistantCode, assistantRevealed)) {
+                        Spacer(Modifier.size(48.dp))
+                    } else Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.size(48.dp).clip(CircleShape).combinedClickable(
+                            role = Role.Button,
+                            onLongClickLabel = "Вернуться к ответу",
+                            onLongClick = ::restoreAssistant,
+                            onClick = {
+                                stopEditing()
+                                aiKeys = !aiKeys
+                            },
+                        ),
+                    ) {
+                        Icon(
+                            if (aiKeys) Icons.Outlined.Calculate else Icons.Outlined.AutoAwesome,
+                            contentDescription = if (aiKeys) "К калькулятору" else "ИИ-помощник",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                         )
+                        if (display.unread) {
+                            Box(
+                                Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp)
+                                    .size(5.dp).background(
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.7f), CircleShape,
+                                    ),
+                            )
+                        }
                     }
                 }
                 // Нажатие в любом месте дисплея — без ряби: калькулятор не должен выдавать, что строка «живая».

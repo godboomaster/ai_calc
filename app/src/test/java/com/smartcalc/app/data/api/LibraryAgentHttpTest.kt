@@ -1,7 +1,7 @@
 package com.smartcalc.app.data.api
 
 import com.smartcalc.app.data.settings.ApiSettings
-import com.smartcalc.app.data.settings.ReasoningFormat
+import com.smartcalc.app.data.settings.ApiFormat
 import java.net.ServerSocket
 import java.io.ByteArrayOutputStream
 import kotlin.concurrent.thread
@@ -55,7 +55,7 @@ class LibraryAgentHttpTest {
             replies += 200 to JsonObject(toolTurn("read_example", "read-1", """{"id":"$AGENT_EXAMPLE_ID","version":1}""") + ("reasoning_content" to JsonPrimitive("private-mimo-read")))
             replies += 200 to finalTurn()
             AgentServer(replies).use { server ->
-                val settings = server.settings.copy(model = "mimo-v2.6-pro", reasoningFormat = ReasoningFormat.THINKING_TYPE)
+                val settings = server.settings.copy(model = "mimo-v2.6-pro", apiFormat = ApiFormat.THINKING_TYPE)
                 val result = OpenAiClient().solve(settings, emptyList(), "Найди похожую", libraryTools = agentTools())
                 assertEquals(if (fallback) 4 else 3, server.requests.size)
                 assertEquals(server.requests.size, result.agentReport!!.posts)
@@ -73,13 +73,13 @@ class LibraryAgentHttpTest {
 
     @Test fun miMoMissingReasoningStopsBeforeContinuingAndOffModeAcceptsNoReasoning() = runBlocking {
         AgentServer(listOf(200 to toolTurn(), 200 to finalTurn())).use { server ->
-            val settings = server.settings.copy(model = "mimo-v2.5", reasoningFormat = ReasoningFormat.THINKING_TYPE)
+            val settings = server.settings.copy(model = "mimo-v2.5", apiFormat = ApiFormat.THINKING_TYPE)
             try { OpenAiClient().solve(settings, emptyList(), "Найди похожую", libraryTools = agentTools()); fail("Missing reasoning must stop") }
             catch (e: LibraryAgentException) { assertTrue(e.message!!.contains("reasoning_content")) }
             assertEquals(1, server.requests.size)
         }
         AgentServer(listOf(200 to toolTurn(), 200 to finalTurn())).use { server ->
-            val settings = server.settings.copy(model = "mimo-v2.5", reasoningFormat = ReasoningFormat.THINKING_TYPE, thinkingEnabled = false)
+            val settings = server.settings.copy(model = "mimo-v2.5", apiFormat = ApiFormat.THINKING_TYPE, thinkingEnabled = false)
             val result = OpenAiClient().solve(settings, emptyList(), "Найди похожую", libraryTools = agentTools())
             assertEquals(2, result.agentReport!!.posts)
             assertEquals("auto", server.requests.first()["tool_choice"]!!.jsonPrimitive.content)
@@ -87,24 +87,24 @@ class LibraryAgentHttpTest {
         }
     }
     @Test fun explicitFormatsReachActualOrdinaryAndFollowUpPostsInBothStates() = runBlocking {
-        for (format in listOf(ReasoningFormat.THINKING_TYPE, ReasoningFormat.ENABLE_THINKING, ReasoningFormat.REASONING_EFFORT))
+        for (format in listOf(ApiFormat.THINKING_TYPE, ApiFormat.ENABLE_THINKING, ApiFormat.REASONING_EFFORT))
             for (enabled in listOf(true, false)) AgentServer(listOf(200 to finalTurn(), 200 to finalTurn())).use { server ->
-                val settings = server.settings.copy(reasoningFormat = format, thinkingEnabled = enabled)
+                val settings = server.settings.copy(apiFormat = format, thinkingEnabled = enabled)
                 OpenAiClient().solve(settings, emptyList(), "Задача")
                 OpenAiClient().followUp(settings, com.smartcalc.app.data.history.Solution(problem = "Задача", answer = "1"), "Почему?")
                 assertEquals(2, server.requests.size)
                 server.requests.forEach { request -> when (format) {
-                    ReasoningFormat.THINKING_TYPE -> assertEquals(if (enabled) "enabled" else "disabled", request["thinking"]!!.jsonObject["type"]!!.jsonPrimitive.content)
-                    ReasoningFormat.ENABLE_THINKING -> { assertEquals(enabled, request["enable_thinking"]!!.jsonPrimitive.boolean); assertFalse(request.containsKey("thinking")) }
+                    ApiFormat.THINKING_TYPE -> assertEquals(if (enabled) "enabled" else "disabled", request["thinking"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+                    ApiFormat.ENABLE_THINKING -> { assertEquals(enabled, request["enable_thinking"]!!.jsonPrimitive.boolean); assertFalse(request.containsKey("thinking")) }
                     else -> { assertEquals(if (enabled) "high" else "none", request["reasoning_effort"]!!.jsonPrimitive.content); assertFalse(request.containsKey("thinking")) }
                 } }
             }
     }
 
     @Test fun qwenAndOpenAiToolTurnsCanOmitReasoningAndNeverGetDeepSeekParameters() = runBlocking {
-        for (format in listOf(ReasoningFormat.ENABLE_THINKING, ReasoningFormat.REASONING_EFFORT)) {
+        for (format in listOf(ApiFormat.ENABLE_THINKING, ApiFormat.REASONING_EFFORT)) {
             AgentServer(listOf(200 to toolTurn(), 200 to finalTurn())).use { server ->
-                val result = OpenAiClient().solve(server.settings.copy(reasoningFormat = format), emptyList(), "Найди похожую задачу", libraryTools = agentTools())
+                val result = OpenAiClient().solve(server.settings.copy(apiFormat = format), emptyList(), "Найди похожую задачу", libraryTools = agentTools())
                 assertEquals(2, result.agentReport!!.posts)
                 assertTrue(server.requests.none { it.containsKey("thinking") })
                 assertEquals("auto", server.requests.first()["tool_choice"]!!.jsonPrimitive.content)
@@ -115,7 +115,7 @@ class LibraryAgentHttpTest {
     @Test fun glmToolsUseAutoEvenWhenThinkingOffAndFinalizeWithoutTools() = runBlocking {
         for (enabled in listOf(true, false)) AgentServer(listOf(200 to toolTurn(),
             200 to toolTurn("read_example", "read-1", """{"id":"$AGENT_EXAMPLE_ID","version":1}"""), 200 to finalTurn())).use { server ->
-            val settings = server.settings.copy(model = "glm-4.7", reasoningFormat = ReasoningFormat.THINKING_TYPE, thinkingEnabled = enabled)
+            val settings = server.settings.copy(model = "glm-4.7", apiFormat = ApiFormat.THINKING_TYPE, thinkingEnabled = enabled)
             val result = OpenAiClient().solve(settings, emptyList(), "Найди похожую", libraryTools = agentTools())
             assertEquals(3, result.agentReport!!.posts)
             assertEquals("auto", server.requests.first()["tool_choice"]!!.jsonPrimitive.content)
@@ -128,7 +128,7 @@ class LibraryAgentHttpTest {
     @Test fun unsupportedOpenAiChatToolModelsStopBeforeAnyPost() = runBlocking {
         AgentServer(listOf(200 to finalTurn())).use { server ->
             try {
-                OpenAiClient().solve(server.settings.copy(model = "gpt-6-astra", reasoningFormat = ReasoningFormat.REASONING_EFFORT), emptyList(), "Найди похожую", libraryTools = agentTools())
+                OpenAiClient().solve(server.settings.copy(model = "gpt-6-astra", apiFormat = ApiFormat.REASONING_EFFORT), emptyList(), "Найди похожую", libraryTools = agentTools())
                 fail("Unsupported chat tools must stop locally")
             } catch (e: ApiConfigurationException) { assertTrue(e.message!!.contains("Chat Completions")) }
             assertTrue(server.requests.isEmpty())
