@@ -1,5 +1,7 @@
 # Эксперимент: Koog в генерации интерфейса
 
+Следующий этап проверки: [фон, восстановление и Android API 26](RECOVERY.md).
+
 Ветка `codex/koog-compatibility`, только изолированная debug-сборка:
 
 ```powershell
