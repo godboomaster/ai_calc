@@ -36,6 +36,8 @@ class SearchEntry(
     internal val typeTerms = TaskSearch.terms(type.orEmpty())
     internal val conditionFormulas = FormulaSearch.extract(condition)
     internal val solutionFormulas = FormulaSearch.extract(solution)
+    internal val conditionSymbols = FormulaSearch.symbols(condition)
+    internal val solutionSymbols = FormulaSearch.symbols(solution)
 }
 
 /** Найденная задача: [matched] — что из запроса в ней нашлось, в том виде, как это набрано. */
@@ -76,8 +78,11 @@ object TaskSearch {
         "а", "я", "о", "е", "ы", "и", "у", "ю", "ь", "й",
     )
 
-    /** Слово запроса: [term] — с чем сравнивать, [shown] — как показать среди совпадений. */
-    private class QueryTerm(val term: String, val shown: String, val number: Boolean)
+    /**
+     * Слово запроса: [term] — с чем сравнивать, [shown] — как показать среди совпадений.
+     * [symbols] — у куска формулы («f(t)», «e»): он ищется по знакам формул, а не по словам.
+     */
+    private class QueryTerm(val term: String, val shown: String, val number: Boolean, val symbols: List<String>? = null)
 
     /** «3,50» и «3.5» — одно число, «007» и «7» — тоже. */
     internal fun normalizeNumber(raw: String): String {
@@ -112,8 +117,16 @@ object TaskSearch {
         return terms.any { it.length >= MIN_PREFIX && !it.first().isDigit() && (it.startsWith(t.term) || t.term.startsWith(it)) }
     }
 
-    /** Насколько важно, где нашлось: в условии и типе — главное, в решении — промежуточные числа. */
-    private fun placeWeight(e: SearchEntry, t: QueryTerm): Int = when {
+    /**
+     * Насколько важно, где нашлось: в условии и типе — главное, в решении — промежуточные числа.
+     * Кусок формулы, совпавший с формулой условия целиком («f(t) = t»), важнее её начала («f(t) = t^n»).
+     */
+    private fun placeWeight(e: SearchEntry, t: QueryTerm): Int = if (t.symbols != null) when {
+        FormulaSearch.isWhole(e.conditionSymbols, t.symbols) -> 4
+        FormulaSearch.contains(e.conditionSymbols, t.symbols) -> 3
+        FormulaSearch.contains(e.solutionSymbols, t.symbols) -> 1
+        else -> 0
+    } else when {
         contains(e.conditionTerms, t) -> 3
         contains(e.typeTerms, t) -> 2
         contains(e.solutionTerms, t) -> 1
@@ -126,7 +139,10 @@ object TaskSearch {
      */
     fun search(entries: List<SearchEntry>, query: String, type: String? = null): List<SearchHit> {
         val pool = if (type == null) entries else entries.filter { it.type == type }
-        val terms = queryTerms(query)
+        // Однобуквенные обозначения («e», «f(t)») словами не считаются — их находят знаки формул.
+        val terms = queryTerms(query) + FormulaSearch.fragments(query).map { (shown, symbols) ->
+            QueryTerm("formula:" + symbols.joinToString(" "), shown, number = false, symbols = symbols)
+        }
         if (query.isBlank()) return pool.map { SearchHit(it, 0.0, emptyList()) }
         val formulas = FormulaSearch.extract(query)
         if (terms.isEmpty() && formulas.isEmpty()) return emptyList()
@@ -140,7 +156,9 @@ object TaskSearch {
                 FormulaSearch.similarity(formulas, e.solutionFormulas) * 0.5,
             )
             // A textual question needs a subject match; incidental numbers alone are insufficient.
-            if (terms.any { !it.number } && terms.indices.none { !terms[it].number && weights[k][it] > 0 } && formulaScore == 0.0) return@mapNotNull null
+            // A matching formula fragment is a subject too, but a typed formula alone does not demand one.
+            if (terms.any { !it.number && it.symbols == null } && terms.indices.none { !terms[it].number && weights[k][it] > 0 } &&
+                formulaScore == 0.0) return@mapNotNull null
             var score = 0.0
             val matched = mutableListOf<String>()
             terms.forEachIndexed { i, t ->

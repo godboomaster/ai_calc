@@ -130,6 +130,11 @@ class TaskSearchTest {
 
         val damped = TaskSearch.search(entries, "затухающий синус").first().entry
         assertTrue(damped.condition.startsWith("1.3 в)"))
+
+        // Условия записаны в LaTeX, а набирают формулу с клавиатуры.
+        assertTrue(TaskSearch.search(entries, "f(t)").size >= 4)
+        assertTrue(TaskSearch.search(entries, "f(t) = t").first().entry.condition.startsWith("1.2 б)"))
+        assertTrue(TaskSearch.search(entries, "e^(alpha t)").first().entry.condition.startsWith("1.2 а)"))
     }
 
     @Test
@@ -142,7 +147,7 @@ class TaskSearchTest {
             assertEquals(7, result.added)
             val sections = library.items.value
             assertEquals((1..7).map { "mmus-razdel-$it" }.toSet(), sections.map { it.id }.toSet())
-            assertEquals(118, sections.sumOf { it.examples.size })
+            assertEquals(120, sections.sumOf { it.examples.size })
             val photos = sections.flatMap { it.examples }.flatMap { it.conditionImages + it.solutionImages }
             assertTrue(photos.isNotEmpty() && photos.all { File(it).isFile })
 
@@ -152,6 +157,15 @@ class TaskSearchTest {
             val solution = FoundSolution.of(found)
             assertEquals("разомкнутая система неустойчива (два правых корня), замкнутая — неустойчива", solution.answer)
             assertTrue(solution.steps.last().images.isNotEmpty())
+
+            val exp = TaskSearch.search(entries, "f(t) = 1(t)*e^(αt)").first().entry
+            assertTrue(exp.condition, exp.condition.contains("1.2 а)"))
+            assertTrue(TaskSearch.search(entries, "e").any { it.entry == exp })
+
+            // Задачи, добавленные по тетради практики.
+            assertTrue(TaskSearch.search(entries, "1/(s^2+s+1)").take(2).any { it.entry.condition.startsWith("[Практика] 2.1 в)") })
+            val quartic = FoundSolution.of(TaskSearch.search(entries, "y^(4)").first().entry)
+            assertEquals("${'$'}y(t) = t\\,e^{-t} - \\sin t${'$'}, ${'$'}t \\ge 0${'$'}", quartic.answer)
         } finally {
             root.deleteRecursively()
         }
