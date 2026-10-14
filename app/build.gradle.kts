@@ -20,7 +20,11 @@ android {
     buildToolsVersion = "35.0.0"
 
     defaultConfig {
-        applicationId = if (providers.gradleProperty("isolatedDeviceCheck").isPresent) "com.smartcalc.app.importcheck" else "com.smartcalc.app"
+        applicationId = when {
+            providers.gradleProperty("connectionsDeviceCheck").isPresent -> "com.smartcalc.app.connectionscheck"
+            providers.gradleProperty("isolatedDeviceCheck").isPresent -> "com.smartcalc.app.importcheck"
+            else -> "com.smartcalc.app"
+        }
         minSdk = 26
         targetSdk = 35
         versionCode = appVersionCode
@@ -86,4 +90,6 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.junit)
     androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 }

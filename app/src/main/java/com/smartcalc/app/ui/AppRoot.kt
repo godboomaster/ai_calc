@@ -39,6 +39,7 @@ import com.smartcalc.app.ui.search.LibraryScreen
 import com.smartcalc.app.ui.library.*
 import com.smartcalc.app.ui.search.SearchScreen
 import com.smartcalc.app.ui.settings.ConnectionScreen
+import com.smartcalc.app.ui.settings.ConnectionEditorViewModel
 import com.smartcalc.app.ui.settings.SettingsScreen
 import com.smartcalc.app.ui.solution.HistoryScreen
 import com.smartcalc.app.ui.solution.SolutionScreen
@@ -378,9 +379,14 @@ private fun AppSession(vm: SolutionViewModel) {
                     },
                 ),
             ) { entry ->
+                val connectionId = entry.arguments?.getString("id")
+                val editor: ConnectionEditorViewModel = viewModel(
+                    viewModelStoreOwner = entry,
+                    factory = ConnectionEditorViewModel.factory(connectionId),
+                )
                 ConnectionScreen(
                     vm = vm,
-                    connectionId = entry.arguments?.getString("id"),
+                    editor = editor,
                     onBack = { nav.popBackStack() },
                     // Копия открывается вместо исходного подключения: «назад» ведёт к списку.
                     onOpenConnection = { id ->

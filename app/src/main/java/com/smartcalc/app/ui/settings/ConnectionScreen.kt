@@ -49,6 +49,7 @@ import com.smartcalc.app.data.settings.ApiFormat
 import com.smartcalc.app.data.settings.ApiSettings
 import com.smartcalc.app.data.settings.withConnection
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.util.UUID
 
@@ -57,41 +58,29 @@ import java.util.UUID
 @Composable
 fun ConnectionScreen(
     vm: SolutionViewModel,
-    connectionId: String?,
+    editor: ConnectionEditorViewModel,
     onBack: () -> Unit,
     onOpenConnection: (String) -> Unit,
 ) {
     val connections by vm.connections.collectAsState()
     val settings by vm.settings.collectAsState()
-    val scope = rememberCoroutineScope()
+    val scope = rememberCoroutineScope { Dispatchers.Main.immediate }
 
-    val id = rememberSaveable { connectionId ?: UUID.randomUUID().toString() }
-    var loaded by remember { mutableStateOf(false) }
-    var name by remember { mutableStateOf("") }
-    var baseUrl by remember { mutableStateOf("") }
-    var apiKey by remember { mutableStateOf("") }
-    var model by remember { mutableStateOf("") }
-    var apiFormat by remember { mutableStateOf(ApiFormat.AUTO) }
-    var supportsImages by remember { mutableStateOf(false) }
-    var thinkingEnabled by remember { mutableStateOf(true) }
+    val id = editor.id
+    val loaded = editor.loaded
+    var name by editor::name
+    var baseUrl by editor::baseUrl
+    var apiKey by editor::apiKey
+    var model by editor::model
+    var apiFormat by editor::apiFormat
+    var supportsImages by editor::supportsImages
+    var thinkingEnabled by editor::thinkingEnabled
     var formatExpanded by rememberSaveable { mutableStateOf(false) }
     var formatMenu by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
 
     LaunchedEffect(connections) {
-        val list = connections ?: return@LaunchedEffect
-        if (!loaded) {
-            list.items.firstOrNull { it.id == id }?.let { saved ->
-                name = saved.name
-                baseUrl = saved.baseUrl
-                apiKey = saved.apiKey
-                model = saved.model
-                apiFormat = saved.apiFormat
-                supportsImages = saved.supportsImages
-                thinkingEnabled = saved.thinkingEnabled
-            }
-            loaded = true
-        }
+        connections?.let(editor::loadOnce)
     }
 
     var status by remember { mutableStateOf<String?>(null) }
@@ -102,16 +91,7 @@ fun ConnectionScreen(
     val isNew = list?.items?.none { it.id == id } ?: true
     val isActive = list?.active?.id == id
 
-    fun draft() = ApiConnection(
-        id = id,
-        name = name.trim(),
-        baseUrl = baseUrl.trim().ifBlank { ApiSettings.DEFAULT_BASE_URL },
-        apiKey = apiKey.trim(),
-        model = model.trim().ifBlank { ApiSettings.DEFAULT_MODEL },
-        apiFormat = apiFormat,
-        supportsImages = supportsImages,
-        thinkingEnabled = thinkingEnabled,
-    )
+    fun draft() = editor.toConnection()
 
     // Новое подключение создают, чтобы им пользоваться: после сохранения оно становится активным.
     suspend fun save() = vm.settingsRepo.saveConnection(draft(), activate = isNew)
@@ -246,7 +226,6 @@ fun ConnectionScreen(
                         scope.launch {
                             busy = true
                             status = null
-                            save()
                             status = try {
                                 statusIsError = false
                                 vm.testConnection(settings.withConnection(draft()))
