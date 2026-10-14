@@ -112,7 +112,7 @@ data class SolutionPayload(
     val agentReport: LibraryAgentReport? = null,
 )
 
-class OpenAiClient {
+class OpenAiClient(private val transport: CompletionTransport? = null) {
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -436,6 +436,7 @@ class OpenAiClient {
             throw ApiConfigurationException("API-ключ не задан. Откройте настройки и введите ключ.")
         }
         val url = apiEndpoint(settings.baseUrl)
+        transport?.let { return it.execute(settings, configuredApiBody(settings, body)) }
         val request = Request.Builder()
             .url(url)
             .header("Authorization", "Bearer ${settings.apiKey}")

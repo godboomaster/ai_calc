@@ -87,6 +87,11 @@ dependencies {
 
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
 
+android.sourceSets.getByName("release").java.srcDir("src/legacyTransport/java")
+android.sourceSets.getByName("debug").java.srcDir(
+    if (providers.gradleProperty("koogProbe").isPresent) "src/koogTransport/java" else "src/legacyTransport/java"
+)
+
 // Opt-in experiment only: never packaged in release or enabled in normal builds.
 if (providers.gradleProperty("koogProbe").isPresent) {
     require(providers.gradleProperty("isolatedDeviceCheck").isPresent) {
@@ -101,5 +106,8 @@ if (providers.gradleProperty("koogProbe").isPresent) {
         debugImplementation("io.ktor:ktor-client-okhttp:3.3.3")
         debugRuntimeOnly("org.slf4j:slf4j-nop:2.0.17")
         androidTestImplementation("com.squareup.okhttp3:mockwebserver:5.2.1")
+        testImplementation("com.squareup.okhttp3:mockwebserver:5.2.1")
     }
+    android.sourceSets.getByName("testDebug").java.srcDir("src/koogTest/java")
+    android.sourceSets.getByName("androidTest").java.srcDir("src/koogTest/java")
 }

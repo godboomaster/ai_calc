@@ -13,6 +13,7 @@ import com.smartcalc.app.data.api.LibraryAgentException
 import com.smartcalc.app.data.library.agent.LibraryCatalog
 import com.smartcalc.app.data.library.agent.LibraryAgentReport
 import com.smartcalc.app.data.api.OpenAiClient
+import com.smartcalc.app.data.api.generationTransport
 import com.smartcalc.app.data.api.TemplatePrompt
 import com.smartcalc.app.data.format.FormatStore
 import com.smartcalc.app.data.history.FollowUp
@@ -47,7 +48,7 @@ class GenerationController(
     private val templates: TemplateStore,
     private val libraryCatalog: suspend () -> LibraryCatalog,
 ) {
-    private val client = OpenAiClient()
+    private val client = OpenAiClient(generationTransport())
     private val files = RequestFiles(File(context.noBackupFilesDir, "request"))
     private val journal = RequestJournal(File(context.noBackupFilesDir, "request.json"))
     val runner = RequestRunner<Solution>(scope, journal,

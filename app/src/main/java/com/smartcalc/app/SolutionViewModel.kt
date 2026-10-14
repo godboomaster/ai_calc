@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.smartcalc.app.data.api.OpenAiClient
+import com.smartcalc.app.data.api.generationTransport
 import com.smartcalc.app.data.template.ExampleDraft
 import com.smartcalc.app.data.template.ImportResult
 import com.smartcalc.app.data.template.TaskTemplate
@@ -52,7 +53,7 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
     private val libraryStore = applicationState.libraryStore
     private val generation = applicationState.generation
     val request = generation.state
-    private val client = OpenAiClient()
+    private val client = OpenAiClient(generationTransport())
 
     val history = historyStore.items
     val format: StateFlow<SolutionFormat> = formatStore.format

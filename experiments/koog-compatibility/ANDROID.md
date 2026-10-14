@@ -1,5 +1,8 @@
 # Android-проверка Koog
 
+Исторический отчёт первого этапа. Текущее подключение к интерфейсу описано
+в [UI-GENERATION.md](UI-GENERATION.md).
+
 Ветка: `codex/koog-compatibility`. Main и основной сетевой путь не изменяются.
 
 План:
