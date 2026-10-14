@@ -73,7 +73,7 @@ class FormatStore(private val context: Context) {
 
     suspend fun clear() = save("", newSample = null, keepSample = false)
 
-    suspend fun readSample(): ByteArray? = withContext(Dispatchers.IO) {
-        _format.value.samplePath?.let { File(it) }?.takeIf { it.exists() }?.readBytes()
+    suspend fun readSample(format: SolutionFormat = _format.value): ByteArray? = withContext(Dispatchers.IO) {
+        format.samplePath?.let { File(it) }?.takeIf { it.exists() }?.readBytes()
     }
 }

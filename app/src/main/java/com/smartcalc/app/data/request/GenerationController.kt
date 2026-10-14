@@ -2,7 +2,6 @@ package com.smartcalc.app.data.request
 
 import android.content.Context
 import android.net.Uri
-import android.util.Base64
 import com.smartcalc.app.GenerationService
 import com.smartcalc.app.data.DocumentException
 import com.smartcalc.app.data.DocumentReader
@@ -15,6 +14,7 @@ import com.smartcalc.app.data.library.agent.LibraryAgentReport
 import com.smartcalc.app.data.api.OpenAiClient
 import com.smartcalc.app.data.api.TemplatePrompt
 import com.smartcalc.app.data.format.FormatStore
+import com.smartcalc.app.data.format.SolutionFormat
 import com.smartcalc.app.data.history.FollowUp
 import com.smartcalc.app.data.history.HistoryStore
 import com.smartcalc.app.data.history.Solution
@@ -22,34 +22,48 @@ import com.smartcalc.app.data.history.SolutionStep
 import com.smartcalc.app.data.session.ReadingSession
 import com.smartcalc.app.data.session.SessionStore
 import com.smartcalc.app.data.session.forSolution
-import com.smartcalc.app.data.settings.SettingsRepository
+import com.smartcalc.app.data.settings.ApiSettings
 import com.smartcalc.app.data.template.TaskTemplate
 import com.smartcalc.app.data.template.TemplateStore
 import java.io.File
 import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import java.util.Base64
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Application-owned input preparation, execution and recovery. Credentials never enter the journal. */
-class GenerationController(
-    private val context: Context,
+class GenerationController internal constructor(
     scope: CoroutineScope,
     private val history: HistoryStore,
     private val sessions: SessionStore,
-    private val settings: SettingsRepository,
-    private val formats: FormatStore,
-    private val templates: TemplateStore,
+    private val currentFormat: () -> SolutionFormat,
+    private val readFormatSample: suspend (SolutionFormat) -> ByteArray?,
+    private val loadTemplatePrompt: suspend (TaskTemplate) -> TemplatePrompt,
     private val libraryCatalog: suspend () -> LibraryCatalog,
+    requestDirectory: File,
+    private val startService: () -> Unit,
+    private val loadGallery: suspend (Uri) -> ByteArray,
+    private val loadDocument: suspend (Uri) -> PreparedRequest,
 ) {
+    constructor(context: Context, scope: CoroutineScope, history: HistoryStore, sessions: SessionStore,
+        formats: FormatStore, templates: TemplateStore,
+        libraryCatalog: suspend () -> LibraryCatalog,
+    ) : this(scope, history, sessions, { formats.format.value }, { formats.readSample(it) },
+        { templatePrompt(templates, it) }, libraryCatalog, context.noBackupFilesDir,
+        { GenerationService.start(context) }, { ImageUtils.compressUri(context, it) }, { uri ->
+            val document = DocumentReader.read(context, uri)
+            PreparedRequest(text = document.text?.let { "Задача из документа «${document.name}»:\n$it" },
+                images = document.images.map(::encode))
+        })
+
     private val client = OpenAiClient()
-    private val files = RequestFiles(File(context.noBackupFilesDir, "request"))
-    private val journal = RequestJournal(File(context.noBackupFilesDir, "request.json"))
+    private val files = RequestFiles(File(requestDirectory, "request"))
+    private val journal = RequestJournal(File(requestDirectory, "request.json"))
     val runner = RequestRunner<Solution>(scope, journal,
         commit = { id, solution ->
             files.saveResult(id, solution)
@@ -82,58 +96,61 @@ class GenerationController(
         }
     }
 
-    fun text(problem: String, template: TaskTemplate?) = submit(problem, problem, template = template) {
+    fun text(problem: String, template: TaskTemplate?, config: ApiSettings?) = submit(config, problem, problem, template = template) {
         PreparedRequest(text = problem)
     }
 
-    fun image(bytes: ByteArray, template: TaskTemplate?) = submit("Задача с фото", template = template) {
+    fun image(bytes: ByteArray, template: TaskTemplate?, config: ApiSettings?) = submit(config, "Задача с фото", template = template) {
         PreparedRequest(images = listOf(encode(bytes)))
     }
 
-    fun gallery(uri: Uri, template: TaskTemplate?) = submit("Задача с фото", template = template) {
-        PreparedRequest(images = listOf(encode(ImageUtils.compressUri(context, uri))))
+    fun gallery(uri: Uri, template: TaskTemplate?, config: ApiSettings?) = submit(config, "Задача с фото", template = template) {
+        PreparedRequest(images = listOf(encode(loadGallery(uri))))
     }
 
-    fun document(uri: Uri, template: TaskTemplate?) = submit("Задача из документа", template = template) {
-        val document = DocumentReader.read(context, uri)
-        PreparedRequest(text = document.text?.let { "Задача из документа «${document.name}»:\n$it" },
-            images = document.images.map(::encode))
+    fun document(uri: Uri, template: TaskTemplate?, config: ApiSettings?) = submit(config, "Задача из документа", template = template) {
+        loadDocument(uri)
     }
 
-    fun followUp(question: String, base: Solution, template: TaskTemplate?) =
-        submit(question, question, base, template) { PreparedRequest(text = question, base = base) }
+    fun followUp(question: String, base: Solution, template: TaskTemplate?, config: ApiSettings?) =
+        submit(config, question, question, base, template) { PreparedRequest(text = question, base = base) }
 
-    private fun submit(
+    internal fun submit(
+        config: ApiSettings?,
         caption: String,
         retry: String? = null,
         base: Solution? = null,
         template: TaskTemplate? = null,
         load: suspend () -> PreparedRequest,
     ) {
-        val format = formats.format.value
+        // The caller supplies its loaded immutable settings synchronously at the submit boundary.
+        // Credentials remain only in this attempt's closure, never in input/checkpoint/journal.
+        val format = currentFormat()
         val record = RequestRecord(UUID.randomUUID().toString(), RequestStatus.PREPARING, caption,
             retryText = retry, followUp = base != null, baseSolutionId = base?.id)
-        runner.start(record, { GenerationService.start(context) }) {
+        runner.start(record, startService) {
+            val attemptSettings = requireAttemptSettings(config)
             val input = withContext(Dispatchers.IO) {
                 load().copy(
-                    template = template?.let { templatePrompt(it) }, templateId = template?.id,
+                    template = template?.let { loadTemplatePrompt(it) }, templateId = template?.id,
                     formatText = format.text.takeIf { it.isNotBlank() },
-                    formatSample = if (base == null) formats.readSample()?.let(::encode) else null,
+                    formatSample = if (base == null) readFormatSample(format)?.let(::encode) else null,
                     formatSummary = format.summary.takeIf { format.isSet },
                 )
             }
             files.saveInput(record.id, input)
-            execute(record.id, input)
+            execute(record.id, input, attemptSettings)
         }
     }
 
-    fun retry() {
+    fun retry(config: ApiSettings?) {
         val previous = state.value?.takeIf { !it.active && it.error != null } ?: return
+        // The caller supplies a fresh snapshot for this explicit retry.
         // Keep the logical ID so a process death cannot strand an older payload/checkpoint.
         val record = previous.copy(status = RequestStatus.PREPARING, error = null,
             resultSolutionId = null, unread = false,
             startedAt = maxOf(System.currentTimeMillis(), previous.startedAt + 1))
-        runner.start(record, { GenerationService.start(context) }) {
+        runner.start(record, startService) {
             // A server response may already be checkpointed even if saving history failed.
             // Finish local publication instead of sending another paid POST.
             val checkpoint = files.readResult(previous.id)
@@ -141,6 +158,7 @@ class GenerationController(
                 files.readInput(previous.id)?.let { files.saveInput(record.id, it) }
                 return@start checkpoint
             }
+            val attemptSettings = requireAttemptSettings(config)
             val input = files.readInput(previous.id) ?: previous.retryText?.let { text ->
                 val base = previous.baseSolutionId?.let { id -> history.items.value.firstOrNull { it.id == id } }
                 if (previous.followUp && base == null) throw DocumentException("Исходное решение удалено. Создайте новую задачу.")
@@ -150,13 +168,11 @@ class GenerationController(
                 throw DocumentException("Исходное решение удалено. Создайте новую задачу.")
             }
             files.saveInput(record.id, input)
-            execute(record.id, input)
+            execute(record.id, input, attemptSettings)
         }
     }
 
-    private suspend fun execute(id: String, input: PreparedRequest): Solution {
-        // Read credentials only when sending; they remain in the existing settings repository.
-        val config = settings.settings.first()
+    private suspend fun execute(id: String, input: PreparedRequest, config: ApiSettings): Solution {
         val base = input.base
         val tools = withContext(Dispatchers.IO) { libraryToolsForRequest(config.libraryToolsEnabled, input.text.orEmpty(), libraryCatalog) }
         files.saveAgentReport(id, LibraryAgentReport())
@@ -176,7 +192,7 @@ class GenerationController(
         val ready = if (solution.imagePath == null && solution.followUps.isEmpty()) {
             val image = files.readInput(id)?.images?.firstOrNull()
             if (image == null) solution else solution.copy(imagePath =
-                history.saveImage(Base64.decode(image, Base64.NO_WRAP), stableId = solution.id))
+                history.saveImage(Base64.getDecoder().decode(image), stableId = solution.id))
         } else solution
         try {
             if (!history.update(ready, requireExisting = ready.followUps.isNotEmpty())) {
@@ -189,16 +205,19 @@ class GenerationController(
         }
         return ready.id
     }
-
-    private suspend fun templatePrompt(template: TaskTemplate): TemplatePrompt {
-        suspend fun load(paths: List<String>) = paths.mapNotNull { templates.readImage(it)?.let(::encode) }
-        return TemplatePrompt(template.name, template.requirements, template.examples.map {
-            TemplatePrompt.Example(it.condition, load(it.conditionImages), exampleSolutionText(it), load(it.solutionImages))
-        })
-    }
-
-    private fun encode(bytes: ByteArray) = Base64.encodeToString(bytes, Base64.NO_WRAP)
 }
+
+private suspend fun templatePrompt(templates: TemplateStore, template: TaskTemplate): TemplatePrompt {
+    suspend fun load(paths: List<String>) = paths.mapNotNull { templates.readImage(it)?.let(::encode) }
+    return TemplatePrompt(template.name, template.requirements, template.examples.map {
+        TemplatePrompt.Example(it.condition, load(it.conditionImages), exampleSolutionText(it), load(it.solutionImages))
+    })
+}
+
+private fun encode(bytes: ByteArray) = Base64.getEncoder().encodeToString(bytes)
+
+private fun requireAttemptSettings(config: ApiSettings?) = config
+    ?: throw ApiConfigurationException("Настройки ещё загружаются. Повторите запрос.")
 
 internal fun exampleSolutionText(example: com.smartcalc.app.data.template.TemplateExample): String =
     listOf(example.solution, example.answer.takeIf { it.isNotBlank() }?.let { "Ответ: $it" }.orEmpty())
