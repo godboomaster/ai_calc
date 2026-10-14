@@ -40,6 +40,14 @@ internal class KoogCompletionTransport(
         if (endpoint.host !in setOf("api.deepseek.com", "localhost", "127.0.0.1", "::1")) {
             throw ApiConfigurationException("Эксперимент Koog пока поддерживает только DeepSeek. Используйте обычную сборку для других провайдеров.")
         }
+        val hasImages = (body["messages"] as? JsonArray).orEmpty().any { message ->
+            ((message as? JsonObject)?.get("content") as? JsonArray).orEmpty().any { part ->
+                (part as? JsonObject)?.get("type") == JsonPrimitive("image_url")
+            }
+        }
+        if (hasImages && !settings.supportsImages) {
+            throw ApiConfigurationException("Выберите модель с поддержкой фото и включите «Модель поддерживает изображения» в настройках. Запрос не отправлен.")
+        }
         val responseBridge = KoogResponseBridge()
         val base = HttpClient(OkHttp) {
             followRedirects = false

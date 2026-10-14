@@ -24,6 +24,65 @@ import com.smartcalc.app.data.request.requestError
 import java.util.concurrent.TimeUnit
 
 class KoogGenerationTest {
+    @Test fun unconfirmedVisionRejectsTaskAndSampleImagesBeforePost() = runBlocking { serverTest { server ->
+        val client = OpenAiClient(generationTransport())
+        for (sample in listOf(false, true)) {
+            server.enqueue(answer())
+            val error = try {
+                client.solve(settings(server).copy(supportsImages = false),
+                    if (sample) emptyList() else listOf("YWJj"), "6*7",
+                    formatSampleBase64 = if (sample) "YWJj" else null)
+                null
+            } catch (e: ApiException) { e }
+            assertEquals(0, server.requestCount)
+            assertTrue("Expected actionable configuration error, got $error", error is ApiConfigurationException)
+        }
+    } }
+
+    @Test fun supportedBasePathsKeepModelAndAuthorization() = runBlocking { serverTest { server ->
+        for (path in listOf("/", "/v1", "/v1/")) {
+            server.enqueue(answer())
+            val config = settings(server).copy(baseUrl = server.url(path).newBuilder().host("127.0.0.1").build().toString(), model = "deepseek-flash")
+            assertEquals("42", OpenAiClient(generationTransport()).solve(config, emptyList(), "6*7").answer)
+            val sent = requireNotNull(server.takeRequest(2, TimeUnit.SECONDS))
+            assertEquals(path.trimEnd('/') + "/chat/completions", sent.path)
+            assertEquals("Bearer synthetic-key", sent.getHeader("Authorization"))
+            assertEquals("deepseek-flash", Json.parseToJsonElement(sent.body.readUtf8()).jsonObject["model"]!!.jsonPrimitive.content)
+        }
+        assertEquals(3, server.requestCount)
+    } }
+
+    @Test fun unsupportedProvidersFailBeforeDnsWithoutFallback() = runBlocking {
+        var lookups = 0
+        val client = OpenAiClient(KoogCompletionTransport(dns = Dns { lookups++; error("Must not resolve unsupported providers") }))
+        for (url in listOf("https://api.openai.com/v1", "https://openrouter.ai/api/v1", "https://gateway.example/v1", "https://api.deepseek.com.evil.test/v1")) {
+            val error = try { client.solve(ApiSettings(baseUrl = url, apiKey = "synthetic-key", model = "test-model"), emptyList(), "6*7"); null }
+                catch (e: ApiConfigurationException) { e }
+            assertNotNull(error)
+            assertTrue(error!!.message.orEmpty().contains("только DeepSeek"))
+            assertFalse(error.message.orEmpty().contains("synthetic-key"))
+        }
+        assertEquals(0, lookups)
+    }
+
+    @Test fun taskAndExampleImagesKeepOrderAndLabels() = runBlocking { serverTest { server ->
+        server.enqueue(answer())
+        val template = TemplatePrompt("Fixture", "Follow the example", listOf(
+            TemplatePrompt.Example("EXAMPLE CONDITION", listOf("Y29uZGl0aW9u"), "EXAMPLE SOLUTION", listOf("c29sdXRpb24="))))
+        OpenAiClient(generationTransport()).solve(settings(server).copy(supportsImages = true),
+            listOf("dGFzazE=", "dGFzazI="), "TASK CONDITION", formatText = "FORMAT", formatSampleBase64 = "Zm9ybWF0", template = template)
+        val messages = request(server)["messages"]!!.jsonArray
+        val parts = messages.single { it.jsonObject["role"] == JsonPrimitive("user") }.jsonObject["content"]!!.jsonArray
+        val images = parts.filter { it.jsonObject["type"] == JsonPrimitive("image_url") }
+            .map { it.jsonObject["image_url"]!!.jsonObject["url"]!!.jsonPrimitive.content }
+        assertEquals(listOf("Y29uZGl0aW9u", "c29sdXRpb24=", "Zm9ybWF0", "dGFzazE=", "dGFzazI=")
+            .map { "data:image/jpeg;base64,$it" }, images)
+        assertTrue(parts.toString().contains("EXAMPLE CONDITION"))
+        assertTrue(parts.toString().contains("EXAMPLE SOLUTION"))
+        assertTrue(parts.toString().contains("TASK CONDITION"))
+        assertEquals(1, server.requestCount)
+    } }
+
     @Test fun absentOrNullFingerprintDoesNotDiscardValidAnswer() = runBlocking { serverTest { server ->
         for (fingerprint in listOf<JsonElement?>(null, JsonNull)) {
             server.enqueue(answer(fingerprint))
