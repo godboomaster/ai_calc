@@ -47,6 +47,40 @@ class TaskSearchRegressionTest {
         assertTrue(TaskSearch.search(entries, "???").isEmpty())
     }
 
+    @Test fun latexIsReadAsTypedNotation() {
+        assertEquals("1/(s-α)", FormulaSearch.plain("\\dfrac{1}{s-\\alpha}").trim())
+        assertEquals("1/s^(2)", FormulaSearch.plain("\\dfrac{1}{s^{2}}").trim())
+        assertEquals(listOf(listOf("f", "t", "=", "1", "t", "e", "^", "α", "t")), FormulaSearch.symbols("${'$'}f(t) = 1(t)\\cdot e^{\\alpha t}${'$'}"))
+        assertEquals(FormulaSearch.symbols("x^2 + T_1"), FormulaSearch.symbols("${'$'}x^{2}+T_{1}${'$'}"))
+    }
+
+    @Test fun latexConditionIsFoundByTypedFormulaFragments() {
+        val entries = listOf(
+            entry("exp", "[Практика] 1.2 а) Найти изображение по Лапласу функции ${'$'}f(t) = 1(t)\\cdot e^{\\alpha t}${'$'}, где ${'$'}\\alpha \\in \\mathbb{R}${'$'}"),
+            entry("linear", "[Практика] 1.2 б) Найти изображение по Лапласу функции ${'$'}f(t) = t${'$'}."),
+            entry("power", "1.2 в) Найти изображение степенной функции ${'$'}f(t) = t^n${'$'}."),
+        )
+        fun keys(query: String) = TaskSearch.search(entries, query).map { it.entry.key }
+        assertEquals(setOf("exp", "linear", "power"), keys("f(t)").toSet())
+        assertEquals(listOf("f(t)"), TaskSearch.search(entries, "f(t)").first().matched)
+        assertEquals(listOf("exp"), keys("e"))
+        // Cyrillic «е» typed on a Russian layout is the same letter.
+        assertEquals(listOf("exp"), keys("е"))
+        assertEquals(listOf("linear", "power"), keys("f(t) = t"))
+        assertEquals(listOf("power"), keys("F(t)=t^n"))
+        assertEquals(listOf("exp"), keys("e^(alpha t)"))
+        assertEquals(listOf("exp"), keys("1(t)*e^αt"))
+        // α is hard to type on a phone; Latin a stands in for it.
+        assertEquals(listOf("exp"), keys("e^(at)"))
+    }
+
+    @Test fun taskNumberWithCyrillicLetterStaysANumberSearch() {
+        val entries = listOf(entry("a", "1.2 а) Найти ${'$'}f(t) = a${'$'}"), entry("b", "1.2 б) Найти ${'$'}f(t) = b${'$'}"))
+        val hits = TaskSearch.search(entries, "1.2 а)")
+        assertEquals(2, hits.size)
+        assertTrue(hits.all { it.matched == listOf("1.2") })
+    }
+
     private fun entries(vararg examples: TemplateExample) = TaskSearch.entries(
         listOf(TaskTemplate(id = "section", name = "Задачи", examples = examples.toList())), emptyList(), emptyList(),
     )
