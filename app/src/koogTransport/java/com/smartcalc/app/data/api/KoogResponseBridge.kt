@@ -5,12 +5,13 @@ import okhttp3.Interceptor
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 
-/** Per completion, never shared between requests. Workaround for Koog 1.3's eager args parsing.
+/** Per completion, never shared between requests. Compatibility for Koog 1.3's response DTOs.
  * Only the SDK's view receives {}. The loop receives the untouched calls and validates them,
  * returning invalid_arguments to the model within its existing POST/round budget.
+ * Missing/null fingerprint becomes an empty SDK-only metadata value; it is not used by the app.
  * No network retry, invented tool call, argument repair, or persisted raw response.
  */
-internal class KoogToolArgumentsBridge : Interceptor {
+internal class KoogResponseBridge : Interceptor {
     var originalCalls: JsonArray? = null
         private set
 
@@ -27,13 +28,14 @@ internal class KoogToolArgumentsBridge : Interceptor {
     }
 
     private fun adapt(text: String): String {
-        // Invalid envelopes still fail in the SDK; this bridge only tolerates argument strings.
+        // Do not invent choices/content or repair malformed envelopes.
         val root = try { Json.parseToJsonElement(text) as? JsonObject } catch (_: IllegalArgumentException) { null }
             ?: return text
         val choices = root["choices"] as? JsonArray ?: return text
         val firstMessage = (choices.firstOrNull() as? JsonObject)?.get("message") as? JsonObject
         originalCalls = firstMessage?.get("tool_calls") as? JsonArray
-        var changed = false
+        val missingFingerprint = root["system_fingerprint"] == null || root["system_fingerprint"] == JsonNull
+        var changed = missingFingerprint
         val adapted = choices.map { element ->
             val choice = element as? JsonObject ?: return@map element
             val message = choice["message"] as? JsonObject ?: return@map element
@@ -49,6 +51,10 @@ internal class KoogToolArgumentsBridge : Interceptor {
             }
             JsonObject(choice + ("message" to JsonObject(message + ("tool_calls" to JsonArray(safeCalls)))))
         }
-        return if (changed) JsonObject(root + ("choices" to JsonArray(adapted))).toString() else text
+        if (!changed) return text
+        val compatible = root.toMutableMap()
+        compatible["choices"] = JsonArray(adapted)
+        if (missingFingerprint) compatible["system_fingerprint"] = JsonPrimitive("")
+        return JsonObject(compatible).toString()
     }
 }

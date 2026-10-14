@@ -16,24 +16,101 @@ import org.junit.Test
 import java.net.InetAddress
 import java.net.ConnectException
 import java.net.ServerSocket
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
+import ai.koog.prompt.executor.clients.ConnectionTimeoutConfig
+import okhttp3.Dns
+import com.smartcalc.app.data.request.requestError
 import java.util.concurrent.TimeUnit
 
 class KoogGenerationTest {
+    @Test fun absentOrNullFingerprintDoesNotDiscardValidAnswer() = runBlocking { serverTest { server ->
+        for (fingerprint in listOf<JsonElement?>(null, JsonNull)) {
+            server.enqueue(answer(fingerprint))
+            assertEquals("42", OpenAiClient(generationTransport()).solve(settings(server), emptyList(), "6*7").answer)
+        }
+        assertEquals(2, server.requestCount)
+    } }
+
+    @Test fun stalledHeadersAndBodyProduceSafeTimeoutWithoutRetry() = runBlocking { serverTest { server ->
+        for (timeout in listOf(ConnectionTimeoutConfig(500, 1000, 4000), ConnectionTimeoutConfig(4000, 1000, 500))) {
+          for (delayBody in listOf(false, true)) {
+            val response = answer()
+            if (delayBody) response.setBodyDelay(2, TimeUnit.SECONDS) else response.setHeadersDelay(2, TimeUnit.SECONDS)
+            server.enqueue(response)
+            val client = OpenAiClient(KoogCompletionTransport(timeoutConfig = timeout))
+            val before = server.requestCount
+            val error = try { client.solve(settings(server), emptyList(), "6*7"); null }
+                catch (e: SocketTimeoutException) { e }
+            assertNotNull(error)
+            assertSanitized(error!!, SocketTimeoutException::class.java)
+            assertTrue(requestError(error).contains("тайм-аут"))
+            assertEquals(before + 1, server.requestCount)
+          }
+        }
+    } }
+
+    @Test fun dnsFailureIsSafeAndNeverReachesServer() = runBlocking { serverTest { server ->
+        var lookups = 0
+        val client = OpenAiClient(KoogCompletionTransport(dns = Dns {
+            lookups++
+            throw UnknownHostException("PRIVATE_DNS_DETAIL synthetic-key")
+        }))
+        // A hostname, not an IP literal, ensures the real OkHttp DNS path is exercised.
+        val error = try { client.solve(settings(server).copy(baseUrl = "https://api.deepseek.com"), emptyList(), "6*7"); null }
+            catch (e: UnknownHostException) { e }
+        assertNotNull(error)
+        assertSanitized(error!!, UnknownHostException::class.java)
+        assertEquals("Нет соединения с интернетом", requestError(error))
+        assertEquals(1, lookups)
+        assertEquals(0, server.requestCount)
+    } }
+
+    @Test fun disconnectDuringBodyDoesNotPublishPartialAnswerOrRetry() = runBlocking { serverTest { server ->
+        server.enqueue(answer().setSocketPolicy(SocketPolicy.DISCONNECT_DURING_RESPONSE_BODY))
+        val error = try { OpenAiClient(generationTransport()).solve(settings(server), emptyList(), "6*7"); null }
+            catch (e: ConnectException) { e }
+        assertNotNull(error)
+        assertSanitized(error!!, ConnectException::class.java)
+        assertTrue(requestError(error).contains("подключиться"))
+        assertEquals(1, server.requestCount)
+    } }
+
+    private fun assertSanitized(error: Throwable, type: Class<out Throwable>) {
+        generateSequence(error) { it.cause }.take(12).forEach {
+            assertTrue(type.isInstance(it))
+            assertTrue(it.message.isNullOrBlank())
+        }
+    }
+
+    @Test fun missingFingerprintDoesNotRepairBrokenEnvelope() = runBlocking { serverTest { server ->
+        for (body in listOf("{broken", """{"choices":[]}""")) {
+            server.enqueue(MockResponse().setHeader("Content-Type", "application/json").setBody(body))
+            val before = server.requestCount
+            val error = try { OpenAiClient(generationTransport()).solve(settings(server), emptyList(), "6*7"); null }
+                catch (e: ApiException) { e }
+            assertNotNull(error)
+            assertFalse(error!!.message.orEmpty().contains(body))
+            assertNull(error.cause)
+            assertEquals(before + 1, server.requestCount)
+        }
+    } }
+
     private fun settings(server: MockWebServer) = ApiSettings(
         baseUrl = server.url("/v1").newBuilder().host("127.0.0.1").build().toString(),
         apiKey = "synthetic-key", model = "deepseek-chat", reasoningFormat = ReasoningFormat.THINKING_TYPE,
     )
-    private fun reply(message: JsonObject) = MockResponse().setHeader("Content-Type", "application/json").setBody(buildJsonObject {
+    private fun reply(message: JsonObject, fingerprint: JsonElement? = JsonPrimitive("synthetic")) = MockResponse().setHeader("Content-Type", "application/json").setBody(buildJsonObject {
         put("id", "test"); put("object", "chat.completion"); put("created", 1); put("model", "deepseek-chat")
-        put("system_fingerprint", "synthetic")
+        if (fingerprint != null) put("system_fingerprint", fingerprint)
         put("choices", buildJsonArray { add(buildJsonObject {
             put("index", 0); put("message", message); put("finish_reason", if (message.containsKey("tool_calls")) "tool_calls" else "stop")
         }) })
         put("usage", buildJsonObject { put("prompt_tokens", 1); put("completion_tokens", 1); put("total_tokens", 2) })
     }.toString())
-    private fun answer() = reply(buildJsonObject {
+    private fun answer(fingerprint: JsonElement? = JsonPrimitive("synthetic")) = reply(buildJsonObject {
         put("role", "assistant"); put("content", """{"problem":"6*7","answer":"42","steps":[{"title":"Умножение","content":"6*7=42"}]}""")
-    })
+    }, fingerprint)
     private suspend fun serverTest(block: suspend (MockWebServer) -> Unit) {
         val server = MockWebServer()
         server.start(InetAddress.getByName("127.0.0.1"), 0)
@@ -70,7 +147,7 @@ class KoogGenerationTest {
             put("tool_calls", buildJsonArray { add(buildJsonObject {
                 put("id", id); put("type", "function"); put("function", buildJsonObject { put("name", name); put("arguments", args) })
             }) })
-        })
+        }, fingerprint = null)
         server.enqueue(call("search_examples", "c1", """{"query":"резистор"}"""))
         server.enqueue(call("read_example", "c2", """{"id":"$exampleId","version":1}"""))
         server.enqueue(answer())

@@ -23,6 +23,7 @@ import io.ktor.client.plugins.HttpRequestTimeoutException
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.*
 import okhttp3.RequestBody
+import okhttp3.Dns
 import okio.BufferedSink
 import java.io.IOException
 import java.net.ConnectException
@@ -30,21 +31,25 @@ import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 
 /** Experimental DeepSeek transport, compiled only into the isolated opt-in debug build. */
-internal class KoogCompletionTransport : CompletionTransport {
+internal class KoogCompletionTransport(
+    private val timeoutConfig: ConnectionTimeoutConfig = ConnectionTimeoutConfig(180_000, 30_000, 120_000),
+    private val dns: Dns = Dns.SYSTEM,
+) : CompletionTransport {
     override suspend fun execute(settings: ApiSettings, body: JsonObject): JsonObject {
         val endpoint = apiEndpoint(settings.baseUrl)
         if (endpoint.host !in setOf("api.deepseek.com", "localhost", "127.0.0.1", "::1")) {
             throw ApiConfigurationException("Эксперимент Koog пока поддерживает только DeepSeek. Используйте обычную сборку для других провайдеров.")
         }
-        val argumentsBridge = KoogToolArgumentsBridge()
+        val responseBridge = KoogResponseBridge()
         val base = HttpClient(OkHttp) {
             followRedirects = false
             engine {
                 config {
+                    dns(dns)
                     retryOnConnectionFailure(false)
                     followRedirects(false)
                     followSslRedirects(false)
-                    addInterceptor(argumentsBridge)
+                    addInterceptor(responseBridge)
                     // OkHttp otherwise replays e.g. a 503 Retry-After: 0, outside agent accounting.
                     addInterceptor { chain ->
                         val request = chain.request()
@@ -69,7 +74,7 @@ internal class KoogCompletionTransport : CompletionTransport {
                 settings = DeepSeekClientSettings(
                     baseUrl = endpoint.newBuilder().removePathSegment(endpoint.pathSegments.lastIndex)
                         .removePathSegment(endpoint.pathSegments.lastIndex - 1).build().toString().trimEnd('/') + "/",
-                    timeoutConfig = ConnectionTimeoutConfig(180_000, 30_000, 120_000),
+                    timeoutConfig = timeoutConfig,
                 ),
                 httpClientFactory = KtorKoogHttpClient.Factory(baseClient = base),
                 toolsConverter = object : OpenAICompatibleToolDescriptorSchemaGenerator() {
@@ -140,7 +145,7 @@ internal class KoogCompletionTransport : CompletionTransport {
                     val reasoning = result.parts.filterIsInstance<MessagePart.Reasoning>()
                     if (reasoning.isNotEmpty()) put("reasoning_content", reasoning.flatMap { it.content }.joinToString("\n"))
                     val toolCalls = result.parts.filterIsInstance<MessagePart.Tool.Call>()
-                    if (argumentsBridge.originalCalls != null) put("tool_calls", argumentsBridge.originalCalls!!)
+                    if (responseBridge.originalCalls != null) put("tool_calls", responseBridge.originalCalls!!)
                     else if (toolCalls.isNotEmpty()) put("tool_calls", buildJsonArray {
                         toolCalls.forEach { call -> add(buildJsonObject {
                             put("id", call.id?.let(::JsonPrimitive) ?: JsonNull)
