@@ -19,10 +19,15 @@ import ai.koog.prompt.params.LLMParams
 import com.smartcalc.app.data.settings.ApiSettings
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.HttpRequestTimeoutException
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.*
 import okhttp3.RequestBody
 import okio.BufferedSink
+import java.io.IOException
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 
 /** Experimental DeepSeek transport, compiled only into the isolated opt-in debug build. */
 internal class KoogCompletionTransport : CompletionTransport {
@@ -31,6 +36,7 @@ internal class KoogCompletionTransport : CompletionTransport {
         if (endpoint.host !in setOf("api.deepseek.com", "localhost", "127.0.0.1", "::1")) {
             throw ApiConfigurationException("Эксперимент Koog пока поддерживает только DeepSeek. Используйте обычную сборку для других провайдеров.")
         }
+        val argumentsBridge = KoogToolArgumentsBridge()
         val base = HttpClient(OkHttp) {
             followRedirects = false
             engine {
@@ -38,6 +44,7 @@ internal class KoogCompletionTransport : CompletionTransport {
                     retryOnConnectionFailure(false)
                     followRedirects(false)
                     followSslRedirects(false)
+                    addInterceptor(argumentsBridge)
                     // OkHttp otherwise replays e.g. a 503 Retry-After: 0, outside agent accounting.
                     addInterceptor { chain ->
                         val request = chain.request()
@@ -133,7 +140,8 @@ internal class KoogCompletionTransport : CompletionTransport {
                     val reasoning = result.parts.filterIsInstance<MessagePart.Reasoning>()
                     if (reasoning.isNotEmpty()) put("reasoning_content", reasoning.flatMap { it.content }.joinToString("\n"))
                     val toolCalls = result.parts.filterIsInstance<MessagePart.Tool.Call>()
-                    if (toolCalls.isNotEmpty()) put("tool_calls", buildJsonArray {
+                    if (argumentsBridge.originalCalls != null) put("tool_calls", argumentsBridge.originalCalls!!)
+                    else if (toolCalls.isNotEmpty()) put("tool_calls", buildJsonArray {
                         toolCalls.forEach { call -> add(buildJsonObject {
                             put("id", call.id?.let(::JsonPrimitive) ?: JsonNull)
                             put("type", "function")
@@ -145,8 +153,14 @@ internal class KoogCompletionTransport : CompletionTransport {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            val status = generateSequence<Throwable>(e) { it.cause }.take(12)
-                .filterIsInstance<KoogHttpClientException>().firstOrNull()?.statusCode
+            val causes = generateSequence<Throwable>(e) { it.cause }.take(12).toList()
+            val status = causes.filterIsInstance<KoogHttpClientException>().firstOrNull()?.statusCode
+            if (status == null) {
+                // Preserve UI classification, never SDK/remote messages or exception causes.
+                if (causes.any { it is UnknownHostException }) throw UnknownHostException()
+                if (causes.any { it is SocketTimeoutException || it is HttpRequestTimeoutException }) throw SocketTimeoutException()
+                if (causes.any { it is IOException }) throw ConnectException()
+            }
             // Do not retain SDK exceptions as causes: their messages can contain server bodies/keys.
             throw ApiException(if (status != null) "Ошибка API Koog (HTTP $status)." else
                 "Koog: не удалось получить ответ. Проверьте соединение и совместимость модели.", status)

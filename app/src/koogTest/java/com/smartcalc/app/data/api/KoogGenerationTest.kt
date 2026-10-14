@@ -10,9 +10,12 @@ import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 import org.junit.Assert.*
 import org.junit.Test
 import java.net.InetAddress
+import java.net.ConnectException
+import java.net.ServerSocket
 import java.util.concurrent.TimeUnit
 
 class KoogGenerationTest {
@@ -111,21 +114,81 @@ class KoogGenerationTest {
         assertEquals(1, server.requestCount)
     } }
 
-    @Test fun malformedToolArgumentsFailSafelyWithoutRetry() = runBlocking { serverTest { server ->
-        server.enqueue(reply(buildJsonObject {
-            put("role", "assistant"); put("content", JsonNull)
+    @Test fun malformedArgumentsReachToolsAndModelCanCorrectThem() = runBlocking {
+        for (bad in listOf("{bad", "[]", "null", "", "42")) serverTest { server ->
+            fun call(id: String, args: String) = reply(buildJsonObject {
+                put("role", "assistant"); put("content", JsonNull); put("reasoning_content", "reason-$id")
+                put("tool_calls", buildJsonArray { add(buildJsonObject {
+                    put("id", id); put("type", "function")
+                    put("function", buildJsonObject { put("name", "search_examples"); put("arguments", args) })
+                }) })
+            })
+            server.enqueue(call("bad-call", bad))
+            server.enqueue(call("fixed-call", """{"query":"резистор"}"""))
+            server.enqueue(answer())
+            val result = OpenAiClient(generationTransport()).solve(settings(server), emptyList(), "Найди похожую задачу",
+                libraryTools = LibraryTools { LibraryCatalog(emptyList()) })
+            assertEquals("42", result.answer)
+            assertEquals(3, result.agentReport!!.posts)
+            assertEquals(3, server.requestCount)
+            request(server)
+            val second = request(server)["messages"]!!.jsonArray.map { it.jsonObject }
+            val toolResult = second.single { it["role"] == JsonPrimitive("tool") }
+            assertEquals("invalid_arguments", Json.parseToJsonElement(toolResult["content"]!!.jsonPrimitive.content).jsonObject["status"]!!.jsonPrimitive.content)
+            val assistant = second.single { it["role"] == JsonPrimitive("assistant") }
+            assertEquals(bad, assistant["tool_calls"]!!.jsonArray.single().jsonObject["function"]!!.jsonObject["arguments"]!!.jsonPrimitive.content)
+            assertEquals("reason-bad-call", assistant["reasoning_content"]!!.jsonPrimitive.content)
+            val last = request(server)
+            assertEquals("none", last["tool_choice"]!!.jsonPrimitive.content)
+            assertTrue(last["messages"].toString().contains("no_match"))
+        }
+    }
+
+    @Test fun repeatedMalformedCallsStillStopAtFinalRound() = runBlocking { serverTest { server ->
+        repeat(3) { round -> server.enqueue(reply(buildJsonObject {
+            put("role", "assistant"); put("content", JsonNull); put("reasoning_content", "reason-$round")
             put("tool_calls", buildJsonArray { add(buildJsonObject {
-                put("id", "bad-call"); put("type", "function")
-                put("function", buildJsonObject { put("name", "search_examples"); put("arguments", "{PRIVATE_INVALID_ARGUMENTS") })
+                put("id", "call-$round"); put("type", "function")
+                put("function", buildJsonObject { put("name", "search_examples"); put("arguments", "[]") })
             }) })
-        }))
-        val error = try { OpenAiClient(generationTransport()).solve(settings(server), emptyList(), "6*7"); null }
-            catch (e: ApiException) { e }
+        })) }
+        val error = try {
+            OpenAiClient(generationTransport()).solve(settings(server), emptyList(), "Найди похожую",
+                libraryTools = LibraryTools { LibraryCatalog(emptyList()) }); null
+        } catch (e: LibraryAgentException) { e }
         assertNotNull(error)
-        assertFalse(error!!.message.orEmpty().contains("PRIVATE_INVALID_ARGUMENTS"))
-        assertNull(error.cause)
+        assertEquals(3, server.requestCount)
+        request(server); request(server)
+        assertEquals("none", request(server)["tool_choice"]!!.jsonPrimitive.content)
+    } }
+
+    @Test fun disconnectedServerDoesNotResendOrExposeExceptionCause() = runBlocking { serverTest { server ->
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
+        val error = try { OpenAiClient(generationTransport()).solve(settings(server), emptyList(), "6*7"); null }
+            catch (e: ConnectException) { e }
+        assertNotNull(error)
+        assertSafeNetworkError(error!!)
         assertEquals(1, server.requestCount)
     } }
+
+    @Test fun refusedConnectionKeepsNetworkClassificationWithoutRemoteDetails() = runBlocking {
+        val port = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
+        val error = try {
+            OpenAiClient(generationTransport()).solve(ApiSettings(baseUrl = "https://127.0.0.1:$port",
+                apiKey = "synthetic-key", model = "deepseek-chat"), emptyList(), "6*7"); null
+        } catch (e: ConnectException) { e }
+        assertNotNull(error)
+        assertSafeNetworkError(error!!)
+    }
+
+    private fun assertSafeNetworkError(error: ConnectException) {
+        // Coroutine stack recovery may copy a Java exception and link the sanitized original.
+        // No SDK/body/address/cause from the actual failure may survive that boundary.
+        generateSequence<Throwable>(error) { it.cause }.take(12).forEach {
+            assertTrue(it is ConnectException)
+            assertTrue(it.message.isNullOrBlank())
+        }
+    }
 
     // A raw server error must never reach the saved error/UI, including its cause.
     @Test fun serverErrorIsSafeAtGenerationBoundary() = runBlocking {
