@@ -3,6 +3,7 @@ package com.smartcalc.app.ui.settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,6 +25,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,9 +38,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.smartcalc.app.SolutionViewModel
@@ -61,6 +69,8 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
     var thinkingEnabled by remember { mutableStateOf(true) }
     var reasoningFormat by remember { mutableStateOf(ReasoningFormat.AUTO) }
     var reasoningMenu by remember { mutableStateOf(false) }
+    var reasoningExpanded by rememberSaveable { mutableStateOf(false) }
+    var libraryDetails by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(settings) {
         if (!loaded) {
@@ -172,52 +182,61 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
             )
             val reasoning = runCatching { reasoningCapability(currentSettings()) }.getOrNull()
-            Box {
-                OutlinedButton(onClick = { reasoningMenu = true }) {
-                    Text("Формат рассуждения: ${reasoningFormat.label()}")
-                }
-                DropdownMenu(expanded = reasoningMenu, onDismissRequest = { reasoningMenu = false }) {
-                    ReasoningFormat.entries.forEach { format ->
-                        DropdownMenuItem(text = { Text(format.label()) }, onClick = {
-                            reasoningFormat = format; reasoningMenu = false
-                        })
+            SettingsGroup {
+                if (reasoning?.controlled == true) {
+                    SettingsSwitch(
+                        title = if (reasoning.canDisable) "Рассуждение модели" else "Подробное рассуждение",
+                        checked = thinkingEnabled,
+                        onCheckedChange = { thinkingEnabled = it },
+                    )
+                    SettingsHint("Модель обдумывает ответ. Это может увеличить время и расход токенов. Текст рассуждений не показывается.")
+                    if (!reasoning.canDisable) {
+                        SettingsHint("Модель рассуждает всегда. Переключатель выбирает минимальную или высокую интенсивность.")
                     }
+                } else {
+                    Text("Рассуждение модели", style = MaterialTheme.typography.titleMedium)
+                    SettingsHint("Используется режим сервера. Приложение не передаёт параметр рассуждения.")
+                }
+                DisclosureButton("Дополнительные параметры", reasoningExpanded) {
+                    reasoningExpanded = !reasoningExpanded
+                    reasoningMenu = false
+                }
+                if (reasoningExpanded) {
+                    Text("Формат рассуждения", style = MaterialTheme.typography.titleSmall)
+                    Box {
+                        OutlinedButton(onClick = { reasoningMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text(reasoningFormat.label())
+                        }
+                        DropdownMenu(expanded = reasoningMenu, onDismissRequest = { reasoningMenu = false }) {
+                            ReasoningFormat.entries.forEach { format ->
+                                DropdownMenuItem(text = { Text(format.label()) }, onClick = {
+                                    reasoningFormat = format
+                                    reasoningMenu = false
+                                })
+                            }
+                        }
+                    }
+                    SettingsHint("Авто определяет формат по модели и адресу API. Меняйте его, только если этого требует документация провайдера.")
+                    if (reasoningFormat != ReasoningFormat.AUTO && reasoningFormat != ReasoningFormat.SERVER_DEFAULT) {
+                        SettingsHint("Формат должен поддерживаться моделью. Для Qwen используется ответ без потоковой выдачи; reasoning_effort доступен не у всех моделей OpenAI.")
+                    }
+                } else if (reasoningFormat != ReasoningFormat.AUTO) {
+                    SettingsHint("Формат: ${reasoningFormat.label()}")
                 }
             }
-            if (reasoning?.controlled == true) {
-                Row(modifier = Modifier.fillMaxWidth().toggleable(value = thinkingEnabled, role = Role.Switch,
-                    onValueChange = { thinkingEnabled = it }).padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(if (reasoning.canDisable) "Рассуждение модели" else "Подробное рассуждение", modifier = Modifier.weight(1f))
-                    Switch(checked = thinkingEnabled, onCheckedChange = null)
+            SettingsGroup {
+                SettingsSwitch("Модель поддерживает изображения", supportsImages) { supportsImages = it }
+                SettingsHint("Включайте для модели, которая умеет читать фотографии. Проверьте это в документации провайдера.")
+            }
+            SettingsGroup {
+                SettingsSwitch("Поиск агента в библиотеке", libraryToolsEnabled) { libraryToolsEnabled = it }
+                SettingsHint("Агент сам решает, когда искать примеры. Найденные фрагменты и прочитанные тексты передаются выбранному API.")
+                DisclosureButton("Как работает поиск", libraryDetails) { libraryDetails = !libraryDetails }
+                if (libraryDetails) {
+                    SettingsHint("До 4 запросов к модели на один ответ. Поиск может увеличить время и расход токенов.")
+                    SettingsHint("Фотографии из библиотеки этим поиском не передаются.")
                 }
-                Text("Модель рассуждает перед ответом. Это может увеличить время и расход токенов. Текст рассуждений не отображается.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (!reasoning.canDisable) Text("Эта модель постоянно рассуждает. Выключенный переключатель снижает интенсивность до минимума, включённый задаёт high.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            } else {
-                Text("Параметр рассуждения не передаётся: используется режим сервера. Для другой модели или совместимого API выберите формат по документации провайдера.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (reasoningFormat != ReasoningFormat.AUTO && reasoningFormat != ReasoningFormat.SERVER_DEFAULT) {
-                Text("Формат должен поддерживаться выбранной моделью. Для Qwen нужен режим без потоковой выдачи; reasoning_effort поддерживается не всеми моделями OpenAI.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Row(modifier = Modifier.fillMaxWidth().toggleable(value = supportsImages, role = Role.Switch,
-                onValueChange = { supportsImages = it }).padding(vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Модель поддерживает изображения", modifier = Modifier.weight(1f))
-                Switch(checked = supportsImages, onCheckedChange = null)
-            }
-
-            Row(modifier = Modifier.fillMaxWidth().toggleable(value = libraryToolsEnabled, role = Role.Switch,
-                onValueChange = { libraryToolsEnabled = it }).padding(vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Разрешить агенту поиск в библиотеке", modifier = Modifier.weight(1f))
-                Switch(checked = libraryToolsEnabled, onCheckedChange = null)
-            }
-            Text("Агент сам выбирает поиск и чтение. Прочитанные тексты передаются выбранному API. До 4 запросов на ответ; фотографии из библиотеки этим поиском не передаются.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -287,5 +306,45 @@ private fun ReasoningFormat.label(): String = when (this) {
 private fun TextButtonReset(onClick: () -> Unit) {
     OutlinedButton(onClick = onClick) {
         Text("Сбросить настройки API")
+    }
+}
+
+@Composable
+private fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+    }
+}
+
+@Composable
+private fun SettingsSwitch(title: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().toggleable(
+            value = checked, role = Role.Switch, onValueChange = onCheckedChange,
+        ).padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Text(title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+        Switch(checked = checked, onCheckedChange = null)
+    }
+}
+
+@Composable
+private fun SettingsHint(text: String) {
+    Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+@Composable
+private fun DisclosureButton(title: String, expanded: Boolean, onClick: () -> Unit) {
+    TextButton(onClick = onClick, modifier = Modifier.semantics {
+        stateDescription = if (expanded) "Развёрнуто" else "Свёрнуто"
+    }) {
+        Text(title, modifier = Modifier.weight(1f))
+        Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null)
     }
 }
