@@ -9,6 +9,9 @@ import com.smartcalc.app.data.DocumentReader
 import com.smartcalc.app.data.ImageUtils
 import com.smartcalc.app.data.api.ApiException
 import com.smartcalc.app.data.api.ApiConfigurationException
+import com.smartcalc.app.data.api.LibraryAgentException
+import com.smartcalc.app.data.library.agent.LibraryCatalog
+import com.smartcalc.app.data.library.agent.LibraryAgentReport
 import com.smartcalc.app.data.api.OpenAiClient
 import com.smartcalc.app.data.api.TemplatePrompt
 import com.smartcalc.app.data.format.FormatStore
@@ -42,6 +45,7 @@ class GenerationController(
     private val settings: SettingsRepository,
     private val formats: FormatStore,
     private val templates: TemplateStore,
+    private val libraryCatalog: suspend () -> LibraryCatalog,
 ) {
     private val client = OpenAiClient()
     private val files = RequestFiles(File(context.noBackupFilesDir, "request"))
@@ -154,15 +158,18 @@ class GenerationController(
         // Read credentials only when sending; they remain in the existing settings repository.
         val config = settings.settings.first()
         val base = input.base
-        val payload = if (base != null) client.followUp(config, base, input.text.orEmpty(), input.template)
-        else client.solve(config, input.images, input.text, input.formatText, input.formatSample, input.template)
+        val tools = withContext(Dispatchers.IO) { libraryToolsForRequest(config.libraryToolsEnabled, input.text.orEmpty(), libraryCatalog) }
+        files.saveAgentReport(id, LibraryAgentReport())
+        val progress: suspend (LibraryAgentReport) -> Unit = { files.saveAgentReport(id, it) }
+        val payload = if (base != null) client.followUp(config, base, input.text.orEmpty(), input.template, tools, progress)
+        else client.solve(config, input.images, input.text, input.formatText, input.formatSample, input.template, tools, progress)
         val steps = payload.steps.map { SolutionStep(it.title, it.content, it.plot, it.svg) }
         return if (base != null) {
             if (history.items.value.none { it.id == base.id }) throw DocumentException("Исходное решение удалено.")
             base.copy(followUps = base.followUps + FollowUp(input.text.orEmpty(), payload.answer, steps,
-                template = input.template?.name), templateId = input.templateId ?: base.templateId)
+                template = input.template?.name, agentReport = payload.agentReport), templateId = input.templateId ?: base.templateId)
         } else Solution(id = id, problem = payload.problem, answer = payload.answer, steps = steps,
-            format = input.formatSummary, template = input.template?.name, templateId = input.templateId)
+            format = input.formatSummary, template = input.template?.name, templateId = input.templateId, agentReport = payload.agentReport)
     }
 
     private suspend fun publishResult(id: String, solution: Solution): String {
@@ -200,6 +207,7 @@ internal fun exampleSolutionText(example: com.smartcalc.app.data.template.Templa
 internal fun requestError(error: Throwable): String = when (error) {
     is DocumentException -> error.message ?: "Не удалось прочитать вложение"
     is ApiConfigurationException -> error.message ?: "Проверьте настройки API."
+    is LibraryAgentException -> error.message ?: "Не удалось выполнить поиск агентом. Проверьте поддержку инструментов API."
     is ApiException -> when (error.httpCode) {
         401, 403 -> "Сервер отклонил доступ. Проверьте API-ключ и выбранную модель в настройках."
         429 -> "Лимит запросов исчерпан. Повторите позже."

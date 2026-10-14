@@ -64,6 +64,7 @@ import coil.compose.AsyncImage
 import com.smartcalc.app.SolutionViewModel
 import com.smartcalc.app.data.history.Solution
 import com.smartcalc.app.data.history.SolutionStep
+import com.smartcalc.app.data.library.agent.LibraryAgentReport
 import com.smartcalc.app.data.session.ListPosition
 import com.smartcalc.app.data.session.SolutionBlockId
 import com.smartcalc.app.data.session.blockIds
@@ -234,7 +235,7 @@ fun SolutionScreen(
                     )
                 }
             }
-            stepsAndAnswer(s.steps, s.answer, numbered, 0, collapsed, toggleBlock)
+            stepsAndAnswer(s.steps, s.answer, numbered, 0, collapsed, toggleBlock, s.agentReport)
             s.followUps.forEachIndexed { index, f ->
                 val group = index + 1
                 val questionKey = SolutionBlockId.question(group)
@@ -247,7 +248,7 @@ fun SolutionScreen(
                         MathText(f.question, fontSize = 17.sp)
                     }
                 }
-                stepsAndAnswer(f.steps, f.answer, numbered, group, collapsed, toggleBlock)
+                stepsAndAnswer(f.steps, f.answer, numbered, group, collapsed, toggleBlock, f.agentReport)
             }
             item(key = "add-followup") {
                 // Вопрос к этому решению — в строке калькулятора, ответ — на его дисплее.
@@ -282,7 +283,7 @@ fun SolutionScreen(
 /** Шаги одного ответа (исходного или на дополнение) и сам ответ отдельным блоком. */
 private fun LazyListScope.stepsAndAnswer(
     steps: List<SolutionStep>, answer: String, numbered: Boolean,
-    group: Int, collapsed: Set<String>, onToggle: (String) -> Unit,
+    group: Int, collapsed: Set<String>, onToggle: (String) -> Unit, agentReport: LibraryAgentReport? = null,
 ) {
     itemsIndexed(steps, key = { index, _ -> SolutionBlockId.step(group, index) }) { index, step ->
         val blockKey = SolutionBlockId.step(group, index)
@@ -309,6 +310,7 @@ private fun LazyListScope.stepsAndAnswer(
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         ) {
             MathText(answer, fontSize = 24.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            LibraryExamples(agentReport)
         }
     }
 }
@@ -317,10 +319,9 @@ private fun LazyListScope.stepsAndAnswer(
 @Composable
 internal fun StepImages(images: List<String>) {
     images.forEach { path ->
-        AsyncImage(
-            model = File(path),
-            contentDescription = "Фото решения",
-            contentScale = ContentScale.FillWidth,
+        com.smartcalc.app.ui.components.ReadableImage(
+            path = path,
+            description = "Фото решения",
             modifier = Modifier
                 .padding(top = 12.dp)
                 .fillMaxWidth()

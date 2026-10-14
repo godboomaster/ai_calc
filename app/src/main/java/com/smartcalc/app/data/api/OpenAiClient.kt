@@ -5,6 +5,10 @@ import com.smartcalc.app.data.DocumentException
 import com.smartcalc.app.data.history.SolutionStep
 import com.smartcalc.app.data.plot.Plot
 import com.smartcalc.app.data.settings.ApiSettings
+import com.smartcalc.app.data.library.agent.LibraryTools
+import com.smartcalc.app.data.library.agent.LibraryAgentReport
+import com.smartcalc.app.data.library.agent.redact
+import com.smartcalc.app.data.library.agent.redactSecret
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -27,8 +31,10 @@ import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.Response
 import okhttp3.RequestBody.Companion.toRequestBody
+import okio.BufferedSink
 import java.io.IOException
 import java.io.File
 import java.io.ByteArrayOutputStream
@@ -103,6 +109,7 @@ data class SolutionPayload(
     val problem: String,
     val answer: String,
     val steps: List<StepPayload>,
+    val agentReport: LibraryAgentReport? = null,
 )
 
 class OpenAiClient {
@@ -111,6 +118,8 @@ class OpenAiClient {
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .retryOnConnectionFailure(false)
+        .followRedirects(false)
+        .followSslRedirects(false)
         .build()
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -145,6 +154,8 @@ class OpenAiClient {
         formatText: String? = null,
         formatSampleBase64: String? = null,
         template: TemplatePrompt? = null,
+        libraryTools: LibraryTools? = null,
+        agentProgress: suspend (LibraryAgentReport) -> Unit = {},
     ): SolutionPayload =
         withContext(Dispatchers.IO) {
             val userContent = taskContent(images, text, formatText, formatSampleBase64, template)
@@ -152,7 +163,7 @@ class OpenAiClient {
                 add(systemMessage(settings))
                 add(message("user", userContent))
             }
-            complete(settings, messages)
+            complete(settings, messages, libraryTools, LibraryTools.explicitSearch(text.orEmpty()), agentProgress)
         }
 
     /**
@@ -165,9 +176,11 @@ class OpenAiClient {
         base: Solution,
         question: String,
         template: TemplatePrompt? = null,
+        libraryTools: LibraryTools? = null,
+        agentProgress: suspend (LibraryAgentReport) -> Unit = {},
     ): SolutionPayload =
         withContext(Dispatchers.IO) {
-            complete(settings, followUpMessages(settings, base, question, template))
+            complete(settings, followUpMessages(settings, base, question, template), libraryTools, LibraryTools.explicitSearch(question), agentProgress)
         }
 
     /** [template] — шаблон, по которому нужно ответить на дополнение: уходит прямо перед вопросом. */
@@ -260,7 +273,7 @@ class OpenAiClient {
 
     private fun systemMessage(settings: ApiSettings) = message(
         "system",
-        JsonPrimitive(listOf(settings.systemPrompt.trimEnd(), FORMULA_RULE, PLOT_RULE, SCHEME_RULE).joinToString("\n")),
+        JsonPrimitive(listOf(settings.systemPrompt.trimEnd(), SOLUTION_STEPS_RULE, FORMULA_RULE, PLOT_RULE, SCHEME_RULE).joinToString("\n")),
     )
 
     private fun message(role: String, content: JsonElement) = buildJsonObject {
@@ -268,7 +281,26 @@ class OpenAiClient {
         put("content", content)
     }
 
-    private suspend fun complete(settings: ApiSettings, messages: JsonArray): SolutionPayload {
+    private suspend fun complete(settings: ApiSettings, messages: JsonArray, libraryTools: LibraryTools? = null,
+        forceSearch: Boolean = false, progress: suspend (LibraryAgentReport) -> Unit = {}): SolutionPayload {
+        if (libraryTools != null) {
+            if (settings.apiKey.isBlank()) throw ApiConfigurationException("API-ключ не задан. Откройте настройки и введите ключ.")
+            val capability = reasoningCapability(settings)
+            if (!capability.chatToolsSupported) throw ApiConfigurationException("Эта модель OpenAI не поддерживает инструменты через Chat Completions. Выберите совместимую модель или выключите поиск агентом.")
+            val result = LibraryAgentLoop(settings.model, libraryTools,
+                { progress(it.redact(settings.apiKey)) },
+                { it.redactSecret(settings.apiKey).jsonObject },
+                thinkingToolMode = if (capability.controlled) settings.thinkingEnabled || !capability.canDisable else capability.requireReasoning,
+                requireReasoning = capability.requireReasoning,
+                autoToolsOnly = capability.autoToolsOnly) { executeMessage(settings, it) }.run(messages, forceSearch)
+            val parsed = parseSolution(result.content)
+            fun clean(value: String) = value.replace(settings.apiKey, "[скрыто]")
+            return parsed.copy(problem = clean(parsed.problem), answer = clean(parsed.answer),
+                steps = parsed.steps.map { step -> step.copy(title = clean(step.title), content = clean(step.content),
+                    svg = step.svg?.let(::clean), plot = step.plot?.let {
+                        plotJson.decodeFromJsonElement(Plot.serializer(), json.encodeToJsonElement(Plot.serializer(), it).redactSecret(settings.apiKey))
+                    }) }, agentReport = result.report.redact(settings.apiKey))
+        }
         fun body(jsonMode: Boolean) = buildJsonObject {
             put("model", settings.model)
             put("messages", messages)
@@ -396,7 +428,10 @@ class OpenAiClient {
         "Соединение успешно: модель отвечает"
     }
 
-    private suspend fun execute(settings: ApiSettings, body: JsonObject): String {
+    private suspend fun execute(settings: ApiSettings, body: JsonObject): String =
+        (executeMessage(settings, body)["content"] as? JsonPrimitive)?.contentOrNull ?: throw ApiException("Модель вернула пустой ответ")
+
+    private suspend fun executeMessage(settings: ApiSettings, body: JsonObject): JsonObject {
         if (settings.apiKey.isBlank()) {
             throw ApiConfigurationException("API-ключ не задан. Откройте настройки и введите ключ.")
         }
@@ -404,7 +439,7 @@ class OpenAiClient {
         val request = Request.Builder()
             .url(url)
             .header("Authorization", "Bearer ${settings.apiKey}")
-            .post(body.toString().toRequestBody("application/json".toMediaType()))
+            .post(configuredApiBody(settings, body).toString().toRequestBody("application/json".toMediaType()).oneShot())
             .build()
         val resp = client.newCall(request).awaitResponse()
         val respBody = resp.body
@@ -422,9 +457,20 @@ class OpenAiClient {
         } catch (e: Exception) {
             throw ApiException("Сервер вернул некорректный ответ")
         }
-        return root["choices"]?.jsonArray?.firstOrNull()?.jsonObject
-            ?.get("message")?.jsonObject?.get("content")?.jsonPrimitive?.contentOrNull
-            ?: throw ApiException("Модель вернула пустой ответ")
+        val choice = (root["choices"] as? JsonArray)?.firstOrNull() as? JsonObject
+        return choice?.get("message") as? JsonObject ?: throw ApiException("Модель вернула пустой ответ")
+    }
+
+    // OkHttp's HTTP follow-ups (e.g. 503 Retry-After: 0) otherwise replay even with
+    // retryOnConnectionFailure(false). Only the counted application fallback may send again.
+    private fun RequestBody.oneShot(): RequestBody {
+        val delegate = this
+        return object : RequestBody() {
+            override fun contentType() = delegate.contentType()
+            override fun contentLength() = delegate.contentLength()
+            override fun isOneShot() = true
+            override fun writeTo(sink: BufferedSink) = delegate.writeTo(sink)
+        }
     }
 
     internal fun parseSolution(raw: String): SolutionPayload {

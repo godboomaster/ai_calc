@@ -10,6 +10,7 @@ import com.smartcalc.app.data.template.TemplateKind
 import com.smartcalc.app.data.request.GenerationController
 import com.smartcalc.app.data.request.active
 import com.smartcalc.app.data.library.source.LibrarySourceStore
+import com.smartcalc.app.data.library.agent.LibraryCatalog
 import com.smartcalc.app.data.library.importer.*
 import com.smartcalc.app.data.library.extract.DocumentExtractor
 import com.smartcalc.app.data.api.DocumentRecognizer
@@ -37,7 +38,8 @@ class SmartCalcApplication : Application() {
     val libraryStore by lazy { TemplateStore(File(filesDir, "library").apply { mkdirs() }, TemplateKind.LIBRARY) }
     val generation by lazy {
         GenerationController(this, applicationScope, historyStore, sessionStore,
-            settingsRepository, formatStore, templateStore)
+            settingsRepository, formatStore, templateStore,
+            { LibraryCatalog(libraryStore.items.value, librarySources.state.value, libraryStore.loadError.value) })
     }
     val librarySources by lazy { LibrarySourceStore(File(filesDir, "library/sources")) }
     val libraryImports by lazy { LibraryImportJournal(File(filesDir, "library/imports")) }

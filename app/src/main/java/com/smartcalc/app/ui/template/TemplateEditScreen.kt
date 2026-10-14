@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.material3.Surface
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -143,6 +145,7 @@ fun TemplateEditScreen(
     templateId: String?,
     onBack: () -> Unit,
     kind: TemplateKind = TemplateKind.TEMPLATES,
+    exampleIndex: Int? = null,
     onOpenSource: ((com.smartcalc.app.data.library.source.SourceSegmentRef) -> Unit)? = null,
 ) {
     val context = LocalContext.current
@@ -236,9 +239,9 @@ fun TemplateEditScreen(
         )
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize().imePadding()) {
         TopAppBar(
-            title = { Text(if (existing != null) words.title else words.newTitle) },
+            title = { Text(if (exampleIndex != null) "Редактирование задачи" else if (existing != null) words.title else words.newTitle) },
             navigationIcon = {
                 IconButton(onClick = ::leave) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
@@ -251,12 +254,12 @@ fun TemplateEditScreen(
         }
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .weight(1f)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            OutlinedTextField(
+            if (exampleIndex == null) OutlinedTextField(
                 value = name,
                 onValueChange = {
                     name = it
@@ -283,12 +286,13 @@ fun TemplateEditScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-            ExplanationCard(
+            if (exampleIndex == null) ExplanationCard(
                 title = words.examplesTitle,
                 text = words.examplesHint,
                 details = words.examplesDetails,
             )
             examples.forEachIndexed { index, example ->
+                if (exampleIndex != null && index != exampleIndex) return@forEachIndexed
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(
                         modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 12.dp),
@@ -300,7 +304,7 @@ fun TemplateEditScreen(
                                 style = MaterialTheme.typography.titleSmall,
                                 modifier = Modifier.weight(1f),
                             )
-                            IconButton(enabled = !saving && !reading, onClick = {
+                            if (exampleIndex == null) IconButton(enabled = !saving && !reading, onClick = {
                                 examples.removeAt(index)
                                 dirty = true
                             }) {
@@ -320,7 +324,7 @@ fun TemplateEditScreen(
                     }
                 }
             }
-            OutlinedButton(
+            if (exampleIndex == null) OutlinedButton(
                 onClick = {
                     examples += ExampleEditState()
                     dirty = true
@@ -328,26 +332,7 @@ fun TemplateEditScreen(
                 enabled = !saving && !reading,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(words.addExample) }
-            Button(
-                onClick = {
-                    saving = true
-                    scope.launch {
-                        try {
-                            vm.saveTemplate(existing?.id, name, requirements, examples.map { it.toDraft() }, kind, expectedSection = existing)
-                            onBack()
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (_: Exception) {
-                            Toast.makeText(context, "Не удалось сохранить. Черновик оставлен на экране. Проверьте свободное место; если запись изменена в другом окне, откройте её заново.", Toast.LENGTH_LONG).show()
-                        } finally {
-                            saving = false
-                        }
-                    }
-                },
-                enabled = name.isNotBlank() && !saving && !reading,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Сохранить") }
-            if (existing != null) {
+            if (existing != null && exampleIndex == null) {
                 // Экспортируется сохранённый шаблон — поэтому с несохранёнными правками кнопки ждут.
                 Text(
                     if (dirty) "Экспорт — после сохранения изменений" else words.exportTitle,
@@ -370,6 +355,31 @@ fun TemplateEditScreen(
                 OutlinedButton(enabled = !saving && !reading, onClick = { confirmDelete = true }, modifier = Modifier.fillMaxWidth()) {
                     Text(words.delete)
                 }
+            }
+        }
+        Surface(tonalElevation = 2.dp) {
+            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                if (name.isBlank()) Text("Укажите название, чтобы сохранить", style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(bottom = 8.dp))
+                Button(
+                    onClick = {
+                        saving = true
+                        scope.launch {
+                            try {
+                                vm.saveTemplate(existing?.id, name, requirements, examples.map { it.toDraft() }, kind, expectedSection = existing)
+                                onBack()
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                Toast.makeText(context, "Не удалось сохранить. Черновик оставлен на экране. Проверьте свободное место; если запись изменена в другом окне, откройте её заново.", Toast.LENGTH_LONG).show()
+                            } finally {
+                                saving = false
+                            }
+                        }
+                    },
+                    enabled = name.isNotBlank() && !saving && !reading,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Сохранить") }
             }
         }
     }

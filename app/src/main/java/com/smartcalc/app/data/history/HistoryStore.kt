@@ -2,6 +2,7 @@ package com.smartcalc.app.data.history
 
 import android.content.Context
 import com.smartcalc.app.data.plot.Plot
+import com.smartcalc.app.data.library.agent.LibraryAgentReport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -40,6 +41,7 @@ data class FollowUp(
     val timestamp: Long = System.currentTimeMillis(),
     /** Название шаблона, с которым ушло дополнение. */
     val template: String? = null,
+    val agentReport: LibraryAgentReport? = null,
 )
 
 @Serializable
@@ -60,6 +62,8 @@ data class Solution(
     val followUps: List<FollowUp> = emptyList(),
     /** Откуда готовое решение, если его нашёл поиск, а не решил ИИ: «База · Кинематика». */
     val source: String? = null,
+    /** Actually read versions, not a mathematical verification or a generated citation. */
+    val agentReport: LibraryAgentReport? = null,
 ) {
     /** Есть ли под условием подпись: шаблон, формат или откуда решение. */
     val hasCaption: Boolean get() = template != null || format != null || source != null

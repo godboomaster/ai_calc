@@ -25,7 +25,7 @@ class DocumentRecognitionTransport : RecognitionTransport {
         require(settings.apiKey.isNotBlank()) { "API-ключ не задан" }
         val request = Request.Builder().url(apiEndpoint(settings.baseUrl))
             .header("Authorization", "Bearer ${settings.apiKey}")
-            .post(body.toString().toRequestBody("application/json".toMediaType())).build()
+            .post(configuredApiBody(settings, body).toString().toRequestBody("application/json".toMediaType())).build()
         return suspendCancellableCoroutine { continuation ->
             val call = client.newCall(request)
             continuation.invokeOnCancellation { call.cancel() }

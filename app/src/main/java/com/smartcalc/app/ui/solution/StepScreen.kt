@@ -168,6 +168,7 @@ fun StepScreen(
                             .background(MaterialTheme.colorScheme.primaryContainer)
                             .padding(18.dp),
                     )
+                    LibraryExamples(solution.followUps.lastOrNull()?.agentReport ?: solution.agentReport.takeIf { solution.followUps.isEmpty() })
                 } else {
                     if (step.content.isNotBlank()) MathText(step.content, fontSize = 17.sp)
                     StepImages(step.images)
