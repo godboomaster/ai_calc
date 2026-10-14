@@ -39,9 +39,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
 
     buildFeatures {
         compose = true
@@ -86,4 +83,23 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.junit)
     androidTestImplementation("androidx.test:runner:1.6.2")
+}
+
+kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
+
+// Opt-in experiment only: never packaged in release or enabled in normal builds.
+if (providers.gradleProperty("koogProbe").isPresent) {
+    require(providers.gradleProperty("isolatedDeviceCheck").isPresent) {
+        "Koog probe requires -PisolatedDeviceCheck to protect the main installation"
+    }
+    android.sourceSets.getByName("androidTest").java.srcDir(
+        rootProject.file("experiments/koog-compatibility/network-tests")
+    )
+    dependencies {
+        debugImplementation("ai.koog:prompt-executor-deepseek-client:1.3.0-beta")
+        debugImplementation("ai.koog:http-client-ktor:1.3.0")
+        debugImplementation("io.ktor:ktor-client-okhttp:3.3.3")
+        debugRuntimeOnly("org.slf4j:slf4j-nop:2.0.17")
+        androidTestImplementation("com.squareup.okhttp3:mockwebserver:5.2.1")
+    }
 }
