@@ -1,7 +1,7 @@
 package com.smartcalc.app.data.api
 
 import com.smartcalc.app.data.settings.ApiSettings
-import com.smartcalc.app.data.settings.ReasoningFormat
+import com.smartcalc.app.data.settings.ApiFormat
 import kotlinx.serialization.json.*
 import org.junit.Assert.*
 import org.junit.Test
@@ -12,11 +12,11 @@ class ApiEndpointTest {
         for (host in listOf("api.xiaomimimo.com", "token-plan-cn.xiaomimimo.com"))
             for (model in listOf("mimo-v2.5", "mimo-v2.5-pro", "mimo-v2.6-flash", "mimo-v2.6-pro", "mimo-v2.6-pro-ultraspeed")) {
                 val settings = ApiSettings(baseUrl = "https://$host/v1", model = model)
-                val capability = reasoningCapability(settings)
-                assertEquals(ReasoningFormat.THINKING_TYPE, capability.format)
+                val capability = apiAdapter(settings)
+                assertEquals(ApiFormat.THINKING_TYPE, capability.format)
                 assertTrue(capability.requireReasoning)
                 assertTrue(capability.autoToolsOnly)
-                assertTrue(capability.canDisable)
+                assertTrue(capability.canDisableReasoning)
                 for (enabled in listOf(true, false)) {
                     val request = configuredApiBody(settings.copy(thinkingEnabled = enabled), body)
                     assertEquals(if (enabled) "enabled" else "disabled", request["thinking"]!!.jsonObject["type"]!!.jsonPrimitive.content)
@@ -32,11 +32,11 @@ class ApiEndpointTest {
 
     @Test fun miMoProxyAndServerDefaultKeepItsRequiredToolProtocol() {
         for (settings in listOf(
-            ApiSettings(baseUrl = "https://proxy.example/v1", model = "mimo-v2.6-pro", reasoningFormat = ReasoningFormat.THINKING_TYPE),
-            ApiSettings(baseUrl = "https://api.xiaomimimo.com/v1", model = "mimo-v2.5", reasoningFormat = ReasoningFormat.SERVER_DEFAULT),
+            ApiSettings(baseUrl = "https://proxy.example/v1", model = "mimo-v2.6-pro", apiFormat = ApiFormat.THINKING_TYPE),
+            ApiSettings(baseUrl = "https://api.xiaomimimo.com/v1", model = "mimo-v2.5", apiFormat = ApiFormat.SERVER_DEFAULT),
         )) {
-            assertTrue(reasoningCapability(settings).requireReasoning)
-            assertTrue(reasoningCapability(settings).autoToolsOnly)
+            assertTrue(apiAdapter(settings).requireReasoning)
+            assertTrue(apiAdapter(settings).autoToolsOnly)
             val final = buildJsonObject { put("tools", buildJsonArray {}); put("tool_choice", "none"); put("messages", buildJsonArray {}) }
             val configured = configuredApiBody(settings, final)
             assertFalse(configured.containsKey("tools"))
@@ -48,19 +48,19 @@ class ApiEndpointTest {
         for (model in listOf("qwen3.7-max-preview", "qwen3.7-max-2026-05-17")) {
             val settings = ApiSettings(baseUrl = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", model = model, thinkingEnabled = false)
             assertEquals(body, configuredApiBody(settings, body))
-            assertFalse(reasoningCapability(settings).controlled)
+            assertFalse(apiAdapter(settings).controlsReasoning)
         }
     }
     @Test fun selectedFormatsWorkOnCustomEndpointsWithoutMixingVendorParameters() {
         val body = buildJsonObject { put("model", "custom"); put("messages", buildJsonArray { }) }
         for (enabled in listOf(true, false)) {
             val settings = ApiSettings(baseUrl = "https://proxy.example/v1", thinkingEnabled = enabled)
-            val thinking = configuredApiBody(settings.copy(reasoningFormat = ReasoningFormat.THINKING_TYPE), body)
+            val thinking = configuredApiBody(settings.copy(apiFormat = ApiFormat.THINKING_TYPE), body)
             assertEquals(if (enabled) "enabled" else "disabled", thinking["thinking"]!!.jsonObject["type"]!!.jsonPrimitive.content)
-            val qwen = configuredApiBody(settings.copy(reasoningFormat = ReasoningFormat.ENABLE_THINKING), body)
+            val qwen = configuredApiBody(settings.copy(apiFormat = ApiFormat.ENABLE_THINKING), body)
             assertEquals(enabled, qwen["enable_thinking"]!!.jsonPrimitive.boolean)
             assertFalse(qwen.containsKey("thinking"))
-            val openai = configuredApiBody(settings.copy(reasoningFormat = ReasoningFormat.REASONING_EFFORT), body)
+            val openai = configuredApiBody(settings.copy(apiFormat = ApiFormat.REASONING_EFFORT), body)
             assertEquals(if (enabled) "high" else "none", openai["reasoning_effort"]!!.jsonPrimitive.content)
             assertFalse(openai.containsKey("thinking"))
         }
@@ -99,7 +99,7 @@ class ApiEndpointTest {
 
     @Test fun serverDefaultSuppressesExplicitThinkingEvenOnDeepSeek() {
         val body = buildJsonObject { put("messages", buildJsonArray { }) }
-        assertEquals(body, configuredApiBody(ApiSettings(baseUrl = "https://api.deepseek.com", reasoningFormat = ReasoningFormat.SERVER_DEFAULT), body))
+        assertEquals(body, configuredApiBody(ApiSettings(baseUrl = "https://api.deepseek.com", apiFormat = ApiFormat.SERVER_DEFAULT), body))
     }
     @Test fun deepSeekThinkingSettingDefaultsOnAndBothStatesReachRequestBody() {
         val body = buildJsonObject { put("model", "deepseek-flash"); put("messages", buildJsonArray { }) }
@@ -120,6 +120,15 @@ class ApiEndpointTest {
             assertEquals(body, configuredApiBody(ApiSettings(baseUrl = "https://api.openai.com/v1", thinkingEnabled = enabled), body))
             assertEquals(body, configuredApiBody(ApiSettings(baseUrl = "http://127.0.0.1/v1", thinkingEnabled = enabled), body))
         }
+    }
+
+    @Test fun autoDetectionNamesProviderOnlyWhenProfileWasNotChosenManually() {
+        assertEquals("DeepSeek", apiAdapter(ApiSettings(baseUrl = "https://api.deepseek.com")).provider)
+        assertEquals("Qwen", apiAdapter(ApiSettings(baseUrl = "https://team.maas.aliyuncs.com/v1", model = "qwen-plus")).provider)
+        assertEquals("OpenAI", apiAdapter(ApiSettings(baseUrl = "https://api.openai.com/v1", model = "o4-mini")).provider)
+        assertNull(apiAdapter(ApiSettings(baseUrl = "https://api.openai.com/v1", model = "gpt-5-pro")).provider)
+        assertNull(apiAdapter(ApiSettings(baseUrl = "https://api.deepseek.com", apiFormat = ApiFormat.THINKING_TYPE)).provider)
+        assertNull(apiAdapter(ApiSettings(baseUrl = "https://proxy.example/v1", model = "deepseek-flash")).provider)
     }
 
     @Test fun deepSeekThinkingToolPolicyIsLimitedToOfficialHost() {

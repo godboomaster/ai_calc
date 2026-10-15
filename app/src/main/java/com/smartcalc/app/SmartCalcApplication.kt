@@ -38,7 +38,7 @@ class SmartCalcApplication : Application() {
     val libraryStore by lazy { TemplateStore(File(filesDir, "library").apply { mkdirs() }, TemplateKind.LIBRARY) }
     val generation by lazy {
         GenerationController(this, applicationScope, historyStore, sessionStore,
-            settingsRepository, formatStore, templateStore,
+            formatStore, templateStore,
             { LibraryCatalog(libraryStore.items.value, librarySources.state.value, libraryStore.loadError.value) })
     }
     val librarySources by lazy { LibrarySourceStore(File(filesDir, "library/sources")) }

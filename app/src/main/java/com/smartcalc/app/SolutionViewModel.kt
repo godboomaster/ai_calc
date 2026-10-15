@@ -20,6 +20,7 @@ import com.smartcalc.app.data.search.TaskSearch
 import com.smartcalc.app.data.format.SolutionFormat
 import com.smartcalc.app.data.history.Solution
 import com.smartcalc.app.data.settings.ApiSettings
+import com.smartcalc.app.data.settings.ConnectionList
 import com.smartcalc.app.data.settings.AssistantLock
 import com.smartcalc.app.data.session.CalculatorSession
 import com.smartcalc.app.data.session.ListPosition
@@ -37,6 +38,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import java.io.InputStream
 import java.io.OutputStream
@@ -144,7 +146,19 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
         // or show a solution whose metadata write has failed.
         open(historyStore.add(solution))
     }
-    val settings = settingsRepo.settings.stateIn(viewModelScope, SharingStarted.Eagerly, ApiSettings())
+    // Updated before publishing the UI value; null means the stored settings are not loaded yet.
+    private var requestSettings: ApiSettings? = null
+    val settings = settingsRepo.settings.onEach { requestSettings = it }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, ApiSettings())
+
+    /** Сохранённые подключения; null — настройки ещё не прочитаны. */
+    val connections: StateFlow<ConnectionList?> =
+        settingsRepo.connections.stateIn<ConnectionList?>(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** Следующий запрос, в том числе повтор, уйдёт через это подключение. */
+    fun selectConnection(id: String) {
+        viewModelScope.launch { settingsRepo.selectConnection(id) }
+    }
     val swipeToRestore = settingsRepo.swipeToRestore.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     /** Код кнопки ✦ и её состояние; null — настройки ещё не прочитаны. Состояние переживает перезапуск. */
@@ -218,7 +232,8 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun beginRequest(followUp: Boolean = false, send: () -> Unit) {
+    private fun beginRequest(followUp: Boolean = false, send: (ApiSettings?) -> Unit) {
+        val attemptSettings = requestSettings
         if (!followUp) _current.value = null
         rememberSolution(_current.value)
         _error.value = null
@@ -226,23 +241,23 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
         submittedTemplateId = armedTemplate.value?.id
         assistantDisplay.start()
         _shown.value++
-        send()
+        send(attemptSettings)
     }
 
-    fun solveText(problem: String) = beginRequest { generation.text(problem, armedTemplate.value) }
-    fun solveImage(jpeg: ByteArray) = beginRequest { generation.image(jpeg, armedTemplate.value) }
-    fun solveGalleryImage(uri: Uri) = beginRequest { generation.gallery(uri, armedTemplate.value) }
-    fun solveDocument(uri: Uri) = beginRequest { generation.document(uri, armedTemplate.value) }
+    fun solveText(problem: String) = beginRequest { generation.text(problem, armedTemplate.value, it) }
+    fun solveImage(jpeg: ByteArray) = beginRequest { generation.image(jpeg, armedTemplate.value, it) }
+    fun solveGalleryImage(uri: Uri) = beginRequest { generation.gallery(uri, armedTemplate.value, it) }
+    fun solveDocument(uri: Uri) = beginRequest { generation.document(uri, armedTemplate.value, it) }
 
     fun askFollowUp(question: String) {
         val base = _current.value ?: return solveText(question)
         val template = followUpTemplate(base)
-        beginRequest(followUp = true) { generation.followUp(question, base, template) }
+        beginRequest(followUp = true) { generation.followUp(question, base, template, it) }
     }
 
     fun retryRequest() {
         val record = request.value?.takeIf { !it.active && it.error != null } ?: return
-        beginRequest(record.followUp) { generation.retry() }
+        beginRequest(record.followUp) { generation.retry(it) }
     }
 
     fun cancelRequest() = generation.runner.interrupt("Вычисление отменено. Можно повторить запрос.")

@@ -283,23 +283,18 @@ class OpenAiClient {
 
     private suspend fun complete(settings: ApiSettings, messages: JsonArray, libraryTools: LibraryTools? = null,
         forceSearch: Boolean = false, progress: suspend (LibraryAgentReport) -> Unit = {}): SolutionPayload {
+        requireImageSupport(settings, messages)
         if (libraryTools != null) {
             if (settings.apiKey.isBlank()) throw ApiConfigurationException("API-ключ не задан. Откройте настройки и введите ключ.")
-            val capability = reasoningCapability(settings)
-            if (!capability.chatToolsSupported) throw ApiConfigurationException("Эта модель OpenAI не поддерживает инструменты через Chat Completions. Выберите совместимую модель или выключите поиск агентом.")
+            val adapter = apiAdapter(settings)
+            if (!adapter.chatToolsSupported) throw ApiConfigurationException("Эта модель OpenAI не поддерживает инструменты через Chat Completions. Выберите совместимую модель или выключите поиск агентом.")
             val result = LibraryAgentLoop(settings.model, libraryTools,
                 { progress(it.redact(settings.apiKey)) },
                 { it.redactSecret(settings.apiKey).jsonObject },
-                thinkingToolMode = if (capability.controlled) settings.thinkingEnabled || !capability.canDisable else capability.requireReasoning,
-                requireReasoning = capability.requireReasoning,
-                autoToolsOnly = capability.autoToolsOnly) { executeMessage(settings, it) }.run(messages, forceSearch)
-            val parsed = parseSolution(result.content)
-            fun clean(value: String) = value.replace(settings.apiKey, "[скрыто]")
-            return parsed.copy(problem = clean(parsed.problem), answer = clean(parsed.answer),
-                steps = parsed.steps.map { step -> step.copy(title = clean(step.title), content = clean(step.content),
-                    svg = step.svg?.let(::clean), plot = step.plot?.let {
-                        plotJson.decodeFromJsonElement(Plot.serializer(), json.encodeToJsonElement(Plot.serializer(), it).redactSecret(settings.apiKey))
-                    }) }, agentReport = result.report.redact(settings.apiKey))
+                thinkingToolMode = adapter.thinkingToolMode(settings),
+                requireReasoning = adapter.requireReasoning,
+                autoToolsOnly = adapter.autoToolsOnly) { executeMessage(settings, it) }.run(messages, forceSearch)
+            return redactPayload(parseSolution(result.content).copy(agentReport = result.report), settings.apiKey)
         }
         fun body(jsonMode: Boolean) = buildJsonObject {
             put("model", settings.model)
@@ -313,7 +308,18 @@ class OpenAiClient {
             // Не все OpenAI-совместимые серверы знают response_format — повторяем без него.
             if (e.httpCode == 400 || e.httpCode == 422) execute(settings, body(jsonMode = false)) else throw e
         }
-        return parseSolution(raw)
+        return redactPayload(parseSolution(raw), settings.apiKey)
+    }
+
+    /** A provider may echo credentials in its response; none may reach history or checkpoints. */
+    private fun redactPayload(payload: SolutionPayload, secret: String): SolutionPayload {
+        if (secret.isBlank()) return payload
+        fun clean(value: String) = value.replace(secret, "[скрыто]")
+        return payload.copy(problem = clean(payload.problem), answer = clean(payload.answer),
+            steps = payload.steps.map { step -> step.copy(title = clean(step.title), content = clean(step.content),
+                svg = step.svg?.let(::clean), plot = step.plot?.let {
+                    plotJson.decodeFromJsonElement(Plot.serializer(), json.encodeToJsonElement(Plot.serializer(), it).redactSecret(secret))
+                }) }, agentReport = payload.agentReport?.redact(secret))
     }
 
     /**
