@@ -4,6 +4,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.ui.Alignment
+import com.smartcalc.app.ui.components.FormActions
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -27,10 +32,15 @@ import kotlinx.coroutines.launch
     }
     Column(Modifier.fillMaxSize()) {
         LibraryHeader(source?.name ?: "Оригинал", onBack)
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onClick = { ordinal-- }, enabled = ordinal > 1) { Text("Предыдущий") }
-            Text("${if (source?.format == SourceFormat.PDF) "Страница" else "Фрагмент"} $ordinal", modifier = Modifier.padding(top = 12.dp))
-            TextButton(onClick = { ordinal++ }, enabled = source?.segmentCount?.let { ordinal < it } == true) { Text("Следующий") }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { ordinal-- }, enabled = ordinal > 1) {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Предыдущий фрагмент")
+            }
+            Text("${if (source?.format == SourceFormat.PDF) "Страница" else "Фрагмент"} $ordinal",
+                modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            IconButton(onClick = { ordinal++ }, enabled = source?.segmentCount?.let { ordinal < it } == true) {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Следующий фрагмент")
+            }
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             LibraryError(error)
@@ -41,7 +51,9 @@ import kotlinx.coroutines.launch
                 segment.warnings.forEach { Text(it.detail, color = MaterialTheme.colorScheme.error) }
             }
         }
+        FormActions {
         OutlinedButton(onClick = { scope.launch { try { openLibraryOriginal(context, vm, sourceId) } catch (_: Exception) { error = "Не удалось открыть файл в другом приложении." } } },
-            enabled = source != null && source.status != SourceStatus.DELETED, modifier = Modifier.fillMaxWidth().padding(12.dp)) { Text("Открыть исходный файл") }
+            enabled = source != null && source.status != SourceStatus.DELETED, modifier = Modifier.fillMaxWidth()) { Text("Открыть исходный файл") }
+        }
     }
 }

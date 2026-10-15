@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.smartcalc.app.ui.library
 
 import androidx.compose.foundation.layout.*
@@ -37,7 +39,7 @@ import kotlinx.coroutines.CancellationException
             order.forEachIndexed { index, id ->
                 val source = catalog.sources.firstOrNull { it.id == id }
                 Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(source?.name ?: "Источник недоступен", style = MaterialTheme.typography.titleSmall)
                         val count = counts[id]
                         if (count == null) LinearProgressIndicator(Modifier.fillMaxWidth()) else {
@@ -51,7 +53,7 @@ import kotlinx.coroutines.CancellationException
                             val selected = runCatching { parsePageSelection(ranges[id].orEmpty(), count).ordinals.size }.getOrNull()
                             if (selected != null) Text("Выбрано: $selected · Останется: ${count - selected}", style = MaterialTheme.typography.bodySmall)
                         }
-                        if (order.size > 1) Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (order.size > 1) androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             TextButton(onClick = { order = order.toMutableList().apply { val old = this[index - 1]; this[index - 1] = this[index]; this[index] = old } }, enabled = index > 0 && !starting) { Text("Выше") }
                             TextButton(onClick = { order = order.toMutableList().apply { val old = this[index + 1]; this[index + 1] = this[index]; this[index] = old } }, enabled = index < order.lastIndex && !starting) { Text("Ниже") }
                         }

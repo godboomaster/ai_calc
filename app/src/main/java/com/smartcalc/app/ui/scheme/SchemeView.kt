@@ -13,13 +13,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -40,8 +38,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
+import com.smartcalc.app.ui.components.ReadingDialog
 import com.caverock.androidsvg.SVG
 
 /** Схема рисуется на «листе»: модель чертит чёрным по прозрачному, и в тёмной теме линии бы пропали. */
@@ -122,7 +119,7 @@ private fun SchemeCanvas(scheme: Scheme, modifier: Modifier) {
 /** Весь экран: щипок — масштаб, палец — сдвиг, двойное касание — приблизить или вернуть как было. */
 @Composable
 private fun SchemeFullscreen(scheme: Scheme, onDismiss: () -> Unit) {
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    ReadingDialog("Схема", onBack = onDismiss) {
         var scale by remember { mutableFloatStateOf(1f) }
         var offset by remember { mutableStateOf(Offset.Zero) }
         var area by remember { mutableStateOf(IntSize.Zero) }
@@ -139,8 +136,9 @@ private fun SchemeFullscreen(scheme: Scheme, onDismiss: () -> Unit) {
         }
         Box(
             modifier = Modifier
-                .fillMaxSize()
+                .weight(1f).fillMaxWidth()
                 .background(Color.Black)
+                .clipToBounds()
                 .onSizeChanged { area = it }
                 .pointerInput(Unit) {
                     detectTapGestures(
@@ -174,15 +172,7 @@ private fun SchemeFullscreen(scheme: Scheme, onDismiss: () -> Unit) {
             ) {
                 SchemeCanvas(scheme, Modifier.fillMaxSize().padding(8.dp))
             }
-            IconButton(
-                onClick = onDismiss,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(12.dp)
-                    .background(Color.Black.copy(alpha = 0.5f), CircleShape),
-            ) {
-                Icon(Icons.Filled.Close, contentDescription = "Закрыть", tint = Color.White)
-            }
+
         }
     }
 }

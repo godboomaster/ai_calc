@@ -1,6 +1,11 @@
 package com.smartcalc.app.ui.settings
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import kotlin.math.roundToInt
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -50,13 +55,23 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit, onOpenConnection: (String?) -> Unit) {
+fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit, onOpenConnection: (String?) -> Unit, openConnections: Boolean = false) {
     val settings by vm.settings.collectAsState()
     val connections by vm.connections.collectAsState()
     val swipeToRestore by vm.swipeToRestore.collectAsState()
     val assistantLock by vm.assistantLock.collectAsState()
     val assistantCode = assistantLock?.code
     val scope = rememberCoroutineScope()
+    val scroll = rememberScrollState()
+    var connectionOffset by remember { mutableStateOf<Int?>(null) }
+    var connectionShortcutHandled by rememberSaveable { mutableStateOf(false) }
+    var promptExpanded by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(openConnections, connectionOffset) {
+        if (openConnections && !connectionShortcutHandled) connectionOffset?.let {
+            scroll.scrollTo(it)
+            connectionShortcutHandled = true
+        }
+    }
     var codeInput by remember { mutableStateOf("") }
     var codeStatus by remember { mutableStateOf<String?>(null) }
 
@@ -76,7 +91,7 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit, onOpenConnection: 
     var status by remember { mutableStateOf<String?>(null) }
     var statusIsError by remember { mutableStateOf(false) }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize().imePadding()) {
         TopAppBar(
             title = { Text("Настройки") },
             navigationIcon = {
@@ -87,8 +102,8 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit, onOpenConnection: 
         )
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .weight(1f)
+                .verticalScroll(scroll)
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -138,7 +153,7 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit, onOpenConnection: 
                     supportingText = { Text("От ${ASSISTANT_CODE_LENGTH.first} до ${ASSISTANT_CODE_LENGTH.last} цифр") },
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         enabled = isValidAssistantCode(codeInput),
                         onClick = {
@@ -165,7 +180,7 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit, onOpenConnection: 
                     Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            SettingsSection("Подключения")
+            Column(Modifier.onGloballyPositioned { connectionOffset = it.positionInParent().y.roundToInt() }) { SettingsSection("Подключения") }
             connections?.let { list ->
                 SettingsGroup {
                     list.items.forEach { connection ->
@@ -183,7 +198,8 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit, onOpenConnection: 
             OutlinedButton(onClick = { onOpenConnection(null) }) { Text("Добавить подключение") }
 
             SettingsSection("Решение")
-            OutlinedTextField(
+            DisclosureButton("Системный промпт", promptExpanded) { promptExpanded = !promptExpanded }
+            if (promptExpanded) OutlinedTextField(
                 value = systemPrompt,
                 onValueChange = { systemPrompt = it },
                 label = { Text("Системный промпт") },
@@ -199,17 +215,15 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit, onOpenConnection: 
                     SettingsHint("Фотографии из библиотеки этим поиском не передаются.")
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (promptExpanded) OutlinedButton(onClick = { systemPrompt = ApiSettings.DEFAULT_SYSTEM_PROMPT }) { Text("Сбросить промпт") }
+            SettingsStatus(status, statusIsError)
                 Button(onClick = {
                     scope.launch {
                         vm.settingsRepo.saveSolving(systemPrompt.trim().ifBlank { ApiSettings.DEFAULT_SYSTEM_PROMPT }, libraryToolsEnabled)
                         status = "Сохранено"
                         statusIsError = false
                     }
-                }) { Text("Сохранить") }
-                OutlinedButton(onClick = { systemPrompt = ApiSettings.DEFAULT_SYSTEM_PROMPT }) { Text("Сбросить промпт") }
-            }
-            SettingsStatus(status, statusIsError)
+                }, modifier = Modifier.fillMaxWidth()) { Text("Сохранить настройки решения") }
         }
     }
 }
@@ -223,8 +237,8 @@ private fun ConnectionRow(connection: ApiConnection, active: Boolean, onSelect: 
     ) {
         RadioButton(selected = active, onClick = null)
         Column(modifier = Modifier.weight(1f)) {
-            Text(connection.displayName, style = MaterialTheme.typography.bodyLarge)
-            Text(connection.summary(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(connection.displayName, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(connection.summary(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         IconButton(onClick = onEdit) {
             Icon(Icons.Outlined.Edit, contentDescription = "Изменить подключение «${connection.displayName}»")

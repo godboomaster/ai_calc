@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.material3.Surface
+import com.smartcalc.app.ui.components.FormActions
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -357,8 +357,7 @@ fun TemplateEditScreen(
                 }
             }
         }
-        Surface(tonalElevation = 2.dp) {
-            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+        FormActions {
                 if (name.isBlank()) Text("Укажите название, чтобы сохранить", style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(bottom = 8.dp))
                 Button(
@@ -380,7 +379,6 @@ fun TemplateEditScreen(
                     enabled = name.isNotBlank() && !saving && !reading,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Сохранить") }
-            }
         }
     }
 

@@ -41,7 +41,7 @@ internal fun ConnectionPicker(
             onClick = { expanded = true },
             colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
         ) {
-            Text(list.active.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(list.active.displayName, modifier = Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis)
             Icon(Icons.Default.ArrowDropDown, contentDescription = "Выбрать подключение")
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {

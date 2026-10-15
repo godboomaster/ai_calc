@@ -156,6 +156,7 @@ fun CalculatorScreen(
     onOpenCamera: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenConnections: () -> Unit = onOpenSettings,
     onOpenFormat: () -> Unit,
     onOpenTemplates: () -> Unit,
     /** Поиск готовых решений; в запрос сразу подставляются числа, набранные на калькуляторе. */
@@ -463,7 +464,7 @@ fun CalculatorScreen(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     if (connectionList != null && connectionList.items.size > 1 && !concealed &&
                         (aiKeys || (onDisplay && error != null))) {
-                        ConnectionPicker(connectionList, vm::selectConnection, onOpenSettings,
+                        ConnectionPicker(connectionList, vm::selectConnection, onOpenConnections,
                             Modifier.widthIn(max = 240.dp))
                     }
                     Spacer(Modifier.weight(1f))
@@ -718,7 +719,8 @@ fun CalculatorScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(keypadViewportHeight)
-                        .verticalScroll(keypadScroll),
+                        // Не перехватывать жесты и не растягивать сетку, если все клавиши помещаются.
+                        .verticalScroll(keypadScroll, enabled = keypadContentHeight > keypadViewportHeight),
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
