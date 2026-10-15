@@ -141,14 +141,14 @@ class HistoryStoreTest {
         val directory = temporaryFolder.newFolder("failed-delete")
         val store = HistoryStore(directory)
         val image = File(store.saveImage(byteArrayOf(1, 2, 3)))
-        val original = solution("kept", "answer").copy(imagePath = image.absolutePath)
-        store.add(original)
+        // add() хранит канонический путь: на macOS /var/… временной папки становится /private/var/….
+        val published = store.add(solution("kept", "answer").copy(imagePath = image.absolutePath))
         blockHistoryWrites(directory)
 
-        val failure = runCatching { store.delete(original.id) }.exceptionOrNull()
+        val failure = runCatching { store.delete(published.id) }.exceptionOrNull()
 
         assertNotNull("Deleting should report the failed history write", failure)
-        assertEquals(listOf(original), store.items.value)
+        assertEquals(listOf(published), store.items.value)
         assertTrue("Image must remain when history write fails", image.exists())
     }
 

@@ -26,6 +26,15 @@ internal fun inputSubmission(text: String, editing: Boolean, followUp: Boolean):
 private const val ARITHMETIC = "0123456789.,+-−×÷*/()%Ee∞"
 internal fun isArithmetic(text: String) = text.all { it in ARITHMETIC || it.isWhitespace() }
 
+/** Результат под набираемым выражением; незаконченное «2+» и не выражение его не дают. */
+internal fun expressionPreview(expression: String): String? =
+    if (expression.isBlank() || expression.last() in "+−×÷(" || !isArithmetic(expression)) null
+    else try {
+        ExpressionParser.format(ExpressionParser.evaluate(expression))
+    } catch (e: Exception) {
+        null
+    }
+
 /** Код, скрывающий кнопку ✦: только цифры, чтобы его можно было набрать на клавишах калькулятора. */
 internal val ASSISTANT_CODE_LENGTH = 2..12
 
