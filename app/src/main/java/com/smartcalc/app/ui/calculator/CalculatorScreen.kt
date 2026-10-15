@@ -719,7 +719,8 @@ fun CalculatorScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(keypadViewportHeight)
-                        .verticalScroll(keypadScroll),
+                        // Не перехватывать жесты и не растягивать сетку, если все клавиши помещаются.
+                        .verticalScroll(keypadScroll, enabled = keypadContentHeight > keypadViewportHeight),
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
