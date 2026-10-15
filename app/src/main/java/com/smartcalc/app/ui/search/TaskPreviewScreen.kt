@@ -1,6 +1,7 @@
 package com.smartcalc.app.ui.search
 
 import androidx.activity.compose.BackHandler
+import com.smartcalc.app.ui.components.FormActions
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -94,8 +95,7 @@ internal fun TaskPreviewScreen(
                 LibraryExamples(followUp.agentReport)
             }
         }
-        Surface(tonalElevation = 2.dp) {
-            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        FormActions {
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Text("Для просмотра шагов на клавишах и дополнения с ИИ.", style = MaterialTheme.typography.bodySmall)
                 Button(onClick = {
@@ -110,7 +110,6 @@ internal fun TaskPreviewScreen(
                 }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
                     Text(if (busy) "Открываем…" else "На калькулятор")
                 }
-            }
         }
     }
 }

@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.smartcalc.app.ui.library
 
 import androidx.activity.compose.BackHandler
@@ -62,6 +64,7 @@ import com.smartcalc.app.ui.components.ExplanationCard
         }
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(job.status.label, style = MaterialTheme.typography.titleMedium)
                 Text("Задач: ${job.drafts.size}", style = MaterialTheme.typography.bodyMedium)
                 job.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -71,12 +74,13 @@ import com.smartcalc.app.ui.components.ExplanationCard
                     text = "Проверьте условие, решение и ответ. Убедитесь, что части каждой задачи собраны вместе.",
                     details = "Подтверждение разбора не означает проверки правильности решения. Добавленные задачи получают отметку «Не проверено».\n\nЗапросов за этот запуск: ${job.postsUsed}/10.",
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (busy) TextButton(onClick = { vm.cancel(jobId) }) { Text("Остановить") }
                     else TextButton(onClick = { vm.process(jobId) }) { Text(if (job.status == ImportStatus.FAILED || job.status == ImportStatus.INTERRUPTED) "Повторить обработку" else "Продолжить разбор") }
                     if (!busy) TextButton(onClick = { vm.addDraft(jobId) }) { Text("Новый черновик") }
                 }
                 if (edits.keys.any { id -> job.drafts.any { it.id == id } }) Text("Сохраняю правки…", style = MaterialTheme.typography.bodySmall)
+                }
             }
             items(drafts, key = { it.id }) { draft ->
                 var showComparison by remember { mutableStateOf(false) }
@@ -133,7 +137,7 @@ import com.smartcalc.app.ui.components.ExplanationCard
                                 }
                             }
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TextButton(onClick = { vm.split(jobId, draft.id) }, enabled = enabled) { Text("Разделить на две") }
                             TextButton(onClick = { vm.edit(jobId, draft.copy(excluded = !draft.excluded)); selected = selected - draft.id }, enabled = enabled) {
                                 Text(if (draft.excluded) "Вернуть" else "Исключить")
@@ -143,6 +147,7 @@ import com.smartcalc.app.ui.components.ExplanationCard
                 }
             }
             item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 TextButton(onClick = { vm.merge(jobId, selectedDraftIds.toList()) }, enabled = review.canMerge) { Text("Объединить выбранные") }
                 Box {
                     TextButton(onClick = { menu = true }) { Text(sectionId?.let { id -> library.firstOrNull { it.id == id }?.name } ?: "Новый раздел ▾") }
@@ -159,6 +164,7 @@ import com.smartcalc.app.ui.components.ExplanationCard
                 }
                 Button(onClick = { vm.publish(jobId, selectedDraftIds.toList(), sectionId, name) },
                     enabled = review.canPublish && sourceAvailable && name.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Добавить выбранные (${selectedDraftIds.size})") }
+                }
             }
         }
     }

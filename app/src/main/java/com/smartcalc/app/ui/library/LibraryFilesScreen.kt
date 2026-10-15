@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.smartcalc.app.ui.library
 
 import androidx.compose.foundation.layout.*
@@ -7,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import com.smartcalc.app.ui.components.FormActions
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
@@ -30,7 +33,7 @@ internal val ImportJob.busy: Boolean get() = waitingForSolution || status in set
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable fun LibraryHeader(title: String, onBack: () -> Unit) {
-    TopAppBar(title = { Text(title) }, navigationIcon = {
+    TopAppBar(title = { Text(title, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }, navigationIcon = {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") }
     })
 }
@@ -59,7 +62,7 @@ internal val ImportJob.busy: Boolean get() = waitingForSolution || status in set
         }
         if (copying) LinearProgressIndicator(Modifier.fillMaxWidth().padding(12.dp))
         LibraryError(catalog.error ?: jobs.error ?: error, vm::clearError)
-        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (pendingJobs.isNotEmpty()) {
                 item { Text("Требуют внимания", style = MaterialTheme.typography.titleMedium) }
                 items(pendingJobs, key = { "job:${it.id}" }) { job -> ImportJobCard(job, vm, onReview) }
@@ -69,7 +72,7 @@ internal val ImportJob.busy: Boolean get() = waitingForSolution || status in set
             }
             items(catalog.sources.reversed(), key = { it.id }) { source ->
                 Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Checkbox(checked = source.id in selected, enabled = source.status != SourceStatus.DELETED,
                                 onCheckedChange = { chosen -> vm.selectSources(if (chosen) selected + source.id else selected - source.id) })
@@ -84,7 +87,7 @@ internal val ImportJob.busy: Boolean get() = waitingForSolution || status in set
                                 Text("Использовать в поиске", Modifier.weight(1f))
                                 Switch(checked = source.status == SourceStatus.ACTIVE, onCheckedChange = { vm.enableSource(source.id, it) })
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 TextButton(onClick = { onSource(source.id, 1) }) { Text("Оригинал") }
                                 TextButton(onClick = { vm.selectSources(listOf(source.id)); onSelection() }) { Text("Подготовить задачи") }
                             }
@@ -102,8 +105,10 @@ internal val ImportJob.busy: Boolean get() = waitingForSolution || status in set
                 if (showCompleted) items(completedJobs, key = { "job:${it.id}" }) { job -> ImportJobCard(job, vm, onReview) }
             }
         }
-        if (selected.isNotEmpty()) Button(onClick = onSelection, enabled = !copying, modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-            Text("Подготовить выбранные (${selected.size})")
+        if (selected.isNotEmpty()) FormActions {
+            Button(onClick = onSelection, enabled = !copying, modifier = Modifier.fillMaxWidth()) {
+                Text("Подготовить выбранные (${selected.size})")
+            }
         }
     }
     deleting?.let { source -> AlertDialog(onDismissRequest = { deleting = null }, title = { Text("Удалить оригинал «${source.name}»?") },
