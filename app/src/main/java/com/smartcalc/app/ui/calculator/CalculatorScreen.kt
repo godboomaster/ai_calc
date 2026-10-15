@@ -156,6 +156,7 @@ fun CalculatorScreen(
     onOpenCamera: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenConnections: () -> Unit = onOpenSettings,
     onOpenFormat: () -> Unit,
     onOpenTemplates: () -> Unit,
     /** Поиск готовых решений; в запрос сразу подставляются числа, набранные на калькуляторе. */
@@ -463,7 +464,7 @@ fun CalculatorScreen(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     if (connectionList != null && connectionList.items.size > 1 && !concealed &&
                         (aiKeys || (onDisplay && error != null))) {
-                        ConnectionPicker(connectionList, vm::selectConnection, onOpenSettings,
+                        ConnectionPicker(connectionList, vm::selectConnection, onOpenConnections,
                             Modifier.widthIn(max = 240.dp))
                     }
                     Spacer(Modifier.weight(1f))

@@ -53,7 +53,7 @@ object Routes {
     const val HISTORY = "history"
     const val SOLUTION = "solution"
     const val STEP = "step/{index}"
-    const val SETTINGS = "settings"
+    const val SETTINGS = "settings?section={section}"
     const val CONNECTION = "connection?id={id}"
     const val FORMAT = "format"
     const val TEMPLATES = "templates"
@@ -192,7 +192,8 @@ private fun AppSession(vm: SolutionViewModel) {
                     onRestoreAssistant = ::restoreAssistant,
                     onOpenCamera = { nav.navigate(Routes.CAMERA) },
                     onOpenHistory = { nav.navigate(Routes.HISTORY) },
-                    onOpenSettings = { nav.navigate(Routes.SETTINGS) },
+                    onOpenSettings = { nav.navigate("settings") },
+                    onOpenConnections = { nav.navigate("settings?section=connections") },
                     onOpenFormat = { nav.navigate(Routes.FORMAT) },
                     onOpenTemplates = { nav.navigate(Routes.TEMPLATES) },
                     onOpenSearch = { query -> nav.navigate(Routes.search(query)) },
@@ -365,8 +366,9 @@ private fun AppSession(vm: SolutionViewModel) {
                     LaunchedEffect(Unit) { backToCalculator() }
                 }
             }
-            composable(Routes.SETTINGS) {
+            composable(Routes.SETTINGS, arguments = listOf(navArgument("section") { type = NavType.StringType; defaultValue = "" })) { entry ->
                 SettingsScreen(vm = vm, onBack = { nav.popBackStack() },
+                    openConnections = entry.arguments?.getString("section") == "connections",
                     onOpenConnection = { nav.navigate(Routes.connection(it)) })
             }
             composable(

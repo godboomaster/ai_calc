@@ -4,6 +4,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.heightIn
+import com.smartcalc.app.ui.components.FormActions
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -96,7 +99,7 @@ fun ConnectionScreen(
     // Новое подключение создают, чтобы им пользоваться: после сохранения оно становится активным.
     suspend fun save() = vm.settingsRepo.saveConnection(draft(), activate = isNew)
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize().imePadding()) {
         TopAppBar(
             title = { Text(if (isNew) "Новое подключение" else "Подключение") },
             navigationIcon = {
@@ -108,7 +111,7 @@ fun ConnectionScreen(
         if (!loaded) return@Column
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .weight(1f)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -122,6 +125,7 @@ fun ConnectionScreen(
                 value = name,
                 onValueChange = { name = it },
                 label = { Text("Название") },
+                supportingText = { Text("Необязательно — иначе используем название провайдера") },
                 placeholder = { Text(providerName(baseUrl.ifBlank { ApiSettings.DEFAULT_BASE_URL }) ?: "Например: DeepSeek") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
@@ -130,6 +134,7 @@ fun ConnectionScreen(
                 value = baseUrl,
                 onValueChange = { baseUrl = it },
                 label = { Text("Base URL") },
+                supportingText = { Text("Адрес API провайдера. Пустое поле — ${ApiSettings.DEFAULT_BASE_URL}") },
                 placeholder = { Text(ApiSettings.DEFAULT_BASE_URL) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
@@ -155,29 +160,26 @@ fun ConnectionScreen(
             val adapter = runCatching { apiAdapter(settings.withConnection(draft())) }.getOrNull()
             SettingsGroup {
                 Text("Формат API", style = MaterialTheme.typography.titleMedium)
-                SettingsHint(formatLine(apiFormat, adapter))
+                SettingsHint(if (baseUrl.isBlank() && apiFormat == ApiFormat.AUTO) "Определится по адресу" else formatLine(apiFormat, adapter))
                 val suggested = adapter?.suggestedFormat
                 if (apiFormat == ApiFormat.AUTO && suggested != null) {
                     SettingsHint("Модель не знакома приложению. Если она умеет рассуждать, выберите формат «${suggested.label()}».")
                 }
-                DisclosureButton("Изменить формат", formatExpanded) {
-                    formatExpanded = !formatExpanded
-                    formatMenu = false
-                }
-                if (formatExpanded) {
-                    Box {
-                        OutlinedButton(onClick = { formatMenu = true }, modifier = Modifier.fillMaxWidth()) {
-                            Text(apiFormat.label())
-                        }
-                        DropdownMenu(expanded = formatMenu, onDismissRequest = { formatMenu = false }) {
-                            ApiFormat.entries.forEach { format ->
-                                DropdownMenuItem(text = { Text(format.label()) }, onClick = {
-                                    apiFormat = format
-                                    formatMenu = false
-                                })
-                            }
+                Box {
+                    OutlinedButton(onClick = { formatMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text("${apiFormat.label()} ▾")
+                    }
+                    DropdownMenu(expanded = formatMenu, onDismissRequest = { formatMenu = false }) {
+                        ApiFormat.entries.forEach { format ->
+                            DropdownMenuItem(text = { Text(format.label()) }, onClick = {
+                                apiFormat = format
+                                formatMenu = false
+                            })
                         }
                     }
+                }
+                DisclosureButton("Подробнее о формате", formatExpanded) { formatExpanded = !formatExpanded }
+                if (formatExpanded) {
                     SettingsHint("Автоматически формат выбирается по адресу. Для шлюза или прокси выберите формат провайдера, к модели которого идёт запрос.")
                     if (adapter?.controlsReasoning == true) {
                         SettingsHint("Передаётся при включённом рассуждении: ${adapter.reasoningOn}\nПри выключенном: ${adapter.reasoningOff}")
@@ -202,25 +204,10 @@ fun ConnectionScreen(
             }
             SettingsGroup {
                 SettingsSwitch("Фото", supportsImages) { supportsImages = it }
-                SettingsHint("Включайте, если модель читает изображения. Проверьте это в документации провайдера. " +
-                    "Пока фото выключено, задача с фото через это подключение не отправляется.")
+                SettingsHint("Разрешить отправку изображений. Включайте только для модели с поддержкой фото.")
             }
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Button(
-                    onClick = {
-                        scope.launch {
-                            val created = isNew
-                            save()
-                            status = if (created) "Сохранено и выбрано для запросов" else "Сохранено"
-                            statusIsError = false
-                        }
-                    },
-                    enabled = !busy,
-                ) { Text("Сохранить") }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
                     onClick = {
                         scope.launch {
@@ -240,10 +227,11 @@ fun ConnectionScreen(
                 ) { Text("Проверить соединение") }
                 if (busy) CircularProgressIndicator(modifier = Modifier.padding(start = 4.dp))
             }
+
             SettingsStatus(status, statusIsError)
 
             if (!isNew) {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     // Копия удобна для той же учётной записи с другой моделью.
                     OutlinedButton(onClick = {
                         scope.launch {
@@ -261,6 +249,21 @@ fun ConnectionScreen(
                     }
                 }
             }
+        }
+        FormActions {
+            if (status?.startsWith("Сохранено") == true) SettingsStatus(status, false)
+                Button(
+                    onClick = {
+                        scope.launch {
+                            val created = isNew
+                            save()
+                            status = if (created) "Сохранено и выбрано для запросов" else "Сохранено"
+                            statusIsError = false
+                        }
+                    },
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                ) { Text("Сохранить") }
         }
     }
 

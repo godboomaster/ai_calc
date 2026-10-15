@@ -57,6 +57,21 @@ class ConnectionEditorDeviceTest {
         ui.onNodeWithText("Настройки").performClick()
     }
 
+    @Test fun connectionShortcutOpensConnectionsAndSaveStaysVisibleWithKeyboard() = safeTest {
+        openSettings()
+        ui.onNodeWithContentDescription("Назад").performClick()
+        ui.onNodeWithContentDescription("Выбрать подключение").performClick()
+        ui.onNodeWithText("Настроить подключения").performClick()
+        ui.waitForIdle()
+        ui.onNodeWithContentDescription("Изменить подключение «Rotation A»").assertIsDisplayed()
+        ui.onNodeWithContentDescription("Изменить подключение «Rotation A»").performClick()
+        ui.onNodeWithText("Сохранить", substring = false).assertIsDisplayed()
+        ui.onNodeWithText("Модель", substring = false).performScrollTo().performClick()
+        ui.waitForIdle()
+        ui.onNodeWithText("Сохранить", substring = false).assertIsDisplayed()
+        hideKeyboard()
+    }
+
     @Test fun existingDraftSurvivesLandscapeAndPortraitAndRepositoryActionsStillWork() = safeTest {
         openSettings()
         ui.onNodeWithContentDescription("Изменить подключение «Rotation A»").performScrollTo().performClick()
@@ -163,7 +178,12 @@ class ConnectionEditorDeviceTest {
         val matches = actual == expected || (label == "API-ключ" && actual == "\u2022".repeat(expected.length))
         assertTrue("Editor field must survive recreation: $label", matches)
     }
-    private fun click(text: String) { ui.onNodeWithText(text).performScrollTo().performClick() }
+    private fun click(text: String) {
+        val node = ui.onNodeWithText(text)
+        // Fixed footer actions have no scrolling ancestor.
+        if (!node.isDisplayed()) node.performScrollTo()
+        node.assertIsDisplayed().performClick()
+    }
 
     private fun hideKeyboard() {
         ui.activityRule.scenario.onActivity {

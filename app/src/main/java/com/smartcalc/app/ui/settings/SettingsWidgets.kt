@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 internal fun SettingsSection(title: String) {
-    Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+    Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 12.dp))
 }
 
 @Composable

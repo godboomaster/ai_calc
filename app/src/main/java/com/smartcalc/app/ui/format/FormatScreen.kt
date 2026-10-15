@@ -5,6 +5,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.imePadding
+import com.smartcalc.app.ui.components.FormActions
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -89,7 +91,7 @@ fun FormatScreen(vm: SolutionViewModel, onBack: () -> Unit) {
         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
     )
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize().imePadding()) {
         TopAppBar(
             title = { Text("Оформление") },
             navigationIcon = {
@@ -100,7 +102,7 @@ fun FormatScreen(vm: SolutionViewModel, onBack: () -> Unit) {
         )
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .weight(1f)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -182,6 +184,17 @@ fun FormatScreen(vm: SolutionViewModel, onBack: () -> Unit) {
                 }
             }
 
+            if (saved.isSet) {
+                OutlinedButton(
+                    onClick = {
+                        vm.clearFormat()
+                        onBack()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Сбросить оформление") }
+            }
+        }
+        FormActions {
             Button(
                 onClick = {
                     scope.launch {
@@ -192,15 +205,6 @@ fun FormatScreen(vm: SolutionViewModel, onBack: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Сохранить") }
 
-            if (saved.isSet) {
-                OutlinedButton(
-                    onClick = {
-                        vm.clearFormat()
-                        onBack()
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Сбросить оформление") }
-            }
         }
     }
 }
