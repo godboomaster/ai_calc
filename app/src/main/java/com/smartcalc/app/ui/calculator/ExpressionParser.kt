@@ -35,35 +35,45 @@ object ExpressionParser {
     private class Parser(private val input: String) {
         private var pos = 0
 
+        // Keep a percentage rate until +/− can apply it to the left-hand amount.
+        // Scaling a rate keeps it a rate; dividing two rates produces an ordinary number.
+        private data class Operand(val number: Double, val percentDegree: Int = 0)
+
         fun parse(): Double {
             val value = parseExpression()
             skipWhitespace()
             if (pos != input.length) throw ParseException("Неожиданный символ на позиции $pos")
-            return value
+            return value.number
         }
 
-        private fun parseExpression(): Double {
+        private fun parseExpression(): Operand {
             var value = parseTerm()
             while (true) {
                 skipWhitespace()
-                when {
-                    match('+') -> value += parseTerm()
-                    match('-') -> value -= parseTerm()
+                val subtract = when {
+                    match('+') -> false
+                    match('-') -> true
                     else -> return value
                 }
+                val right = parseTerm()
+                val amount = if (right.percentDegree > 0) value.number * right.number else right.number
+                value = Operand(if (subtract) value.number - amount else value.number + amount)
             }
         }
 
-        private fun parseTerm(): Double {
+        private fun parseTerm(): Operand {
             var value = parseFactor()
             while (true) {
                 skipWhitespace()
                 when {
-                    match('*') -> value *= parseFactor()
+                    match('*') -> {
+                        val right = parseFactor()
+                        value = Operand(value.number * right.number, percentDegree = value.percentDegree + right.percentDegree)
+                    }
                     match('/') -> {
                         val divisor = parseFactor()
-                        if (divisor == 0.0) throw ParseException("Деление на ноль")
-                        value /= divisor
+                        if (divisor.number == 0.0) throw ParseException("Деление на ноль")
+                        value = Operand(value.number / divisor.number, percentDegree = value.percentDegree - divisor.percentDegree)
                     }
 
                     else -> return value
@@ -71,20 +81,20 @@ object ExpressionParser {
             }
         }
 
-        private fun parseFactor(): Double {
+        private fun parseFactor(): Operand {
             skipWhitespace()
-            if (match('-')) return -parseFactor()
+            if (match('-')) return parseFactor().let { it.copy(number = -it.number) }
             if (match('+')) return parseFactor()
             var value = parsePrimary()
             skipWhitespace()
             while (match('%')) {
-                value /= 100.0
+                value = Operand(value.number / 100.0, percentDegree = value.percentDegree + 1)
                 skipWhitespace()
             }
             return value
         }
 
-        private fun parsePrimary(): Double {
+        private fun parsePrimary(): Operand {
             skipWhitespace()
             if (match('(')) {
                 val value = parseExpression()
@@ -92,7 +102,7 @@ object ExpressionParser {
                 if (!match(')')) throw ParseException("Нет закрывающей скобки")
                 return value
             }
-            if (match('∞')) return Double.POSITIVE_INFINITY
+            if (match('∞')) return Operand(Double.POSITIVE_INFINITY)
             val start = pos
             while (pos < input.length && (input[pos].isDigit() || input[pos] == '.')) pos++
             if (start == pos) throw ParseException("Ожидалось число на позиции $pos")
@@ -102,8 +112,8 @@ object ExpressionParser {
                 while (pos < input.length && input[pos].isDigit()) pos++
                 if (pos == exponentStart) throw ParseException("Ожидался показатель степени на позиции $pos")
             }
-            return input.substring(start, pos).toDoubleOrNull()
-                ?: throw ParseException("Некорректное число")
+            return Operand(input.substring(start, pos).toDoubleOrNull()
+                ?: throw ParseException("Некорректное число"))
         }
 
         private fun match(c: Char): Boolean {
