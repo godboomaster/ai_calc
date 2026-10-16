@@ -50,7 +50,7 @@ import com.smartcalc.app.ui.components.ExplanationCard
     }
     Column(Modifier.fillMaxSize().imePadding()) {
         LibraryHeader("Проверка разбора", ::back)
-        LibraryError(catalog.error ?: error, vm::clearError)
+        LibraryError(catalog.error ?: error, modifier = Modifier.padding(16.dp), clear = vm::clearError)
         if (job == null) { Text("Разбор недоступен", modifier = Modifier.padding(16.dp)); return@Column }
         val busy = job.busy || actionBusy
         val drafts = job.drafts.map { edits[it.id] ?: it }

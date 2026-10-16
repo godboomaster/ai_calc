@@ -115,16 +115,17 @@ fun TemplatesScreen(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Row(
-                            modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Text(
                                 "Выбран «${t.name}» — прикрепите задачу на калькуляторе",
                                 style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.weight(1f),
                             )
-                            TextButton(onClick = vm::disarmTemplate) { Text("Не использовать") }
+                            TextButton(onClick = vm::disarmTemplate, modifier = Modifier.align(Alignment.End)) {
+                                Text("Не использовать")
+                            }
                         }
                     }
                 }

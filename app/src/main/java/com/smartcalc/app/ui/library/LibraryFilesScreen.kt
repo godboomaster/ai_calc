@@ -37,10 +37,13 @@ internal val ImportJob.busy: Boolean get() = waitingForSolution || status in set
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") }
     })
 }
-@Composable internal fun LibraryError(message: String?, clear: (() -> Unit)? = null) {
+/** The screen owns the outer inset; this block also works inside already padded content. */
+@Composable internal fun LibraryError(message: String?, modifier: Modifier = Modifier, clear: (() -> Unit)? = null) {
     if (message != null) {
-        Text(message, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
-        if (clear != null) TextButton(onClick = clear) { Text("Понятно") }
+        Column(modifier) {
+            Text(message, color = MaterialTheme.colorScheme.error)
+            if (clear != null) TextButton(onClick = clear) { Text("Понятно") }
+        }
     }
 }
 @Composable fun LibraryFilesScreen(vm: LibraryImportViewModel, onBack: () -> Unit,
@@ -57,12 +60,15 @@ internal val ImportJob.busy: Boolean get() = waitingForSolution || status in set
         LibraryHeader("Библиотека", onBack)
         LibraryTabs(2, onSearch = onSearch, onTasks = onTasks, onFiles = {})
         Button(onClick = onAddMaterial, enabled = !copying,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+            modifier = Modifier.fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 12.dp)
+                .heightIn(min = 48.dp)) {
             Text("Добавить материал")
         }
         if (copying) LinearProgressIndicator(Modifier.fillMaxWidth().padding(12.dp))
-        LibraryError(catalog.error ?: jobs.error ?: error, vm::clearError)
-        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        LibraryError(catalog.error ?: jobs.error ?: error, modifier = Modifier.padding(16.dp), clear = vm::clearError)
+        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (pendingJobs.isNotEmpty()) {
                 item { Text("Требуют внимания", style = MaterialTheme.typography.titleMedium) }
                 items(pendingJobs, key = { "job:${it.id}" }) { job -> ImportJobCard(job, vm, onReview) }
