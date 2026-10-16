@@ -75,13 +75,24 @@ class CalculatorModesDeviceTest {
         ui.onNode(hasSetTextAction()).assertIsDisplayed()
     }
 
-    @Test fun calculatorWithReceivedAiResultStillAllowsInput() {
+    @Test fun hiddenAnswerBlocksDisplayInputUntilRestored() {
         val solution = runBlocking {
             app.historyStore.add(Solution(id = "calculator-input-fixture", problem = "Synthetic problem", answer = "314159"))
         }
         ui.runOnIdle { vm.open(solution) }
         ui.onNodeWithText("314159", substring = false).assertIsDisplayed()
         ui.onNodeWithText("C", substring = false).performClick()
+        ui.activityRule.scenario.recreate()
+        ui.waitForIdle()
+        ui.onAllNodesWithText("0", substring = false).onFirst().performTouchInput { click() }
+        ui.onAllNodes(hasSetTextAction()).assertCountEquals(0)
+        ui.onNodeWithContentDescription("ИИ-помощник").performTouchInput { longClick() }
+        ui.onNodeWithText("314159", substring = false).performClick()
+        ui.onNode(hasSetTextAction()).assertIsDisplayed()
+        ui.onNodeWithText("Дополнение к ответу", substring = false).assertIsDisplayed()
+        ui.runOnIdle { ui.activity.onBackPressedDispatcher.onBackPressed() }
+        ui.onNodeWithText("C", substring = false).performClick()
+        ui.onNodeWithContentDescription("ИИ-помощник").performClick()
         ui.onAllNodesWithText("0", substring = false).onFirst().performTouchInput { click() }
         ui.onNode(hasSetTextAction()).assertIsDisplayed()
     }

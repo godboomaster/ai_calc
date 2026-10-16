@@ -52,9 +52,38 @@ class CalculatorModesTest {
         assertFalse(screen.state.aiKeys)
     }
 
-    @Test fun calculatorWithReceivedSolutionStillAcceptsInput() {
+    @Test fun restartedCalculatorWithHiddenSolutionCannotOpenSavedTask() {
+        val restored = CalculatorModes.fromSession(
+            CalculatorSession(expression = "12+3", taskDraft = "saved task"), "answer", shown = 0)
+        val screen = Screen(restored,
+            answer.copy(assistantVisible = false))
+        assertFalse(screen.state.presentation(screen.context).canTapDisplay)
+        screen.send(CalculatorEvent.TapDisplay)
+        assertEquals(restored, screen.state)
+        assertTrue(screen.effects.isEmpty())
+    }
+
+    @Test fun clearHidesAnswerAndDisablesDisplayInputUntilAnswerRestored() {
+        val screen = Screen(CalculatorModes(expression = "12+3", followUpDraft = "Почему?"), answer)
+        screen.send(CalculatorEvent.Clear)
+        assertFalse(screen.state.presentation(screen.context).canTapDisplay)
+        screen.effects.clear()
+        screen.send(CalculatorEvent.TapDisplay)
+        assertFalse(screen.state.editing)
+        assertTrue(screen.effects.isEmpty())
+        assertEquals("12+3", screen.state.expression)
+        assertEquals("Почему?", screen.state.followUpDraft)
+        screen.send(CalculatorEvent.RestoreAssistant)
+        assertTrue(screen.state.presentation(screen.context).canTapDisplay)
+        screen.send(CalculatorEvent.TapDisplay)
+        assertEquals(EditorMode.FOLLOW_UP, screen.state.editorMode)
+        assertEquals("Почему?", screen.text)
+    }
+
+    @Test fun assistantKeysAllowTaskInputWhileSavedAnswerIsHidden() {
         val screen = Screen(CalculatorModes(expression = "12+3", taskDraft = "saved task"),
             answer.copy(assistantVisible = false))
+        screen.send(CalculatorEvent.ToggleKeys)
         assertTrue(screen.state.presentation(screen.context).canTapDisplay)
         screen.send(CalculatorEvent.TapDisplay)
         assertEquals(EditorMode.TASK, screen.state.editorMode)

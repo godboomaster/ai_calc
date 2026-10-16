@@ -82,7 +82,7 @@ internal data class CalculatorModes(
     val followUp get() = editorMode == EditorMode.FOLLOW_UP
 
     private fun inputAvailable(context: CalculatorContext) =
-        !context.concealed && (aiKeys || context.assistantVisible || context.hasSolution)
+        !context.concealed && (aiKeys || context.assistantVisible)
 
     fun presentation(context: CalculatorContext) = CalculatorPresentation(
         displayMode = when {
