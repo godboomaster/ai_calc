@@ -23,7 +23,52 @@ class ExpressionParserTest {
         assertEquals(3.0, eval("--3"), 1e-9)
         assertEquals(0.5, eval("50%"), 1e-9)
         assertEquals(1.5, eval("150%"), 1e-9)
-        assertEquals(100.5, eval("100+50%"), 1e-9)
+        assertEquals(150.0, eval("100+50%"), 1e-9)
+    }
+
+    @Test fun additionAndSubtractionUsePercentOfLeftHandAmount() {
+        assertEquals(19.6, eval("20 - 2%"), 1e-9)
+        assertEquals(19.6, eval("20−2%"), 1e-9)
+        assertEquals(20.4, eval("20+2%"), 1e-9)
+        assertEquals(162.0, eval("200−10%−10%"), 1e-9)
+        assertEquals(19.5, eval("20−2,5%"), 1e-9)
+        assertEquals(-19.6, eval("-20−2%"), 1e-9)
+    }
+
+    @Test fun percentKeepsItsMeaningAcrossParenthesesAndUnarySigns() {
+        assertEquals(19.6, eval("(10+10)−(2%)"), 1e-9)
+        assertEquals(19.6, eval("20−(1+1)%"), 1e-9)
+        assertEquals(19.6, eval("20+(-2%)"), 1e-9)
+        assertEquals(21.0, eval("(10+10)+5%"), 1e-9)
+    }
+
+    @Test fun standaloneAndMultiplicativePercentRemainFractions() {
+        assertEquals(0.02, eval("2%"), 1e-9)
+        assertEquals(0.4, eval("20×2%"), 1e-9)
+        assertEquals(1000.0, eval("20÷2%"), 1e-9)
+        assertEquals(1000.0, eval("20÷(2%)"), 1e-9)
+        assertEquals(0.0002, eval("2%%"), 1e-9)
+    }
+
+    @Test fun scaledPercentStillUsesTheLeftHandAmount() {
+        assertEquals(19.6, eval("20−2%×1"), 1e-9)
+        assertEquals(18.8, eval("20−2×3%"), 1e-9)
+        assertEquals(18.8, eval("20−(2%)×3"), 1e-9)
+        assertEquals(19.8, eval("20−2%÷2"), 1e-9)
+        assertEquals(19.6, eval("20−(2%÷1)"), 1e-9)
+    }
+
+    @Test fun ratioOfPercentagesIsAnOrdinaryNumber() {
+        assertEquals(2.0, eval("2%÷1%"), 1e-9)
+        assertEquals(18.0, eval("20−2%÷1%"), 1e-9)
+        assertEquals(-180.0, eval("20−2÷1%"), 1e-9)
+    }
+
+    @Test fun cancellingPercentageFactorsKeepsTheRemainingRate() {
+        assertEquals(19.6, eval("20−2%×1%÷1%"), 1e-9)
+        assertEquals(19.6, eval("20−(2%×1%)÷1%"), 1e-9)
+        assertEquals(18.0, eval("20−2÷1%×1%"), 1e-9)
+        assertEquals(19.6, eval("20−2%%÷1%"), 1e-9)
     }
 
     @Test
