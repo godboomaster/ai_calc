@@ -1,5 +1,9 @@
 package com.smartcalc.app.ui.calculator
 
+/** Числа из выражения на дисплее — запрос для поиска: «12+3.5×40» → «12 3.5 40». */
+internal fun searchNumbers(expression: String): String =
+    Regex("""\d+(?:[.,]\d+)?""").findAll(expression).joinToString(" ") { it.value }
+
 /** Input rules shared by the Compose keypad and its regression tests. */
 internal fun appendCalculatorToken(expression: String, evaluated: Boolean, token: String): String {
     val base = if (!isArithmetic(expression) ||

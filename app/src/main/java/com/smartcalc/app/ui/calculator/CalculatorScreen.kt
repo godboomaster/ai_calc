@@ -1,6 +1,5 @@
 package com.smartcalc.app.ui.calculator
 
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -23,7 +22,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -65,7 +63,6 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -80,13 +77,9 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.Role
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.input.ImeAction
@@ -98,7 +91,6 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartcalc.app.SolutionViewModel
-import com.smartcalc.app.data.session.CalculatorSession
 import com.smartcalc.app.data.request.RequestStatus
 import com.smartcalc.app.data.DocumentReader
 import com.smartcalc.app.ui.math.MathMarkup
@@ -122,13 +114,6 @@ private class AiAction(
     val onClick: () -> Unit,
 )
 
-/** Шаг решения, который открывается удержанием цифры: 1–9 — шаги с первого по девятый, 0 — десятый. */
-private fun stepIndex(digit: Char) = if (digit == '0') 9 else digit - '1'
-
-/** Числа из выражения на дисплее — запрос для поиска: «12+3.5×40» → «12 3.5 40». */
-internal fun searchNumbers(expression: String): String =
-    Regex("""\d+(?:[.,]\d+)?""").findAll(expression).joinToString(" ") { it.value }
-
 /** Высота задаётся только клавишам самого калькулятора; экраны шага и решения сохраняют свой размер. */
 private val LocalCalculatorKeyHeight = staticCompositionLocalOf<Dp?> { null }
 private val LocalCalculatorKeysEditing = staticCompositionLocalOf { false }
@@ -143,7 +128,9 @@ private fun inputFontSize(length: Int): TextUnit = when {
 /**
  * Калькулятор, он же вход в ИИ. Значок в углу превращает цифры 1–8 в действия ИИ (написать,
  * камера, галерея, документ, история, настройки, шаблоны, формат), а нажатие на строку ввода
- * открывает системную клавиатуру — задачу можно написать прямо на дисплее. «=» считает выражение,
+ * открывает дополнение к ответу ИИ. «Написать» открывает ввод задачи. До первого результата ИИ
+ * обычный калькулятор не открывает клавиатуру; после получения ответа ввод снова доступен.
+ * «=» считает выражение,
  * а всё, что выражением не является, отправляет ИИ; ход решения и ответ появляются на этом же дисплее.
  */
 @OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
@@ -162,78 +149,47 @@ fun CalculatorScreen(
     /** Поиск готовых решений; в запрос сразу подставляются числа, набранные на калькуляторе. */
     onOpenSearch: (query: String) -> Unit,
 ) {
-    // Файл сеанса переживает новый процесс; rememberSaveable сохраняет текущую композицию при навигации.
-    val savedCalculator = remember { vm.session.value.calculator }
-    var expr by rememberSaveable { mutableStateOf(savedCalculator.expression) }
-    var evaluated by rememberSaveable { mutableStateOf(savedCalculator.evaluated) }
-    var aiKeys by rememberSaveable { mutableStateOf(false) }
-    var editing by rememberSaveable { mutableStateOf(false) }
-    // Строка ввода дописывает вопрос к ответу на дисплее, а не новую задачу.
-    var followUp by rememberSaveable { mutableStateOf(false) }
-    // Недописанное дополнение не пропадает, если клавиатуру закрыли.
-    var followUpDraft by rememberSaveable { mutableStateOf(savedCalculator.followUpDraft) }
-    var taskDraft by rememberSaveable { mutableStateOf(savedCalculator.taskDraft) }
-    var returnToAssistant by rememberSaveable { mutableStateOf(false) }
-    var field by rememberSaveable(stateSaver = TextFieldState.Saver) { mutableStateOf(TextFieldState()) }
-    val keyboard = LocalSoftwareKeyboardController.current
-
     val display by vm.display.collectAsState()
     val connections by vm.connections.collectAsState()
     val swipeToRestore by vm.swipeToRestore.collectAsState()
     val assistantLock by vm.assistantLock.collectAsState()
-    val assistantCode = assistantLock?.code
-    val assistantRevealed = assistantLock?.revealed == true
-    val concealed = assistantConcealed(assistantCode, assistantRevealed)
-    val onDisplay = display.visible
     val solving by vm.solving.collectAsState()
     val error by vm.error.collectAsState()
     var showErrorDetails by remember(error) { mutableStateOf(false) }
     val pending by vm.pending.collectAsState()
     val request by vm.request.collectAsState()
     val solution by vm.current.collectAsState()
-    var draftSolutionId by rememberSaveable { mutableStateOf(solution?.id) }
     val format by vm.format.collectAsState()
     val template by vm.armedTemplate.collectAsState()
     val templates by vm.templates.collectAsState()
     val steps = solution?.latestSteps.orEmpty()
-    val answerVisible = onDisplay && !solving && error == null && solution != null
-    val canSwipeToRestore = swipeToRestore && !concealed && !onDisplay && !editing && !aiKeys &&
-        (solving || solution != null || error != null)
+    val context = CalculatorContext(
+        assistantVisible = display.visible,
+        assistantUnread = display.unread,
+        solving = solving,
+        hasError = error != null,
+        hasSolution = solution != null,
+        retryText = vm.retryText,
+        retryIsFollowUp = vm.retryIsFollowUp,
+        assistantCode = assistantLock?.code,
+        assistantRevealed = assistantLock?.revealed == true,
+        swipeToRestore = swipeToRestore,
+    )
+    val modes = rememberCalculatorModes(vm, context, solution?.id, onRestoreAssistant)
+    val presentation = modes.presentation
+    val expr = modes.state.expression
+    val aiKeys = modes.state.aiKeys
+    val editing = modes.state.editing
+    val followUp = modes.state.followUp
+    val field = modes.field
+    val answerVisible = presentation.answerVisible
     val answerScroll = key(solution?.id, solution?.followUps?.size) {
         val initialScroll = remember { vm.session.value.reading.answerScroll }
         rememberScrollState(initial = initialScroll)
     }
-    val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
-
-    // Сохраняем и незакрытый редактор: force-stop не обязан вызывать lifecycle callbacks.
-    LaunchedEffect(Unit) {
-        snapshotFlow {
-            val draft = field.text.toString()
-            val expressionEditing = editing && !followUp && !returnToAssistant &&
-                (draft.isBlank() || isArithmetic(draft))
-            CalculatorSession(
-                expression = if (expressionEditing) draft else expr,
-                evaluated = if (expressionEditing) false else evaluated,
-                taskDraft = when {
-                    expressionEditing -> ""
-                    editing && !followUp -> draft
-                    else -> taskDraft
-                },
-                followUpDraft = if (editing && followUp) draft else followUpDraft,
-                followUpSolutionId = draftSolutionId,
-            )
-        }.collect(vm::saveCalculator)
-    }
     LaunchedEffect(answerScroll, solution?.id, solution?.followUps?.size) {
         val s = solution ?: return@LaunchedEffect
         snapshotFlow { answerScroll.value }.collect { vm.saveAnswerScroll(s.id, s.followUps.size, it) }
-    }
-
-    // Меню, редактор и экраны поверх калькулятора не означают, что результат прочитан.
-    LaunchedEffect(display, solving, editing, aiKeys, lifecycle) {
-        if (onDisplay && !solving && !editing && !aiKeys && lifecycle == Lifecycle.State.RESUMED) {
-            vm.markViewed()
-        }
     }
 
     val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -252,160 +208,11 @@ fun CalculatorScreen(
         }
     }
 
-    /** Клавиша нажата, пока на дисплее ИИ: калькулятор возвращается к обычному счёту. */
-    fun leaveAi() {
-        aiKeys = false
-        vm.hideFromDisplay()
-    }
-
-    fun startEditing(text: String, asFollowUp: Boolean = false) {
-        returnToAssistant = onDisplay
-        vm.hideFromDisplay()
-        aiKeys = false
-        field = TextFieldState(text, TextRange(text.length))
-        followUp = asFollowUp
-        editing = true
-    }
-
-    /** Клавиатура убрана без отправки: недописанное дополнение откладывается, ответ возвращается на дисплей. */
-    fun stopEditing(saveDraft: Boolean = true) {
-        keyboard?.hide()
-        if (!editing) return
-        editing = false
-        if (saveDraft) {
-            val draft = field.text.toString()
-            if (followUp) {
-                followUpDraft = draft
-            } else if (!returnToAssistant && (draft.isBlank() || isArithmetic(draft))) {
-                expr = draft
-                evaluated = false
-                taskDraft = ""
-            } else {
-                taskDraft = draft
-            }
-            if (returnToAssistant) vm.showOnDisplay()
-        }
-        followUp = false
-    }
-
-    fun restoreAssistant() {
-        stopEditing()
-        aiKeys = false
-        onRestoreAssistant()
-    }
-
-    /**
-     * Нажатие на строку ввода: продолжить выражение, поправить задачу после ошибки или, если на дисплее
-     * ответ ИИ, задать к нему дополнительный вопрос. Новая задача вместо дополнения — после «C».
-     */
-    fun tapDisplay() {
-        // Спрятанный помощник не выдаёт себя строкой ввода: дисплей ведёт себя как у обычного калькулятора.
-        if (concealed) return
-        when {
-            !onDisplay -> startEditing(taskDraft.ifEmpty { if (evaluated && !isArithmetic(expr)) "" else expr })
-            solving -> Unit
-            error != null -> {
-                val asFollowUp = vm.retryIsFollowUp && solution != null
-                val draft = if (asFollowUp) followUpDraft else taskDraft
-                startEditing(retryEditorText(draft, vm.retryText), asFollowUp)
-            }
-            else -> startEditing(followUpDraft, asFollowUp = true)
-        }
-    }
-
-    fun input(token: String) {
-        leaveAi()
-        expr = appendCalculatorToken(expr, evaluated, token)
-        evaluated = false
-    }
-
-    fun clear() {
-        leaveAi()
-        if (onDisplay) return
-        expr = ""
-        evaluated = false
-    }
-
-    fun equals() {
-        val text = (if (editing) field.text.toString() else expr).trim()
-        if (!editing) leaveAi()
-        // Код считается как обычное число: со стороны это просто «42 = 42».
-        if (!editing && togglesAssistant(text, evaluated, assistantCode)) vm.toggleAssistant()
-        val submission = inputSubmission(text, editing, followUp)
-        if (submission == InputSubmission.NONE) return
-        if (submission == InputSubmission.FOLLOW_UP) {
-            // Дополнение уходит ИИ целиком, даже если похоже на выражение: «а если 2+3?».
-            followUp = false
-            followUpDraft = ""
-            stopEditing(saveDraft = false)
-            vm.askFollowUp(text)
-            return
-        }
-        if (submission == InputSubmission.CALCULATE) {
-            if (editing) taskDraft = ""
-            stopEditing(saveDraft = false)
-            expr = try {
-                ExpressionParser.format(ExpressionParser.evaluate(text))
-            } catch (e: Exception) {
-                "Ошибка"
-            }
-            evaluated = true
-        } else if (submission == InputSubmission.ASK) {
-            // «Ошибка» и «Не число» — результаты, а не задачи: их ИИ не отправляем.
-            stopEditing(saveDraft = false)
-            vm.solveText(text)
-            taskDraft = ""
-        }
-    }
-
-    // Пошло решение или открыта запись из истории — снова цифры: на них шаги решения. Счётчик, а не
-    // onDisplay: дисплей мог показывать ответ и до этого, а возврат из настроек клавиши ИИ не сбрасывает.
-    val shown by vm.shown.collectAsState()
-    var seenShown by rememberSaveable { mutableIntStateOf(shown) }
-    LaunchedEffect(shown) {
-        if (shown != seenShown) {
-            seenShown = shown
-            aiKeys = false
-            editing = false
-            followUp = false
-        }
-    }
-    // Возврат с экрана шага заново создаёт композицию, но не меняет задачу и её черновик.
-    LaunchedEffect(solution?.id) {
-        if (draftSolutionId != solution?.id) {
-            followUpDraft = ""
-            draftSolutionId = solution?.id
-        }
-    }
-    // «Изменить условие» и «Дополнить» на экране решения: строка ввода открывается с условием или пустой.
-    val editRequest = vm.editRequest
-    LaunchedEffect(editRequest) {
-        if (editRequest != null) {
-            vm.editRequest = null
-            aiKeys = false
-            startEditing(editRequest.text, asFollowUp = editRequest.followUp && solution != null)
-        }
-    }
-    // Клавиатуру убрали жестом или «назад» — сохранить черновик и вернуть обычный дисплей.
-    val imeVisible = WindowInsets.isImeVisible
-    var imeShown by remember { mutableStateOf(false) }
-    LaunchedEffect(imeVisible, editing) {
-        when {
-            !editing -> imeShown = false
-            imeVisible -> imeShown = true
-            imeShown -> stopEditing()
-        }
-    }
-    BackHandler(enabled = editing) { stopEditing() }
-    BackHandler(enabled = aiKeys && !editing) { aiKeys = false }
-    // Код набран повторно или приложение запущено со спрятанной ✦ — помощник прячется целиком.
-    LaunchedEffect(concealed) {
-        if (concealed) {
-            stopEditing()
-            aiKeys = false
-            vm.hideFromDisplay()
-        }
-    }
+    fun input(token: String) = modes.dispatch(CalculatorEvent.Input(token))
+    fun clear() = modes.dispatch(CalculatorEvent.Clear)
+    fun equals() = modes.dispatch(CalculatorEvent.Submit)
+    fun tapDisplay() = modes.dispatch(CalculatorEvent.TapDisplay)
+    fun restoreAssistant() = modes.dispatch(CalculatorEvent.RestoreAssistant)
 
     if (showErrorDetails && error != null) {
         AlertDialog(onDismissRequest = { showErrorDetails = false }, title = { Text("Ошибка запроса") },
@@ -462,15 +269,14 @@ fun CalculatorScreen(
                 // уйдёт через выбранное. С одним подключением выбирать нечего, и плашки нет.
                 val connectionList = connections
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    if (connectionList != null && connectionList.items.size > 1 && !concealed &&
-                        (aiKeys || (onDisplay && error != null))) {
+                    if (connectionList != null && connectionList.items.size > 1 && presentation.showConnectionPicker) {
                         ConnectionPicker(connectionList, vm::selectConnection, onOpenConnections,
                             Modifier.widthIn(max = 240.dp))
                     }
                     Spacer(Modifier.weight(1f))
                     // Помощник скрыт: на экране только калькулятор и неприметный значок в углу. С кодом пропадает
                     // и значок, а его место остаётся пустым, чтобы дисплей не сдвигался.
-                    if (!assistantButtonVisible(assistantCode, assistantRevealed)) {
+                    if (!presentation.assistantButtonVisible) {
                         Spacer(Modifier.size(48.dp))
                     } else Box(
                         contentAlignment = Alignment.Center,
@@ -478,10 +284,7 @@ fun CalculatorScreen(
                             role = Role.Button,
                             onLongClickLabel = "Вернуться к ответу",
                             onLongClick = ::restoreAssistant,
-                            onClick = {
-                                stopEditing()
-                                aiKeys = !aiKeys
-                            },
+                            onClick = { modes.dispatch(CalculatorEvent.ToggleKeys) },
                         ),
                     ) {
                         Icon(
@@ -505,18 +308,18 @@ fun CalculatorScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .swipeUpToRestore(enabled = canSwipeToRestore, onRestore = ::restoreAssistant)
+                        .swipeUpToRestore(enabled = presentation.canSwipeToRestore, onRestore = ::restoreAssistant)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
-                            enabled = !editing && !(onDisplay && solving),
+                            enabled = presentation.canTapDisplay,
                             onClick = ::tapDisplay,
                         ),
                     verticalArrangement = Arrangement.Bottom,
                     horizontalAlignment = Alignment.End,
                 ) {
-                    when {
-                        editing -> Column(
+                    when (presentation.displayMode) {
+                        CalculatorDisplayMode.EDITOR -> Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f)
@@ -541,7 +344,7 @@ fun CalculatorScreen(
                                         "Дополнение к ответу" +
                                             (withTemplate?.let { " · образец «${it.name}»" } ?: ""),
                                         s.latestAnswer,
-                                        onDrop = { followUp = false },
+                                        onDrop = { modes.dispatch(CalculatorEvent.DropFollowUp) },
                                         compact = compactEditorContext,
                                     )
                                 } else if (template != null) {
@@ -559,7 +362,7 @@ fun CalculatorScreen(
                             )
                         }
 
-                        !onDisplay -> Column(
+                        CalculatorDisplayMode.CALCULATOR -> Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f, fill = false),
@@ -592,7 +395,7 @@ fun CalculatorScreen(
                             )
                         }
 
-                        solving -> Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                        CalculatorDisplayMode.SOLVING -> Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
                             Box(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
                                 contentAlignment = Alignment.BottomEnd) {
                                 DisplayCaption(pending ?: "Задача с фото", maxLines = captionMaxLines)
@@ -604,7 +407,7 @@ fun CalculatorScreen(
                             }
                         }
 
-                        error != null -> Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                        CalculatorDisplayMode.ERROR -> Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
                             Box(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
                                 contentAlignment = Alignment.BottomEnd) {
                                 Text(error.orEmpty(), fontSize = 20.sp, textAlign = TextAlign.End,
@@ -620,7 +423,7 @@ fun CalculatorScreen(
                             }
                         }
 
-                        solution != null -> Column(
+                        CalculatorDisplayMode.ANSWER -> Column(
                             modifier = Modifier.weight(1f, fill = false),
                             horizontalAlignment = Alignment.End,
                         ) {
@@ -647,6 +450,7 @@ fun CalculatorScreen(
                                 )
                             }
                         }
+                        CalculatorDisplayMode.EMPTY -> Unit
                     }
                 }
             }
@@ -674,7 +478,7 @@ fun CalculatorScreen(
                 '8' to AiAction("Оформление", Icons.Outlined.Tune, highlighted = format.isSet, onClick = onOpenFormat),
                 // Числа задачи можно набрать на калькуляторе до поиска — например, 12+3,5+40.
                 '9' to AiAction("Библиотека", Icons.Outlined.Search) {
-                    onOpenSearch(if (!onDisplay && !evaluated) searchNumbers(expr) else "")
+                    onOpenSearch(modes.state.libraryQuery(context))
                 },
             )
 
@@ -702,7 +506,7 @@ fun CalculatorScreen(
                     }
                     return
                 }
-                val step = stepIndex(digit).takeIf { answerVisible && it < steps.size }
+                val step = modes.state.stepForDigit(digit, context, steps.size)
                 CalcKey(
                     digit.toString(),
                     numberColor,
@@ -752,9 +556,7 @@ fun CalculatorScreen(
                             DigitKey('0')
                             CalcKey(".", numberColor) { input(".") }
                             CalcKey("⌫", numberColor, onLongClick = { clear() }) {
-                                leaveAi()
-                                expr = deleteCalculatorCharacter(expr)
-                                evaluated = false
+                                modes.dispatch(CalculatorEvent.Delete)
                             }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
