@@ -19,9 +19,8 @@ import com.smartcalc.app.data.history.FollowUp
 import com.smartcalc.app.data.history.HistoryStore
 import com.smartcalc.app.data.history.Solution
 import com.smartcalc.app.data.history.SolutionStep
-import com.smartcalc.app.data.session.ReadingSession
 import com.smartcalc.app.data.session.SessionStore
-import com.smartcalc.app.data.session.forSolution
+import com.smartcalc.app.data.session.SolutionSession
 import com.smartcalc.app.data.settings.ApiSettings
 import com.smartcalc.app.data.template.TaskTemplate
 import com.smartcalc.app.data.template.TemplateStore
@@ -40,7 +39,7 @@ import kotlinx.coroutines.withContext
 class GenerationController internal constructor(
     scope: CoroutineScope,
     private val history: HistoryStore,
-    private val sessions: SessionStore,
+    sessions: SessionStore,
     private val currentFormat: () -> SolutionFormat,
     private val readFormatSample: suspend (SolutionFormat) -> ByteArray?,
     private val loadTemplatePrompt: suspend (TaskTemplate) -> TemplatePrompt,
@@ -49,17 +48,19 @@ class GenerationController internal constructor(
     private val startService: () -> Unit,
     private val loadGallery: suspend (Uri) -> ByteArray,
     private val loadDocument: suspend (Uri) -> PreparedRequest,
+    private val sessionActions: SolutionSession = SolutionSession(sessions),
 ) {
     constructor(context: Context, scope: CoroutineScope, history: HistoryStore, sessions: SessionStore,
         formats: FormatStore, templates: TemplateStore,
         libraryCatalog: suspend () -> LibraryCatalog,
+        sessionActions: SolutionSession = SolutionSession(sessions),
     ) : this(scope, history, sessions, { formats.format.value }, { formats.readSample(it) },
         { templatePrompt(templates, it) }, libraryCatalog, context.noBackupFilesDir,
         { GenerationService.start(context) }, { ImageUtils.compressUri(context, it) }, { uri ->
             val document = DocumentReader.read(context, uri)
             PreparedRequest(text = document.text?.let { "Задача из документа «${document.name}»:\n$it" },
                 images = document.images.map(::encode))
-        })
+        }, sessionActions)
 
     private val client = OpenAiClient()
     private val files = RequestFiles(File(requestDirectory, "request"))
@@ -85,12 +86,7 @@ class GenerationController internal constructor(
                 if (record != null) {
                     val id = if (record.status == RequestStatus.SUCCEEDED) record.resultSolutionId else record.baseSolutionId
                     val solution = history.items.value.firstOrNull { it.id == id }
-                    sessions.update { saved ->
-                        saved.copy(
-                            reading = solution?.let { saved.reading.forSolution(it) } ?: ReadingSession(),
-                            unread = record.unread,
-                        )
-                    }
+                    sessionActions.updateFromRequest(solution, record.unread)
                 }
             }
         }

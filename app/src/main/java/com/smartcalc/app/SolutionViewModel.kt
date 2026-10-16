@@ -9,14 +9,11 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.smartcalc.app.data.api.OpenAiClient
 import com.smartcalc.app.data.template.ExampleDraft
-import com.smartcalc.app.data.template.ImportResult
 import com.smartcalc.app.data.template.TaskTemplate
 import com.smartcalc.app.data.template.TemplateExample
 import com.smartcalc.app.data.template.TemplateFormat
 import com.smartcalc.app.data.template.TemplateKind
-import com.smartcalc.app.data.search.FoundSolution
 import com.smartcalc.app.data.search.SearchEntry
-import com.smartcalc.app.data.search.TaskSearch
 import com.smartcalc.app.data.format.SolutionFormat
 import com.smartcalc.app.data.history.Solution
 import com.smartcalc.app.data.settings.ApiSettings
@@ -24,19 +21,12 @@ import com.smartcalc.app.data.settings.ConnectionList
 import com.smartcalc.app.data.settings.AssistantLock
 import com.smartcalc.app.data.session.CalculatorSession
 import com.smartcalc.app.data.session.ListPosition
-import com.smartcalc.app.data.session.ReadingSession
 import com.smartcalc.app.data.session.ReadingTarget
-import com.smartcalc.app.data.session.restoredFor
-import com.smartcalc.app.data.session.blockIds
-import com.smartcalc.app.data.session.forSolution
 import com.smartcalc.app.data.request.RequestStatus
 import com.smartcalc.app.data.request.active
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -46,106 +36,47 @@ import java.util.UUID
 
 class SolutionViewModel(app: Application) : AndroidViewModel(app) {
 
-    private val applicationState = app as SmartCalcApplication
+    private val applicationState = (app as SmartCalcApplication).dependencies
     val settingsRepo = applicationState.settingsRepository
     private val historyStore = applicationState.historyStore
     private val formatStore = applicationState.formatStore
-    private val templateStore = applicationState.templateStore
-    private val libraryStore = applicationState.libraryStore
     private val generation = applicationState.generation
     val request = generation.state
     private val client = OpenAiClient()
 
     val history = historyStore.items
     val format: StateFlow<SolutionFormat> = formatStore.format
-    val templates: StateFlow<List<TaskTemplate>> = templateStore.items
+    private val examples = applicationState.exampleWorkspace(viewModelScope)
+    val templates: StateFlow<List<TaskTemplate>> = examples.templates
     /** База решённых задач: разделы по типам задач. */
-    val library: StateFlow<List<TaskTemplate>> = libraryStore.items
+    val library: StateFlow<List<TaskTemplate>> = examples.library
 
-    /** Всё, по чему ищет поиск; считается, только пока открыт экран поиска. null — ещё не собрано. */
-    val searchEntries: StateFlow<List<SearchEntry>?> =
-        combine(libraryStore.items, templateStore.items, historyStore.items, applicationState.librarySources.state) { base, templates, solved, sources ->
-            TaskSearch.entries(base, templates, solved, sources)
-        }
-            // Building fingerprints reads local example images; keep that work off the CPU pool.
-            .flowOn(Dispatchers.IO)
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    val searchEntries = examples.searchEntries
+    val armedTemplate = examples.armedTemplate
 
-    private val sessionStore = applicationState.sessionStore
-    val session = sessionStore.state
-    private val restoredSession = session.value.restoredFor(history.value)
+    private val sessionActions = applicationState.solutionSession
+    val session = sessionActions.state
+    private val restoredSession = sessionActions.restoreFor(history.value)
     // Новый процесс не восстанавливает открытый экран помощника из Android savedInstanceState.
     val sessionInstanceId: String = UUID.randomUUID().toString()
 
-    init {
-        sessionStore.update { restoredSession }
-    }
-
-    /**
-     * Шаблон, выбранный для следующей задачи. Действует на одну задачу: после ответа снимается,
-     * после ошибки остаётся — повтор пойдёт с ним же.
-     */
-    private val armedId = MutableStateFlow<String?>(null)
-    val armedTemplate: StateFlow<TaskTemplate?> = combine(templateStore.items, armedId) { list, id ->
-        list.firstOrNull { it.id == id }
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
-
-    fun armTemplate(template: TaskTemplate) {
-        armedId.value = template.id
-    }
-
-    fun disarmTemplate() {
-        armedId.value = null
-    }
-
-    private fun store(kind: TemplateKind) = when (kind) {
-        TemplateKind.TEMPLATES -> templateStore
-        TemplateKind.LIBRARY -> libraryStore
-    }
-
-    fun items(kind: TemplateKind): StateFlow<List<TaskTemplate>> = store(kind).items
-    fun storageError(kind: TemplateKind): StateFlow<String?> = store(kind).loadError
-
-    suspend fun saveTemplate(
-        id: String?,
-        name: String,
-        requirements: String,
-        examples: List<ExampleDraft>,
-        kind: TemplateKind = TemplateKind.TEMPLATES,
-        expectedSection: TaskTemplate? = null,
-    ) = store(kind).save(id, name, requirements, examples, expectedSection)
-
+    fun armTemplate(template: TaskTemplate) = examples.armTemplate(template)
+    fun disarmTemplate() = examples.disarmTemplate()
+    fun items(kind: TemplateKind) = examples.items(kind)
+    fun storageError(kind: TemplateKind) = examples.storageError(kind)
+    suspend fun saveTemplate(id: String?, name: String, requirements: String, examples: List<ExampleDraft>,
+        kind: TemplateKind = TemplateKind.TEMPLATES, expectedSection: TaskTemplate? = null) =
+        this.examples.saveTemplate(id, name, requirements, examples, kind, expectedSection)
     suspend fun deleteTemplate(id: String, kind: TemplateKind = TemplateKind.TEMPLATES, expectedSection: TaskTemplate? = null) =
-        store(kind).delete(id, expectedSection)
+        examples.deleteTemplate(id, kind, expectedSection)
+    suspend fun exportTemplates(ids: Collection<String>?, out: OutputStream, format: TemplateFormat,
+        kind: TemplateKind = TemplateKind.TEMPLATES) = examples.exportTemplates(ids, out, format, kind)
+    suspend fun importTemplates(input: InputStream, kind: TemplateKind = TemplateKind.TEMPLATES, sourceName: String? = null) =
+        examples.importTemplates(input, kind, sourceName)
+    suspend fun attachToTemplate(templateId: String, examples: List<TemplateExample>) =
+        this.examples.attachToTemplate(templateId, examples)
+    suspend fun openFound(entry: SearchEntry) = open(examples.resolveFound(entry))
 
-    /** Файл шаблонов (или разделов базы) с [ids] (null — все) — для сохранения или отправки. */
-    suspend fun exportTemplates(
-        ids: Collection<String>?,
-        out: OutputStream,
-        format: TemplateFormat,
-        kind: TemplateKind = TemplateKind.TEMPLATES,
-    ): Int = store(kind).export(ids, out, format)
-
-    suspend fun importTemplates(input: InputStream, kind: TemplateKind = TemplateKind.TEMPLATES, sourceName: String? = null): ImportResult =
-        store(kind).import(input, sourceName)
-
-    /** Задачи из базы дописываются примерами к шаблону: с ним они уйдут ИИ. Возвращает, сколько добавлено. */
-    suspend fun attachToTemplate(templateId: String, examples: List<TemplateExample>): Int =
-        templateStore.attach(templateId, examples)
-
-    /**
-     * Найденная задача — на дисплей калькулятора, как решение из истории. Задача из базы или шаблона
-     * сохраняется в историю: к ней можно задать дополнение ИИ, и она переживёт перезапуск. Открытая
-     * повторно, она берётся из истории — вместе с дополнениями.
-     */
-    suspend fun openFound(entry: SearchEntry) {
-        entry.history?.let { return open(it) }
-        val solution = FoundSolution.of(entry)
-        history.value.firstOrNull { it.id == solution.id }?.let { return open(it) }
-        // HistoryStore returns the localized, durable snapshot. Do not expose external library paths
-        // or show a solution whose metadata write has failed.
-        open(historyStore.add(solution))
-    }
     // Updated before publishing the UI value; null means the stored settings are not loaded yet.
     private var requestSettings: ApiSettings? = null
     val settings = settingsRepo.settings.onEach { requestSettings = it }
@@ -224,9 +155,7 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
                     val selected = if (record.status == RequestStatus.SUCCEEDED) record.resultSolutionId else record.baseSolutionId
                     _current.value = history.value.firstOrNull { it.id == selected }
                     if (record.unread) assistantDisplay.complete()
-                    if (record.status == RequestStatus.SUCCEEDED && armedId.value == submittedTemplateId) {
-                        armedId.value = null
-                    }
+                    if (record.status == RequestStatus.SUCCEEDED) examples.disarmIfSelected(submittedTemplateId)
                 }
             }
         }
@@ -266,8 +195,7 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
      * Шаблон для дополнения: выбранный сейчас, а если не выбран — тот, по которому решалась задача
      * (если его ещё не удалили). Поправки к ответу по шаблону тоже делаются по шаблону.
      */
-    fun followUpTemplate(base: Solution?): TaskTemplate? =
-        armedTemplate.value ?: base?.templateId?.let { id -> templates.value.firstOrNull { it.id == id } }
+    fun followUpTemplate(base: Solution?): TaskTemplate? = examples.followUpTemplate(base?.templateId)
 
     fun hideFromDisplay() {
         assistantDisplay.hide()
@@ -281,71 +209,32 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
     fun markViewed() {
         assistantDisplay.markViewed()
         if (!display.value.unread) {
-            sessionStore.update { it.copy(unread = false) }
+            sessionActions.markViewed()
             generation.runner.acknowledge()
         }
     }
 
-    fun saveCalculator(value: CalculatorSession) {
-        sessionStore.update { saved ->
-            val attached = value.followUpSolutionId != null && value.followUpSolutionId == saved.reading.solutionId
-            saved.copy(calculator = if (attached) value else value.copy(followUpDraft = "", followUpSolutionId = null))
-        }
-    }
+    fun saveCalculator(value: CalculatorSession) = sessionActions.saveCalculator(value)
 
-    fun setReadingTarget(target: ReadingTarget, step: Int = session.value.reading.selectedStep) {
-        val solution = current.value ?: return
-        updateReading(solution.id, solution.followUps.size) {
-            it.copy(target = target, selectedStep = step.coerceIn(0, solution.latestSteps.size))
-        }
-    }
+    fun setReadingTarget(target: ReadingTarget, step: Int = session.value.reading.selectedStep) =
+        sessionActions.setReadingTarget(current.value, target, step)
 
-    fun saveStepScroll(id: String, revision: Int, index: Int, offset: Int) = updateReading(id, revision) {
-        it.copy(stepScroll = it.stepScroll + (index to offset.coerceAtLeast(0)))
-    }
+    fun saveStepScroll(id: String, revision: Int, index: Int, offset: Int) =
+        sessionActions.saveStepScroll(id, revision, index, offset)
 
-    fun saveSolutionScroll(id: String, revision: Int, position: ListPosition) = updateReading(id, revision) {
-        it.copy(solutionScroll = position)
-    }
+    fun saveSolutionScroll(id: String, revision: Int, position: ListPosition) =
+        sessionActions.saveSolutionScroll(id, revision, position)
 
-    fun setSolutionBlocksCollapsed(id: String, revision: Int, blocks: Set<String>, collapsed: Boolean) {
-        val solution = current.value?.takeIf { it.id == id && it.followUps.size == revision } ?: return
-        val validBlocks = blocks.intersect(solution.blockIds())
-        updateReading(id, revision) {
-            it.copy(collapsedBlocks = if (collapsed) it.collapsedBlocks + validBlocks else it.collapsedBlocks - validBlocks)
-        }
-    }
+    fun setSolutionBlocksCollapsed(id: String, revision: Int, blocks: Set<String>, collapsed: Boolean) =
+        sessionActions.setSolutionBlocksCollapsed(current.value, id, revision, blocks, collapsed)
 
-    fun toggleSolutionBlock(id: String, revision: Int, block: String) {
-        val solution = current.value?.takeIf { it.id == id && it.followUps.size == revision } ?: return
-        if (block !in solution.blockIds()) return
-        updateReading(id, revision) {
-            it.copy(collapsedBlocks = if (block in it.collapsedBlocks) it.collapsedBlocks - block else it.collapsedBlocks + block)
-        }
-    }
+    fun toggleSolutionBlock(id: String, revision: Int, block: String) =
+        sessionActions.toggleSolutionBlock(current.value, id, revision, block)
 
-    fun saveAnswerScroll(id: String, revision: Int, offset: Int) = updateReading(id, revision) {
-        it.copy(answerScroll = offset.coerceAtLeast(0))
-    }
+    fun saveAnswerScroll(id: String, revision: Int, offset: Int) =
+        sessionActions.saveAnswerScroll(id, revision, offset)
 
-    private fun updateReading(id: String, revision: Int, update: (ReadingSession) -> ReadingSession) {
-        sessionStore.update { saved ->
-            if (saved.reading.solutionId == id && saved.reading.followUpCount == revision) {
-                saved.copy(reading = update(saved.reading))
-            } else saved // Уходящий экран не должен перезаписывать состояние новой задачи.
-        }
-    }
-
-    private fun rememberSolution(solution: Solution?) {
-        sessionStore.update { saved ->
-            saved.copy(
-                reading = solution?.let { saved.reading.forSolution(it, resetPosition = true) } ?: ReadingSession(),
-                calculator = if (saved.calculator.followUpSolutionId == solution?.id) saved.calculator
-                    else saved.calculator.copy(followUpDraft = "", followUpSolutionId = null),
-                unread = false,
-            )
-        }
-    }
+    private fun rememberSolution(solution: Solution?) = sessionActions.rememberSolution(solution)
 
     fun open(solution: Solution) {
         generation.runner.dismiss()
