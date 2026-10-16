@@ -64,7 +64,7 @@ fun AddLibraryMaterialScreen(
         ) {
             ExplanationCard("Материалы для библиотеки", "Добавьте решённые задачи. Документы и фотографии сначала пройдут разбор и вашу проверку.")
             if (copying) LinearProgressIndicator(Modifier.fillMaxWidth())
-            LibraryError(error, libraryVm::clearError)
+            LibraryError(error, clear = libraryVm::clearError)
             MaterialChoice("Документ", "PDF, Word, текст или Markdown", !copying) {
                 documents.launch(arrayOf("application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/*", "image/*"))
             }
