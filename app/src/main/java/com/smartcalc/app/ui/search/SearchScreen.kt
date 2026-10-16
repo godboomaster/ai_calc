@@ -96,10 +96,14 @@ fun SearchScreen(
     val types = remember(entries) { entries.orEmpty().mapNotNull { it.type }.distinct() }
     val keyboard = LocalSoftwareKeyboardController.current
 
+    var searched by remember { mutableStateOf<Pair<String, String?>?>(null) }
     LaunchedEffect(entries, query, type) {
         val all = entries ?: return@LaunchedEffect
         if (hits != null) delay(TYPING_PAUSE_MS)
         hits = withContext(Dispatchers.Default) { TaskSearch.search(all, query, type) }
+        // Cards are keyed, so a reordered list would keep the old top card in view and hide the best match.
+        if (searched != null && searched != query to type) listState.requestScrollToItem(0)
+        searched = query to type
     }
     val selected = entries?.firstOrNull { it.key == selectedKey }
     if (selected != null) {

@@ -8,9 +8,12 @@ internal object FormulaSearch {
     private val token = Regex("""\d+(?:\.\d+)?|[a-zA-Z]+|[\u0370-\u03FF]|[+*/^=()|-]""")
     private val number = Regex("""\d+(?:\.\d+)?""")
     private val functionAssignment = Regex("""^[a-zA-Z]\([a-zA-Z]\)=""")
+    private val bracedExponent = Regex("""\^\((\d+(?:[.,]\d+)?|[a-zA-ZͰ-Ͽ])\)""")
 
     fun extract(text: String): List<Formula> {
+        // s², s^{2} and s^2 are one power: a single-symbol exponent needs no brackets.
         val normalized = plain(text).replace('[', '(').replace(']', ')').replace('{', '(').replace('}', ')')
+            .replace(bracedExponent) { "^" + it.groupValues[1] }
         return runs.findAll(normalized).mapNotNull { match ->
             val raw = match.value.trim().trimEnd('.', ',').replace(Regex("\\s+"), "")
                 .replace(',', '.').replace(functionAssignment, "")

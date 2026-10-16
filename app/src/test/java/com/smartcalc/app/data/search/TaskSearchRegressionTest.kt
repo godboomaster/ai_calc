@@ -74,6 +74,27 @@ class TaskSearchRegressionTest {
         assertEquals(listOf("exp"), keys("e^(at)"))
     }
 
+    @Test fun typedFormulaDropsTasksThatShareOnlyCoefficients() {
+        val entries = listOf(
+            entry("target", "[КР 1] 3. Построить годограф Михайлова ${'$'}${'$'}D(s) = 4s^3 + 2s^2 + 2s + 1${'$'}${'$'}"),
+            entry("sameShape", "Построить годограф Михайлова ${'$'}D(s) = 2s^{3} + 6s^{2} + 12s + 8${'$'}"),
+            entry("numbers", "Найти АЧХ звена ${'$'}W(s) = \\dfrac{4}{3s + 1}${'$'}, шаг 2"),
+        )
+        fun keys(query: String) = TaskSearch.search(entries, query).map { it.entry.key }
+        assertEquals(listOf("target", "sameShape"), keys("D(s) = 4s^3 + 2s^2 +2s+1"))
+        assertEquals(listOf("target", "sameShape"), keys("4s³+2s²+2s+1"))
+        // A formula that matches no task still finds tasks by its numbers.
+        assertEquals(setOf("target", "sameShape", "numbers"), keys("4s^5 - 3s + 2 + 1").toSet())
+    }
+
+    @Test fun superscriptAndBracedExponentsAreTheTypedPower() {
+        val typed = FormulaSearch.extract("4s^3+2s^2+2s+1")
+        assertEquals(typed, FormulaSearch.extract("4s³+2s²+2s+1"))
+        assertEquals(typed, FormulaSearch.extract("${'$'}D(s) = 4s^{3} + 2s^{2} + 2s + 1${'$'}"))
+        // A compound exponent keeps its brackets.
+        assertNotEquals(FormulaSearch.extract("e^(-2t)"), FormulaSearch.extract("e^-2t"))
+    }
+
     @Test fun taskNumberWithCyrillicLetterStaysANumberSearch() {
         val entries = listOf(entry("a", "1.2 а) Найти ${'$'}f(t) = a${'$'}"), entry("b", "1.2 б) Найти ${'$'}f(t) = b${'$'}"))
         val hits = TaskSearch.search(entries, "1.2 а)")

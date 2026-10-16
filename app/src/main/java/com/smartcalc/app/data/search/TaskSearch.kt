@@ -149,16 +149,16 @@ object TaskSearch {
         val weights = pool.map { e -> IntArray(terms.size) { placeWeight(e, terms[it]) } }
         // В скольких задачах есть каждое слово запроса: частые весят меньше редких.
         val found = IntArray(terms.size) { i -> weights.count { it[i] > 0 } }
-        return pool.indices.mapNotNull { k ->
+        val scored = pool.indices.mapNotNull { k ->
             val e = pool[k]
             val formulaScore = maxOf(
                 FormulaSearch.similarity(formulas, e.conditionFormulas),
                 FormulaSearch.similarity(formulas, e.solutionFormulas) * 0.5,
             )
+            // A word, a formula fragment or the formula's structure; numbers alone are not a subject.
+            val subject = formulaScore > 0.0 || terms.indices.any { !terms[it].number && weights[k][it] > 0 }
             // A textual question needs a subject match; incidental numbers alone are insufficient.
-            // A matching formula fragment is a subject too, but a typed formula alone does not demand one.
-            if (terms.any { !it.number && it.symbols == null } && terms.indices.none { !terms[it].number && weights[k][it] > 0 } &&
-                formulaScore == 0.0) return@mapNotNull null
+            if (terms.any { !it.number && it.symbols == null } && !subject) return@mapNotNull null
             var score = 0.0
             val matched = mutableListOf<String>()
             terms.forEachIndexed { i, t ->
@@ -172,8 +172,13 @@ object TaskSearch {
             if (matched.isEmpty() && formulaScore == 0.0) return@mapNotNull null
             // Задача, где нашлось всё набранное, выше той, где одно слово, но редкое.
             val coverage = if (terms.isEmpty()) 1.0 else matched.size.toDouble() / terms.size
-            SearchHit(e, formulaScore + score * (0.5 + 0.5 * coverage), matched)
-        }.sortedByDescending { it.score }
+            SearchHit(e, formulaScore + score * (0.5 + 0.5 * coverage), matched) to subject
+        }
+        // Coefficients like 1, 2, 4 occur in almost every task: a typed formula keeps the tasks that contain it
+        // or share its structure, and falls back to matching numbers only when no task does.
+        val formulaQuery = formulas.isNotEmpty() || terms.any { it.symbols != null }
+        val relevant = if (formulaQuery && scored.any { it.second }) scored.filter { it.second } else scored
+        return relevant.map { it.first }.sortedByDescending { it.score }
     }
 
     /**
