@@ -1,5 +1,9 @@
 # Review fixes implementation plan
 
+> **Исторический план этапа, 2026-10-11.** Статус ветки и реализации ниже относится к этому этапу.
+> Документ не является текущим поручением. Команды и разрешения ниже относятся только к исходному этапу.
+> Текущие статусы — в [бэклоге](../../backlog.md), назначение документов — в [карте](../../README.md).
+
 > **For agentic workers:** Use superpowers:executing-plans for inline implementation, followed by an independent read-only review.
 
 **Goal:** Fix all confirmed findings from the 2026-10-11 review, then run automated tests and user-facing checks in the existing Android emulator.
