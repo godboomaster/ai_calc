@@ -1,0 +1,2559 @@
+{
+  "scope": "Offline retrieval only; synthetic text corpora; no OCR, no provider calls, no UI latency",
+  "host_collected_at_utc": "2026-10-17T14:10:59.787423+00:00",
+  "device_clock_note": "AVD wall clock was 2026-10-15; run date is host 2026-10-17. Timings use monotonic System.nanoTime.",
+  "harness_sha256": "72da454100ba78aaaa3fa04e523fed18fda50afdb03ec5c61dab1319dc91aa95",
+  "harness_note": "Checksum at measurement. Final test source subsequently corrects only JsonNull handling in the order-sensitive aggregate. All measured positive rows have results; independent row replay confirms unchanged aggregates.",
+  "runs": {
+    "baseline": {
+      "timestamp_utc": "2026-10-15T12:43:11.897327Z",
+      "source_commit": "f0b82a2a6638e4274fafebe4420d9cbb54ec4a12",
+      "app_version": "1.6.5",
+      "build_type": "debug, isolated instrumentation, unminified",
+      "device_model": "Android SDK built for x86_64",
+      "android_api": 35,
+      "android_release": "15",
+      "abis": [
+        "x86_64"
+      ],
+      "available_processors": 2,
+      "benchmark_sha256": "6bf88a4c396e003a1c302f4d39a90276a45ff2b96792b52fc3880f8172646a34",
+      "holdout_sha256": "b2c1bcfc4fb2d7bb1b472447a53ac43d9cfe791746cea0d43c240cb6f5a4bd7e",
+      "first_use_index_and_search_500_ms": 2877.5999,
+      "reference_quality": {
+        "query_count": 23,
+        "positive_count": 20,
+        "top1_relevant_count": 18,
+        "top1_required_count": 18,
+        "hit3_count": 20,
+        "mrr": 0.95,
+        "negative_count": 2,
+        "empty_negative_count": 1,
+        "hard_negative_top3_query_count": 8,
+        "order_sensitive_top1_query_count": 1,
+        "rows": [
+          {
+            "id": "Q01",
+            "class": "exact",
+            "query": "Для W(s)=4/(0.5s+1) найти АЧХ и ФЧХ.",
+            "indexed_count": 11,
+            "relevant": [
+              "E01"
+            ],
+            "must_rank_first": [
+              "E01"
+            ],
+            "top5": [
+              "E01",
+              "E02",
+              "E10"
+            ],
+            "reverse_order_top1": "E01",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [
+              "E02"
+            ],
+            "hard_negatives_top5": [
+              "E02"
+            ],
+            "result_count": 3,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              70.63577072571456,
+              56.170798053587504,
+              13.530172955994445
+            ]
+          },
+          {
+            "id": "Q02",
+            "class": "paraphrase",
+            "query": "Как меняются модуль усиления и фазовый сдвиг при гармоническом входе для W(p)=4/(1+0.5p)?",
+            "indexed_count": 11,
+            "relevant": [
+              "E01"
+            ],
+            "must_rank_first": [
+              "E01"
+            ],
+            "top5": [
+              "E01",
+              "E03",
+              "E06"
+            ],
+            "reverse_order_top1": "E03",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [],
+            "hard_negatives_top5": [],
+            "result_count": 3,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              9.401966682000161,
+              9.401966682000161,
+              2.235056203556036
+            ]
+          },
+          {
+            "id": "Q03",
+            "class": "new_coefficients",
+            "query": "Найти АЧХ и ФЧХ звена 7/(0.2s+1).",
+            "indexed_count": 11,
+            "relevant": [
+              "E01"
+            ],
+            "must_rank_first": [
+              "E01"
+            ],
+            "top5": [
+              "E01",
+              "E02",
+              "E10"
+            ],
+            "reverse_order_top1": "E01",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [
+              "E02"
+            ],
+            "hard_negatives_top5": [
+              "E02"
+            ],
+            "result_count": 3,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              34.80235823578519,
+              26.224279124965555,
+              13.83502071276857
+            ]
+          },
+          {
+            "id": "Q04",
+            "class": "same_formula_other_target",
+            "query": "Нужен отклик W(s)=4/(0.5s+1) на единичную ступень при нулевых начальных условиях.",
+            "indexed_count": 11,
+            "relevant": [
+              "E02"
+            ],
+            "must_rank_first": [
+              "E02"
+            ],
+            "top5": [
+              "E02",
+              "E01"
+            ],
+            "reverse_order_top1": "E02",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [
+              "E01"
+            ],
+            "hard_negatives_top5": [
+              "E01"
+            ],
+            "result_count": 2,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              91.52596128284094,
+              53.23065295293523
+            ]
+          },
+          {
+            "id": "Q05",
+            "class": "formula_structure",
+            "query": "Найти частотные характеристики 4/[s*(0.5s+1)].",
+            "indexed_count": 11,
+            "relevant": [
+              "E03",
+              "E10"
+            ],
+            "must_rank_first": [
+              "E03"
+            ],
+            "top5": [
+              "E03",
+              "E10",
+              "E01",
+              "E02",
+              "E06"
+            ],
+            "reverse_order_top1": "E03",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [
+              "E01"
+            ],
+            "hard_negatives_top5": [
+              "E01",
+              "E02"
+            ],
+            "result_count": 6,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              68.47732786618447,
+              30.371135186400622,
+              12.839334488429737,
+              11.491292611333527,
+              3.1912990570979662
+            ]
+          },
+          {
+            "id": "Q06",
+            "class": "formula_structure",
+            "query": "АЧХ и ФЧХ W(s)=6/[s*(3s+1)].",
+            "indexed_count": 11,
+            "relevant": [
+              "E03",
+              "E10"
+            ],
+            "must_rank_first": [
+              "E03",
+              "E10"
+            ],
+            "top5": [
+              "E10",
+              "E03",
+              "E01"
+            ],
+            "reverse_order_top1": "E10",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [
+              "E01"
+            ],
+            "hard_negatives_top5": [
+              "E01"
+            ],
+            "result_count": 3,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              35.34247614757445,
+              26.270618273402338,
+              11.342476147574452
+            ]
+          },
+          {
+            "id": "Q07",
+            "class": "same_numbers_other_subject",
+            "query": "Какой ток через 0.5 Ом при напряжении 4 В?",
+            "indexed_count": 11,
+            "relevant": [
+              "E08"
+            ],
+            "must_rank_first": [
+              "E08"
+            ],
+            "top5": [
+              "E08"
+            ],
+            "reverse_order_top1": "E08",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [],
+            "hard_negatives_top5": [],
+            "result_count": 1,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              19.112250322280772
+            ]
+          },
+          {
+            "id": "Q08",
+            "class": "number_roles",
+            "query": "Найти ток: напряжение 0.5 В, сопротивление 4 Ом.",
+            "indexed_count": 11,
+            "relevant": [
+              "E08"
+            ],
+            "must_rank_first": [
+              "E08"
+            ],
+            "top5": [
+              "E08"
+            ],
+            "reverse_order_top1": "E08",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [],
+            "hard_negatives_top5": [],
+            "result_count": 1,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              30.38942033610093
+            ]
+          },
+          {
+            "id": "Q09",
+            "class": "units",
+            "query": "R=4000 Ом, C=500 нФ; сколько секунд составляет постоянная времени RC-цепи?",
+            "indexed_count": 11,
+            "relevant": [
+              "E09"
+            ],
+            "must_rank_first": [
+              "E09"
+            ],
+            "top5": [
+              "E09"
+            ],
+            "reverse_order_top1": "E09",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [],
+            "hard_negatives_top5": [],
+            "result_count": 1,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              53.76240464632446
+            ]
+          },
+          {
+            "id": "Q10",
+            "class": "signs",
+            "query": "Где полюс и устойчива ли система 4/(0.5s-1)?",
+            "indexed_count": 11,
+            "relevant": [
+              "E04"
+            ],
+            "must_rank_first": [
+              "E04"
+            ],
+            "top5": [
+              "E04",
+              "E05"
+            ],
+            "reverse_order_top1": "E04",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [],
+            "hard_negatives_top5": [],
+            "result_count": 2,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              75.67937679703392,
+              7.442824646735888
+            ]
+          },
+          {
+            "id": "Q11",
+            "class": "boundary",
+            "query": "Для s^3+2s^2+3s+K при каких K корни строго слева от мнимой оси?",
+            "indexed_count": 11,
+            "relevant": [
+              "E06"
+            ],
+            "must_rank_first": [
+              "E06"
+            ],
+            "top5": [
+              "E06",
+              "E05"
+            ],
+            "reverse_order_top1": "E06",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [
+              "E05"
+            ],
+            "hard_negatives_top5": [
+              "E05"
+            ],
+            "result_count": 2,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              68.13329061853443,
+              3.2790520859289383
+            ]
+          },
+          {
+            "id": "Q12",
+            "class": "solution_method",
+            "query": "Найди пример, где первый столб таблицы Рауса должен иметь положительные элементы.",
+            "indexed_count": 11,
+            "relevant": [
+              "E06"
+            ],
+            "must_rank_first": [
+              "E06"
+            ],
+            "top5": [
+              "E06",
+              "E10"
+            ],
+            "reverse_order_top1": "E06",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [],
+            "hard_negatives_top5": [],
+            "result_count": 2,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              9.186666825819461,
+              3.119670294835986
+            ]
+          },
+          {
+            "id": "Q13",
+            "class": "absolute_value",
+            "query": "Найди похожий пример для |x-6|=2.",
+            "indexed_count": 11,
+            "relevant": [
+              "E07"
+            ],
+            "must_rank_first": [
+              "E07"
+            ],
+            "top5": [
+              "E07",
+              "E06",
+              "E05",
+              "E10",
+              "E11"
+            ],
+            "reverse_order_top1": "E07",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [],
+            "hard_negatives_top5": [
+              "E11"
+            ],
+            "result_count": 10,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              24.0,
+              6.100537173051643,
+              2.3955230886533148,
+              2.3955230886533148,
+              2.3955230886533148
+            ]
+          },
+          {
+            "id": "Q14",
+            "class": "formula_only",
+            "query": "x^2-7x+12=0",
+            "indexed_count": 11,
+            "relevant": [
+              "E11"
+            ],
+            "must_rank_first": [
+              "E11"
+            ],
+            "top5": [
+              "E11",
+              "E01",
+              "E02",
+              "E03",
+              "E06"
+            ],
+            "reverse_order_top1": "E11",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [],
+            "hard_negatives_top5": [],
+            "result_count": 9,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              29.795878948794687,
+              4.119012786737367,
+              4.119012786737367,
+              4.119012786737367,
+              3.60882581165555
+            ]
+          },
+          {
+            "id": "Q15",
+            "class": "same_polynomial_other_target",
+            "query": "Характеристический полином s^2+6s+10: определить асимптотическую устойчивость.",
+            "indexed_count": 11,
+            "relevant": [
+              "E05"
+            ],
+            "must_rank_first": [
+              "E05"
+            ],
+            "top5": [
+              "E05",
+              "E06",
+              "E04"
+            ],
+            "reverse_order_top1": "E05",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [
+              "E06"
+            ],
+            "hard_negatives_top5": [
+              "E06"
+            ],
+            "result_count": 3,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              42.62608383584187,
+              13.91359325180364,
+              4.258230046894645
+            ]
+          },
+          {
+            "id": "Q16",
+            "class": "no_match",
+            "query": "Вычислить определённый интеграл от sin(x) на [0, pi].",
+            "indexed_count": 11,
+            "relevant": [],
+            "must_rank_first": [],
+            "top5": [],
+            "reverse_order_top1": null,
+            "top1_relevant": false,
+            "top1_required": false,
+            "hit3": false,
+            "first_relevant_rank": 0,
+            "hard_negatives_top3": [],
+            "hard_negatives_top5": [],
+            "result_count": 0,
+            "tool_status": "no_match",
+            "requires_clarification": false,
+            "scores_top5": []
+          },
+          {
+            "id": "Q17",
+            "class": "explicit_search",
+            "query": "Найди похожую решённую задачу про амплитудную характеристику интегрирующего звена с запаздыванием первого порядка: W(s)=10/[s*(2s+1)].",
+            "indexed_count": 11,
+            "relevant": [
+              "E10",
+              "E03"
+            ],
+            "must_rank_first": [
+              "E10"
+            ],
+            "top5": [
+              "E10",
+              "E03",
+              "E06",
+              "E02"
+            ],
+            "reverse_order_top1": "E10",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [],
+            "hard_negatives_top5": [],
+            "result_count": 4,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              62.02377361121445,
+              30.691035339825717,
+              4.609804649373674,
+              4.351282618698731
+            ]
+          },
+          {
+            "id": "Q18a",
+            "class": "multiple_tasks",
+            "query": "Найти АЧХ W(s)=4/(0.5s+1).",
+            "indexed_count": 11,
+            "relevant": [
+              "E01"
+            ],
+            "must_rank_first": [
+              "E01"
+            ],
+            "top5": [
+              "E01",
+              "E02",
+              "E10"
+            ],
+            "reverse_order_top1": "E01",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [],
+            "hard_negatives_top5": [],
+            "result_count": 3,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              65.02036419500979,
+              57.46446189787451,
+              8.496640813190849
+            ]
+          },
+          {
+            "id": "Q18b",
+            "class": "multiple_tasks",
+            "query": "Найти ток при U=4 В и R=0.5 Ом.",
+            "indexed_count": 11,
+            "relevant": [
+              "E08"
+            ],
+            "must_rank_first": [
+              "E08"
+            ],
+            "top5": [
+              "E09",
+              "E08"
+            ],
+            "reverse_order_top1": "E09",
+            "top1_relevant": false,
+            "top1_required": false,
+            "hit3": true,
+            "first_relevant_rank": 2,
+            "hard_negatives_top3": [],
+            "hard_negatives_top5": [],
+            "result_count": 2,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              29.617682341606248,
+              12.383984349898341
+            ]
+          },
+          {
+            "id": "Q19",
+            "class": "disabled_source",
+            "query": "Какой ток при U=4 В и R=0.5 Ом?",
+            "indexed_count": 10,
+            "relevant": [],
+            "must_rank_first": [],
+            "top5": [
+              "E09"
+            ],
+            "reverse_order_top1": "E09",
+            "top1_relevant": false,
+            "top1_required": false,
+            "hit3": false,
+            "first_relevant_rank": 0,
+            "hard_negatives_top3": [],
+            "hard_negatives_top5": [],
+            "result_count": 1,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              29.53748007149499
+            ]
+          },
+          {
+            "id": "Q20",
+            "class": "untrusted_document",
+            "query": "Какой ток при U=4 В и R=0.5 Ом?",
+            "indexed_count": 11,
+            "relevant": [
+              "E08"
+            ],
+            "must_rank_first": [
+              "E08"
+            ],
+            "top5": [
+              "E09",
+              "E08"
+            ],
+            "reverse_order_top1": "E09",
+            "top1_relevant": false,
+            "top1_required": false,
+            "hit3": true,
+            "first_relevant_rank": 2,
+            "hard_negatives_top3": [],
+            "hard_negatives_top5": [],
+            "result_count": 2,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              29.350173658672617,
+              11.609985328029694
+            ]
+          },
+          {
+            "id": "Q21",
+            "class": "uncertain_ocr",
+            "query": "Для W(s)=4/(0.5s?1) определить устойчивость. Знак перед 1 не читается.",
+            "indexed_count": 11,
+            "relevant": [],
+            "must_rank_first": [],
+            "top5": [
+              "E04",
+              "E01",
+              "E02",
+              "E05"
+            ],
+            "reverse_order_top1": "E04",
+            "top1_relevant": false,
+            "top1_required": false,
+            "hit3": false,
+            "first_relevant_rank": 0,
+            "hard_negatives_top3": [],
+            "hard_negatives_top5": [],
+            "result_count": 4,
+            "tool_status": "matches",
+            "requires_clarification": true,
+            "scores_top5": [
+              18.000523620823955,
+              12.404313059655067,
+              12.404313059655067,
+              5.596327863741858
+            ]
+          },
+          {
+            "id": "Q22",
+            "class": "new_coefficients_step",
+            "query": "Найти переходную характеристику звена 7/(0.2s+1) при единичной ступени и нулевых начальных условиях.",
+            "indexed_count": 11,
+            "relevant": [
+              "E02"
+            ],
+            "must_rank_first": [
+              "E02"
+            ],
+            "top5": [
+              "E02",
+              "E01",
+              "E03",
+              "E10"
+            ],
+            "reverse_order_top1": "E02",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [
+              "E01",
+              "E03"
+            ],
+            "hard_negatives_top5": [
+              "E01",
+              "E03"
+            ],
+            "result_count": 4,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              61.93566420183276,
+              26.108431253873597,
+              5.546272082980122,
+              3.720147152445337
+            ]
+          }
+        ]
+      },
+      "control_quality": {
+        "query_count": 20,
+        "positive_count": 18,
+        "top1_relevant_count": 18,
+        "top1_required_count": 18,
+        "hit3_count": 18,
+        "mrr": 1.0,
+        "negative_count": 2,
+        "empty_negative_count": 2,
+        "hard_negative_top3_query_count": 15,
+        "order_sensitive_top1_query_count": 2,
+        "rows": [
+          {
+            "id": "T01",
+            "class": "exact",
+            "query": "Прямоугольник со сторонами 3 м и 8 м. Найти площадь.",
+            "indexed_count": 16,
+            "relevant": [
+              "H01"
+            ],
+            "must_rank_first": [
+              "H01"
+            ],
+            "top5": [
+              "H01",
+              "H02"
+            ],
+            "reverse_order_top1": "H01",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [
+              "H02"
+            ],
+            "hard_negatives_top5": [
+              "H02"
+            ],
+            "result_count": 2,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              35.38333846594137,
+              24.19532859039545
+            ]
+          },
+          {
+            "id": "T02",
+            "class": "paraphrase",
+            "query": "Сколько квадратных метров занимает прямоугольный участок длиной 8 м и шириной 3 м?",
+            "indexed_count": 16,
+            "relevant": [
+              "H01"
+            ],
+            "must_rank_first": [
+              "H01"
+            ],
+            "top5": [
+              "H01",
+              "H02",
+              "H10"
+            ],
+            "reverse_order_top1": "H02",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [
+              "H02"
+            ],
+            "hard_negatives_top5": [
+              "H02"
+            ],
+            "result_count": 3,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              13.189816056146642,
+              13.189816056146642,
+              5.8623520936496725
+            ]
+          },
+          {
+            "id": "T03",
+            "class": "same_formula_other_target",
+            "query": "Нужен периметр прямоугольника: длина 8 метров, ширина 3 метра.",
+            "indexed_count": 16,
+            "relevant": [
+              "H02"
+            ],
+            "must_rank_first": [
+              "H02"
+            ],
+            "top5": [
+              "H02",
+              "H01"
+            ],
+            "reverse_order_top1": "H02",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [
+              "H01"
+            ],
+            "hard_negatives_top5": [
+              "H01"
+            ],
+            "result_count": 2,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              21.593748550449533,
+              13.950766982462794
+            ]
+          },
+          {
+            "id": "T04",
+            "class": "new_coefficients",
+            "query": "Найти площадь прямоугольника со сторонами 7 м и 9 м.",
+            "indexed_count": 16,
+            "relevant": [
+              "H01"
+            ],
+            "must_rank_first": [
+              "H01"
+            ],
+            "top5": [
+              "H01",
+              "H02"
+            ],
+            "reverse_order_top1": "H01",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [
+              "H02"
+            ],
+            "hard_negatives_top5": [
+              "H02"
+            ],
+            "result_count": 2,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              17.346389996948773,
+              9.228343224812122
+            ]
+          },
+          {
+            "id": "T05",
+            "class": "same_numbers_other_subject",
+            "query": "Какой ток течёт через сопротивление 3 Ом, если напряжение равно 12 В?",
+            "indexed_count": 16,
+            "relevant": [
+              "H03"
+            ],
+            "must_rank_first": [
+              "H03"
+            ],
+            "top5": [
+              "H03",
+              "H04",
+              "H08",
+              "H15",
+              "H16"
+            ],
+            "reverse_order_top1": "H04",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [
+              "H04",
+              "H08"
+            ],
+            "hard_negatives_top5": [
+              "H04",
+              "H08"
+            ],
+            "result_count": 7,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              17.505697763459523,
+              17.505697763459523,
+              8.545780648268149,
+              5.71408471531175,
+              5.71408471531175
+            ]
+          },
+          {
+            "id": "T06",
+            "class": "same_numbers_other_subject",
+            "query": "Найти мощность прибора при токе 3 А и напряжении 12 В.",
+            "indexed_count": 16,
+            "relevant": [
+              "H04"
+            ],
+            "must_rank_first": [
+              "H04"
+            ],
+            "top5": [
+              "H04",
+              "H03"
+            ],
+            "reverse_order_top1": "H04",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [
+              "H03"
+            ],
+            "hard_negatives_top5": [
+              "H03"
+            ],
+            "result_count": 2,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              41.23793850605048,
+              20.198882034760985
+            ]
+          },
+          {
+            "id": "T07",
+            "class": "paraphrase",
+            "query": "За два часа машина преодолела 120 километров. С какой средней скоростью она ехала?",
+            "indexed_count": 16,
+            "relevant": [
+              "H05"
+            ],
+            "must_rank_first": [
+              "H05"
+            ],
+            "top5": [
+              "H05",
+              "H06",
+              "H09"
+            ],
+            "reverse_order_top1": "H05",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [
+              "H06"
+            ],
+            "hard_negatives_top5": [
+              "H06"
+            ],
+            "result_count": 3,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              21.361413103579697,
+              10.026243935180187,
+              3.0456140393222455
+            ]
+          },
+          {
+            "id": "T08",
+            "class": "new_coefficients",
+            "query": "Какой путь пройдёт автомобиль при равномерном движении 150 км/ч за 3 часа?",
+            "indexed_count": 16,
+            "relevant": [
+              "H06"
+            ],
+            "must_rank_first": [
+              "H06"
+            ],
+            "top5": [
+              "H06",
+              "H05"
+            ],
+            "reverse_order_top1": "H06",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [
+              "H05"
+            ],
+            "hard_negatives_top5": [
+              "H05"
+            ],
+            "result_count": 2,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              24.195013556195097,
+              13.183347464017316
+            ]
+          },
+          {
+            "id": "T09",
+            "class": "number_roles",
+            "query": "Найти ускорение тела массой 12 кг при действующей силе 3 Н.",
+            "indexed_count": 16,
+            "relevant": [
+              "H07"
+            ],
+            "must_rank_first": [
+              "H07"
+            ],
+            "top5": [
+              "H07",
+              "H08",
+              "H03",
+              "H04",
+              "H09"
+            ],
+            "reverse_order_top1": "H07",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [
+              "H08",
+              "H03"
+            ],
+            "hard_negatives_top5": [
+              "H08",
+              "H03"
+            ],
+            "result_count": 5,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              31.15381154785418,
+              26.67037736321633,
+              11.34544622499869,
+              11.34544622499869,
+              10.634143224808858
+            ]
+          },
+          {
+            "id": "T10",
+            "class": "number_roles",
+            "query": "Найти силу: масса тела 12 кг, ускорение 3 м/с^2.",
+            "indexed_count": 16,
+            "relevant": [
+              "H08"
+            ],
+            "must_rank_first": [
+              "H08"
+            ],
+            "top5": [
+              "H08",
+              "H07",
+              "H01",
+              "H09",
+              "H03"
+            ],
+            "reverse_order_top1": "H08",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [
+              "H07"
+            ],
+            "hard_negatives_top5": [
+              "H07",
+              "H09"
+            ],
+            "result_count": 6,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              70.50136114790962,
+              52.64488004429151,
+              23.177366976452014,
+              12.119060478984904,
+              10.91999199156124
+            ]
+          },
+          {
+            "id": "T11",
+            "class": "new_coefficients",
+            "query": "Определить кинетическую энергию тела массой 4 кг при скорости 3 м/с.",
+            "indexed_count": 16,
+            "relevant": [
+              "H09"
+            ],
+            "must_rank_first": [
+              "H09"
+            ],
+            "top5": [
+              "H09",
+              "H08",
+              "H07",
+              "H05",
+              "H06"
+            ],
+            "reverse_order_top1": "H09",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [
+              "H08",
+              "H07"
+            ],
+            "hard_negatives_top5": [
+              "H08",
+              "H07"
+            ],
+            "result_count": 5,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              41.13978845096872,
+              16.009260658900764,
+              12.780320476999785,
+              3.1148325402159327,
+              3.1148325402159327
+            ]
+          },
+          {
+            "id": "T12",
+            "class": "formula_only",
+            "query": "x^2-9x+20=0",
+            "indexed_count": 16,
+            "relevant": [
+              "H10"
+            ],
+            "must_rank_first": [
+              "H10"
+            ],
+            "top5": [
+              "H10",
+              "H12",
+              "H13",
+              "H16",
+              "H05"
+            ],
+            "reverse_order_top1": "H10",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [],
+            "hard_negatives_top5": [],
+            "result_count": 12,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              32.483342335289436,
+              4.607106285242938,
+              4.607106285242938,
+              3.86453676466559,
+              2.2877042230454494
+            ]
+          },
+          {
+            "id": "T13",
+            "class": "absolute_value",
+            "query": "Найди похожую задачу |x-9|=2.",
+            "indexed_count": 16,
+            "relevant": [
+              "H11"
+            ],
+            "must_rank_first": [
+              "H11"
+            ],
+            "top5": [
+              "H11",
+              "H16",
+              "H05",
+              "H06",
+              "H08"
+            ],
+            "reverse_order_top1": "H11",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [],
+            "hard_negatives_top5": [],
+            "result_count": 13,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              24.0,
+              4.6006390055542745,
+              2.5418935811616103,
+              2.5418935811616103,
+              2.5418935811616103
+            ]
+          },
+          {
+            "id": "T14",
+            "class": "signs",
+            "query": "Где полюс и устойчива ли система 3/(2s-1)?",
+            "indexed_count": 16,
+            "relevant": [
+              "H13"
+            ],
+            "must_rank_first": [
+              "H13"
+            ],
+            "top5": [
+              "H13",
+              "H12"
+            ],
+            "reverse_order_top1": "H13",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [
+              "H12"
+            ],
+            "hard_negatives_top5": [
+              "H12"
+            ],
+            "result_count": 2,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              79.71083343951382,
+              29.626259515398665
+            ]
+          },
+          {
+            "id": "T15",
+            "class": "signs",
+            "query": "Где полюс и устойчива ли система 3/(2s+1)?",
+            "indexed_count": 16,
+            "relevant": [
+              "H12"
+            ],
+            "must_rank_first": [
+              "H12"
+            ],
+            "top5": [
+              "H12",
+              "H13"
+            ],
+            "reverse_order_top1": "H12",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [
+              "H13"
+            ],
+            "hard_negatives_top5": [
+              "H13"
+            ],
+            "result_count": 2,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              79.71083343951382,
+              29.626259515398665
+            ]
+          },
+          {
+            "id": "T16",
+            "class": "units",
+            "query": "Найти постоянную времени RC: R=4000 Ом, C=0.5 мкФ.",
+            "indexed_count": 16,
+            "relevant": [
+              "H14"
+            ],
+            "must_rank_first": [
+              "H14"
+            ],
+            "top5": [
+              "H14"
+            ],
+            "reverse_order_top1": "H14",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [],
+            "hard_negatives_top5": [],
+            "result_count": 1,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              50.47283718352527
+            ]
+          },
+          {
+            "id": "T17",
+            "class": "connection_topology",
+            "query": "Резисторы 3 Ом и 6 Ом подключены параллельно. Каково общее сопротивление?",
+            "indexed_count": 16,
+            "relevant": [
+              "H15"
+            ],
+            "must_rank_first": [
+              "H15"
+            ],
+            "top5": [
+              "H15",
+              "H16",
+              "H03",
+              "H14"
+            ],
+            "reverse_order_top1": "H15",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [
+              "H16"
+            ],
+            "hard_negatives_top5": [
+              "H16"
+            ],
+            "result_count": 4,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              24.886802811694277,
+              16.597703340514386,
+              5.84395027702338,
+              3.1148325402159327
+            ]
+          },
+          {
+            "id": "T18",
+            "class": "connection_topology",
+            "query": "Резисторы 3 Ом и 6 Ом подключены последовательно. Каково общее сопротивление?",
+            "indexed_count": 16,
+            "relevant": [
+              "H16"
+            ],
+            "must_rank_first": [
+              "H16"
+            ],
+            "top5": [
+              "H16",
+              "H15",
+              "H03",
+              "H14"
+            ],
+            "reverse_order_top1": "H16",
+            "top1_relevant": true,
+            "top1_required": true,
+            "hit3": true,
+            "first_relevant_rank": 1,
+            "hard_negatives_top3": [
+              "H15"
+            ],
+            "hard_negatives_top5": [
+              "H15"
+            ],
+            "result_count": 4,
+            "tool_status": "matches",
+            "requires_clarification": false,
+            "scores_top5": [
+              24.886802811694277,
+              16.597703340514386,
+              5.84395027702338,
+              3.1148325402159327
+            ]
+          },
+          {
+            "id": "T19",
+            "class": "no_match",
+            "query": "Найти первообразную функции cos(x).",
+            "indexed_count": 16,
+            "relevant": [],
+            "must_rank_first": [],
+            "top5": [],
+            "reverse_order_top1": null,
+            "top1_relevant": false,
+            "top1_required": false,
+            "hit3": false,
+            "first_relevant_rank": 0,
+            "hard_negatives_top3": [],
+            "hard_negatives_top5": [],
+            "result_count": 0,
+            "tool_status": "no_match",
+            "requires_clarification": false,
+            "scores_top5": []
+          },
+          {
+            "id": "T20",
+            "class": "no_match",
+            "query": "Сколько диагоналей у выпуклого семиугольника?",
+            "indexed_count": 16,
+            "relevant": [],
+            "must_rank_first": [],
+            "top5": [],
+            "reverse_order_top1": null,
+            "top1_relevant": false,
+            "top1_required": false,
+            "hit3": false,
+            "first_relevant_rank": 0,
+            "hard_negatives_top3": [],
+            "hard_negatives_top5": [],
+            "result_count": 0,
+            "tool_status": "no_match",
+            "requires_clarification": false,
+            "scores_top5": []
+          }
+        ]
+      },
+      "performance": [
+        {
+          "active_entries": 12,
+          "warmup": 20,
+          "query_ids": [
+            "Q01",
+            "Q02",
+            "Q06",
+            "Q13",
+            "Q16",
+            "Q17"
+          ],
+          "cached_search": {
+            "n": 100,
+            "p50_ms": 1.0883,
+            "p95_ms": 2.4753,
+            "p99_ms": 3.6049,
+            "max_ms": 4.7367,
+            "mean_ms": 1.3929879999999994,
+            "samples_ms": [
+              1.5194,
+              1.2092,
+              1.9203,
+              1.9402,
+              0.9264,
+              1.5815,
+              1.0203,
+              1.1476,
+              1.054,
+              1.9842,
+              0.9605,
+              3.6049,
+              1.3146,
+              0.8168,
+              1.008,
+              4.7367,
+              1.1743,
+              2.5,
+              1.7048,
+              0.8054,
+              1.1368,
+              2.0843,
+              0.9334,
+              1.4339,
+              0.8776,
+              1.339,
+              0.8793,
+              2.3833,
+              0.8899,
+              1.7644,
+              0.9808,
+              0.8214,
+              0.9231,
+              1.7874,
+              1.1417,
+              1.6194,
+              1.2314,
+              0.9187,
+              0.8963,
+              2.9499,
+              1.065,
+              1.4815,
+              0.8514,
+              0.9026,
+              1.042,
+              1.7252,
+              0.9967,
+              1.7132,
+              1.2143,
+              0.9832,
+              0.9515,
+              1.8316,
+              0.9935,
+              2.1071,
+              1.0883,
+              1.2069,
+              1.0499,
+              1.9723,
+              1.0611,
+              2.4753,
+              0.9994,
+              0.8847,
+              0.8994,
+              2.3142,
+              2.2142,
+              1.7433,
+              0.8616,
+              1.0659,
+              0.9016,
+              1.6329,
+              0.8652,
+              1.4828,
+              0.8816,
+              1.3545,
+              0.8254,
+              1.9721,
+              0.9052,
+              1.4779,
+              0.8543,
+              0.8081,
+              0.9252,
+              3.5565,
+              0.9917,
+              1.5953,
+              0.9852,
+              0.8115,
+              1.0577,
+              1.7011,
+              1.081,
+              1.4755,
+              1.8213,
+              0.9698,
+              0.9911,
+              1.719,
+              0.8655,
+              1.6784,
+              1.6205,
+              0.8254,
+              0.9581,
+              2.091
+            ]
+          },
+          "index_build": {
+            "n": 100,
+            "p50_ms": 35.1721,
+            "p95_ms": 43.8487,
+            "p99_ms": 46.7778,
+            "max_ms": 47.6674,
+            "mean_ms": 36.799945,
+            "samples_ms": [
+              32.8946,
+              34.4992,
+              42.7122,
+              41.4387,
+              32.3938,
+              32.2288,
+              35.9951,
+              47.6674,
+              41.1164,
+              35.5942,
+              33.6422,
+              36.6917,
+              41.5229,
+              33.2057,
+              32.3259,
+              37.1733,
+              41.1574,
+              40.6001,
+              31.9389,
+              32.1908,
+              33.8946,
+              41.8354,
+              40.4399,
+              32.5533,
+              35.3228,
+              33.3052,
+              41.4148,
+              34.6267,
+              33.9172,
+              33.3305,
+              41.8276,
+              38.9319,
+              33.5461,
+              33.8009,
+              33.6127,
+              46.7292,
+              41.8021,
+              32.0336,
+              32.6625,
+              33.6527,
+              41.6037,
+              35.9914,
+              34.4512,
+              35.7635,
+              39.8538,
+              40.386,
+              34.6314,
+              33.4109,
+              36.2763,
+              40.6093,
+              41.4069,
+              32.731,
+              32.0062,
+              35.2485,
+              41.0095,
+              37.2882,
+              33.9037,
+              34.9449,
+              43.0962,
+              41.1992,
+              33.7339,
+              33.1898,
+              34.0135,
+              41.371,
+              44.7136,
+              31.9357,
+              36.7287,
+              34.2911,
+              46.2802,
+              41.052,
+              31.9899,
+              33.4466,
+              35.9983,
+              40.7679,
+              36.0039,
+              31.7892,
+              33.013,
+              41.1898,
+              39.6348,
+              33.7056,
+              34.161,
+              33.6481,
+              38.4884,
+              43.8487,
+              34.0777,
+              33.741,
+              34.4912,
+              42.1229,
+              40.8167,
+              32.5802,
+              32.6977,
+              34.7333,
+              46.7778,
+              39.3239,
+              32.4259,
+              33.9216,
+              37.4597,
+              40.1355,
+              35.1721,
+              32.4818
+            ]
+          },
+          "tool_search_with_index_build": {
+            "n": 100,
+            "p50_ms": 38.5409,
+            "p95_ms": 46.9739,
+            "p99_ms": 50.7047,
+            "max_ms": 54.0688,
+            "mean_ms": 39.57334899999999,
+            "samples_ms": [
+              42.1687,
+              36.6108,
+              36.111,
+              38.3375,
+              44.4857,
+              44.4503,
+              50.7047,
+              37.7135,
+              37.6546,
+              43.6369,
+              37.6826,
+              39.1525,
+              35.2799,
+              41.8997,
+              46.9739,
+              37.4999,
+              34.838,
+              35.997,
+              42.841,
+              45.9096,
+              36.9153,
+              34.203,
+              38.5527,
+              46.9626,
+              41.7748,
+              34.0184,
+              34.0629,
+              41.5589,
+              43.6509,
+              36.2763,
+              34.7756,
+              33.9202,
+              40.6437,
+              44.7659,
+              33.5783,
+              44.5709,
+              36.01,
+              45.8815,
+              41.4507,
+              36.7175,
+              33.9215,
+              38.6019,
+              43.1488,
+              35.0335,
+              34.4881,
+              39.4665,
+              44.4928,
+              41.7529,
+              34.0972,
+              33.549,
+              34.7973,
+              42.7463,
+              41.4461,
+              34.688,
+              38.4129,
+              42.19,
+              40.9321,
+              37.3362,
+              36.6796,
+              38.5409,
+              47.1294,
+              47.2803,
+              37.1218,
+              54.0688,
+              35.037,
+              47.3739,
+              42.8552,
+              35.9941,
+              33.9931,
+              37.9989,
+              45.0383,
+              43.2985,
+              38.7316,
+              36.5707,
+              40.0601,
+              42.8971,
+              36.4123,
+              37.2671,
+              34.0529,
+              43.0104,
+              40.3322,
+              35.2086,
+              38.5146,
+              37.999,
+              41.3846,
+              41.6136,
+              35.5316,
+              36.9348,
+              39.7063,
+              46.3163,
+              41.0003,
+              39.7281,
+              37.8798,
+              37.3386,
+              42.856,
+              38.1023,
+              34.8595,
+              34.9257,
+              40.3481,
+              44.0039
+            ]
+          },
+          "condition_solution_answer_characters": 1971
+        },
+        {
+          "active_entries": 100,
+          "warmup": 20,
+          "query_ids": [
+            "Q01",
+            "Q02",
+            "Q06",
+            "Q13",
+            "Q16",
+            "Q17"
+          ],
+          "cached_search": {
+            "n": 100,
+            "p50_ms": 2.1711,
+            "p95_ms": 4.7318,
+            "p99_ms": 7.9653,
+            "max_ms": 8.2315,
+            "mean_ms": 2.5729430000000004,
+            "samples_ms": [
+              1.2978,
+              1.8036,
+              2.297,
+              4.5675,
+              1.7958,
+              3.6462,
+              1.8488,
+              1.6072,
+              1.9871,
+              3.7857,
+              1.9562,
+              2.8645,
+              1.6979,
+              1.6386,
+              1.9942,
+              3.2166,
+              1.3119,
+              2.9492,
+              1.5917,
+              1.5985,
+              1.9789,
+              3.4517,
+              1.5502,
+              3.064,
+              2.3663,
+              2.1711,
+              5.1016,
+              3.8197,
+              1.771,
+              8.2315,
+              1.3436,
+              2.0509,
+              2.6097,
+              4.0932,
+              1.721,
+              5.8028,
+              1.8565,
+              1.9437,
+              2.255,
+              3.1002,
+              4.5033,
+              3.0297,
+              2.5731,
+              2.4466,
+              2.6286,
+              3.3563,
+              1.2538,
+              4.2452,
+              1.3076,
+              1.9396,
+              2.1288,
+              6.223,
+              1.5506,
+              2.8151,
+              1.2265,
+              1.4516,
+              2.35,
+              7.9653,
+              2.3405,
+              3.9467,
+              1.6715,
+              2.5383,
+              2.8743,
+              3.4079,
+              1.4436,
+              4.1393,
+              1.2575,
+              1.3443,
+              1.8936,
+              4.4371,
+              1.3165,
+              2.6536,
+              2.2304,
+              1.444,
+              2.3706,
+              4.1071,
+              1.3459,
+              3.025,
+              1.422,
+              2.04,
+              1.9355,
+              3.1238,
+              1.2516,
+              2.5617,
+              1.855,
+              1.4331,
+              2.3722,
+              3.8165,
+              1.2534,
+              2.6579,
+              1.4966,
+              4.7318,
+              1.8033,
+              3.5477,
+              1.2586,
+              2.7819,
+              1.2316,
+              1.4335,
+              1.9052,
+              2.8604
+            ]
+          },
+          "index_build": {
+            "n": 100,
+            "p50_ms": 241.7178,
+            "p95_ms": 400.9391,
+            "p99_ms": 597.5709,
+            "max_ms": 601.9063,
+            "mean_ms": 260.80858299999994,
+            "samples_ms": [
+              269.3883,
+              400.9391,
+              249.3381,
+              234.3243,
+              241.5973,
+              228.8631,
+              243.2772,
+              238.3934,
+              234.0592,
+              278.7796,
+              237.6969,
+              235.1761,
+              247.024,
+              246.4314,
+              245.1801,
+              226.895,
+              253.5543,
+              246.7452,
+              247.0672,
+              232.9382,
+              232.3632,
+              246.8056,
+              251.8279,
+              239.4929,
+              301.6061,
+              315.7742,
+              266.6569,
+              226.4334,
+              254.5205,
+              265.7661,
+              226.1258,
+              280.0066,
+              262.0052,
+              260.5807,
+              243.5834,
+              324.8328,
+              230.6639,
+              228.169,
+              234.1836,
+              225.186,
+              270.5038,
+              243.6873,
+              267.2347,
+              248.5662,
+              278.3352,
+              266.3627,
+              248.9132,
+              267.6864,
+              324.0316,
+              223.4842,
+              241.7178,
+              234.6727,
+              259.2631,
+              235.2168,
+              261.7438,
+              261.9738,
+              280.8635,
+              597.5709,
+              539.624,
+              482.1035,
+              401.5219,
+              396.9902,
+              601.9063,
+              285.366,
+              262.1637,
+              299.3504,
+              225.1027,
+              214.0549,
+              219.0535,
+              223.2039,
+              205.0437,
+              263.5373,
+              214.563,
+              225.4493,
+              325.8151,
+              243.405,
+              252.8291,
+              351.9471,
+              215.2137,
+              228.0541,
+              231.4562,
+              203.5839,
+              209.4829,
+              210.9677,
+              216.249,
+              221.2116,
+              202.5901,
+              235.0876,
+              209.2006,
+              206.3563,
+              225.6936,
+              204.5771,
+              200.3886,
+              211.6519,
+              208.0459,
+              223.1057,
+              201.6297,
+              205.6406,
+              205.4701,
+              206.0913
+            ]
+          },
+          "tool_search_with_index_build": {
+            "n": 100,
+            "p50_ms": 240.9578,
+            "p95_ms": 349.5601,
+            "p99_ms": 580.9281,
+            "max_ms": 952.5416,
+            "mean_ms": 261.99880600000006,
+            "samples_ms": [
+              243.6343,
+              277.8159,
+              240.2305,
+              237.5359,
+              287.5846,
+              234.2646,
+              234.2478,
+              244.249,
+              240.9578,
+              245.4226,
+              238.2188,
+              243.2024,
+              230.8939,
+              252.7947,
+              239.5221,
+              241.2215,
+              276.0863,
+              233.3505,
+              236.7945,
+              247.5519,
+              233.306,
+              238.7597,
+              277.1682,
+              233.7142,
+              273.255,
+              303.0504,
+              267.6007,
+              229.0115,
+              266.6222,
+              261.8582,
+              237.6898,
+              267.4427,
+              275.8314,
+              267.7471,
+              251.0921,
+              235.955,
+              271.9101,
+              235.0819,
+              224.0788,
+              249.9437,
+              290.0462,
+              272.6537,
+              260.3813,
+              299.9279,
+              249.461,
+              270.507,
+              253.7874,
+              235.7964,
+              260.0713,
+              278.8469,
+              267.9451,
+              243.1052,
+              294.0463,
+              233.9194,
+              294.8142,
+              241.8655,
+              952.5416,
+              580.9281,
+              349.5601,
+              426.8342,
+              461.9268,
+              419.2242,
+              342.5024,
+              266.8679,
+              258.9577,
+              212.3071,
+              212.5081,
+              221.6408,
+              230.1565,
+              221.8026,
+              205.6513,
+              217.368,
+              214.5531,
+              290.2571,
+              271.2692,
+              298.3525,
+              278.4179,
+              261.6505,
+              210.9626,
+              224.9574,
+              205.7197,
+              212.9575,
+              217.8266,
+              222.102,
+              228.2438,
+              203.8895,
+              237.9657,
+              211.476,
+              217.3894,
+              206.3106,
+              214.2351,
+              217.2483,
+              210.3745,
+              210.1232,
+              202.3882,
+              214.2614,
+              219.2898,
+              217.4566,
+              213.9032,
+              211.6487
+            ]
+          },
+          "condition_solution_answer_characters": 9804
+        },
+        {
+          "active_entries": 500,
+          "warmup": 20,
+          "query_ids": [
+            "Q01",
+            "Q02",
+            "Q06",
+            "Q13",
+            "Q16",
+            "Q17"
+          ],
+          "cached_search": {
+            "n": 100,
+            "p50_ms": 7.1758,
+            "p95_ms": 18.8096,
+            "p99_ms": 30.3485,
+            "max_ms": 33.9415,
+            "mean_ms": 7.599048,
+            "samples_ms": [
+              2.8921,
+              3.7628,
+              7.9451,
+              9.6478,
+              3.1023,
+              9.5543,
+              2.5267,
+              2.4789,
+              6.9013,
+              9.8305,
+              2.7642,
+              8.5638,
+              3.5622,
+              6.3342,
+              8.1448,
+              16.0567,
+              3.276,
+              9.684,
+              2.6,
+              2.6075,
+              33.9415,
+              29.8485,
+              3.4283,
+              11.185,
+              3.8343,
+              3.2419,
+              9.3984,
+              11.9898,
+              3.0584,
+              8.4956,
+              10.3573,
+              2.5811,
+              8.5409,
+              12.1394,
+              2.6504,
+              9.1387,
+              3.1649,
+              3.4095,
+              8.59,
+              11.8198,
+              4.3617,
+              10.3732,
+              3.5112,
+              2.8147,
+              8.0346,
+              11.139,
+              2.6256,
+              10.5855,
+              2.8223,
+              2.4669,
+              7.2779,
+              12.1075,
+              2.7221,
+              8.7993,
+              2.6366,
+              2.811,
+              7.3776,
+              18.8096,
+              3.8516,
+              11.3655,
+              3.9567,
+              3.1692,
+              7.1758,
+              11.2956,
+              9.6828,
+              11.0155,
+              2.732,
+              2.9272,
+              10.0109,
+              22.217,
+              4.9429,
+              9.7355,
+              2.6488,
+              2.5662,
+              7.6106,
+              9.8649,
+              3.7326,
+              10.6464,
+              2.7581,
+              3.8192,
+              8.3148,
+              30.3485,
+              4.191,
+              10.8601,
+              2.9861,
+              4.7459,
+              8.1394,
+              8.9699,
+              3.7081,
+              23.3212,
+              2.675,
+              2.9764,
+              9.5969,
+              10.567,
+              3.617,
+              10.2739,
+              3.0301,
+              2.6537,
+              8.0433,
+              8.8363
+            ]
+          },
+          "index_build": {
+            "n": 100,
+            "p50_ms": 1295.6376,
+            "p95_ms": 2416.7666,
+            "p99_ms": 3740.1958,
+            "max_ms": 3747.5249,
+            "mean_ms": 1509.524150999999,
+            "samples_ms": [
+              1290.182,
+              1229.0673,
+              1193.0607,
+              1106.0389,
+              1148.1323,
+              1139.7976,
+              1113.5384,
+              1089.4573,
+              1266.9458,
+              1104.4381,
+              1186.6386,
+              1122.9396,
+              2591.4437,
+              2080.9041,
+              1456.2001,
+              1221.4989,
+              1077.5241,
+              1332.6416,
+              1146.365,
+              1049.9346,
+              1043.2502,
+              1920.7909,
+              1335.8104,
+              1319.0832,
+              1660.0275,
+              1283.3394,
+              1302.4627,
+              1656.0041,
+              1245.0726,
+              1223.3438,
+              1316.3174,
+              1068.0988,
+              1294.025,
+              1081.8293,
+              1169.688,
+              1058.6749,
+              1417.5958,
+              2140.6631,
+              1192.1947,
+              1193.004,
+              1275.2628,
+              1257.1552,
+              1818.271,
+              1115.1912,
+              1109.8023,
+              1506.5055,
+              1230.948,
+              1646.7647,
+              1462.0148,
+              1269.9546,
+              1212.1228,
+              1184.3148,
+              1205.8634,
+              1112.7474,
+              1111.6325,
+              1525.3852,
+              1737.513,
+              1254.157,
+              2410.2923,
+              1594.1529,
+              1500.0848,
+              1489.8535,
+              1558.4217,
+              1831.2373,
+              1491.8535,
+              1703.499,
+              3740.1958,
+              2416.7666,
+              1885.4374,
+              3747.5249,
+              2054.6227,
+              2125.1048,
+              1419.1037,
+              1142.7413,
+              1178.8939,
+              1626.6263,
+              2341.0201,
+              1463.2335,
+              1263.5018,
+              1295.6376,
+              1193.6636,
+              2882.6144,
+              2220.2439,
+              1264.3634,
+              1609.637,
+              1774.501,
+              1603.1502,
+              1386.1362,
+              2469.4182,
+              2356.7252,
+              1656.2577,
+              1828.6946,
+              1642.7327,
+              1492.1684,
+              1174.2634,
+              1383.3061,
+              1241.1183,
+              1241.6615,
+              1214.5322,
+              1133.791
+            ]
+          },
+          "tool_search_with_index_build": {
+            "n": 100,
+            "p50_ms": 1307.2678,
+            "p95_ms": 2584.4037,
+            "p99_ms": 3107.8012,
+            "max_ms": 3830.348,
+            "mean_ms": 1532.478691,
+            "samples_ms": [
+              1195.6388,
+              1180.7965,
+              1382.3865,
+              1126.856,
+              1180.3195,
+              1186.9235,
+              1164.742,
+              1246.9591,
+              1207.9449,
+              1197.7453,
+              1159.3585,
+              1212.7018,
+              3107.8012,
+              1227.8972,
+              1404.0757,
+              1108.9017,
+              1042.7486,
+              1477.0397,
+              1113.4059,
+              1099.4556,
+              1394.8192,
+              2927.9758,
+              1343.1647,
+              1785.043,
+              1158.6195,
+              1301.459,
+              1268.6363,
+              1233.7252,
+              1210.8161,
+              1293.468,
+              1129.0428,
+              1238.6984,
+              1102.7691,
+              1056.4827,
+              1215.9469,
+              1086.808,
+              1613.0448,
+              1161.9532,
+              1206.5135,
+              1213.6334,
+              1345.9077,
+              2584.4037,
+              1237.0745,
+              1213.0091,
+              1197.899,
+              1425.6011,
+              1090.675,
+              1303.3793,
+              1136.7541,
+              2189.6135,
+              1640.3292,
+              1873.7565,
+              1198.5031,
+              1089.1048,
+              1388.1658,
+              1547.1672,
+              1815.2935,
+              2689.4354,
+              1968.3215,
+              2229.2779,
+              1473.6883,
+              2126.3884,
+              1975.7938,
+              2316.8763,
+              1685.8465,
+              1881.4452,
+              3830.348,
+              1908.6596,
+              2214.8046,
+              2229.9391,
+              1338.6482,
+              1518.9485,
+              1414.4135,
+              1285.5905,
+              1002.7977,
+              1578.692,
+              2070.3875,
+              1344.8823,
+              1543.2879,
+              1284.5747,
+              1648.5413,
+              1824.0888,
+              1245.1709,
+              1721.4823,
+              1675.1422,
+              1815.5324,
+              1307.2678,
+              1696.0634,
+              2868.8175,
+              1298.0794,
+              2251.0146,
+              1869.1263,
+              1496.7125,
+              2122.4031,
+              1219.1601,
+              1482.1776,
+              1156.8318,
+              1121.365,
+              1083.4634,
+              1189.4266
+            ]
+          },
+          "condition_solution_answer_characters": 46719
+        }
+      ],
+      "sink": 89144
+    },
+    "cold2": {
+      "timestamp_utc": "2026-10-15T12:50:38.519905Z",
+      "source_commit": "f0b82a2a6638e4274fafebe4420d9cbb54ec4a12",
+      "app_version": "1.6.5",
+      "build_type": "debug, isolated instrumentation, unminified",
+      "device_model": "Android SDK built for x86_64",
+      "android_api": 35,
+      "android_release": "15",
+      "abis": [
+        "x86_64"
+      ],
+      "available_processors": 2,
+      "benchmark_sha256": "6bf88a4c396e003a1c302f4d39a90276a45ff2b96792b52fc3880f8172646a34",
+      "holdout_sha256": "b2c1bcfc4fb2d7bb1b472447a53ac43d9cfe791746cea0d43c240cb6f5a4bd7e",
+      "first_use_index_and_search_500_ms": 2755.4335,
+      "sink": 64
+    },
+    "cold3": {
+      "timestamp_utc": "2026-10-15T12:50:44.929873Z",
+      "source_commit": "f0b82a2a6638e4274fafebe4420d9cbb54ec4a12",
+      "app_version": "1.6.5",
+      "build_type": "debug, isolated instrumentation, unminified",
+      "device_model": "Android SDK built for x86_64",
+      "android_api": 35,
+      "android_release": "15",
+      "abis": [
+        "x86_64"
+      ],
+      "available_processors": 2,
+      "benchmark_sha256": "6bf88a4c396e003a1c302f4d39a90276a45ff2b96792b52fc3880f8172646a34",
+      "holdout_sha256": "b2c1bcfc4fb2d7bb1b472447a53ac43d9cfe791746cea0d43c240cb6f5a4bd7e",
+      "first_use_index_and_search_500_ms": 2131.8047,
+      "sink": 64
+    }
+  }
+}

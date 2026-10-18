@@ -29,6 +29,7 @@
 | Тема | Где сохранены результаты |
 | --- | --- |
 | Перенос ручного поиска и метаданные, 2026-10-12 | [JVM-прогоны и проверка на API 35](library-quality/device-check-2026-10-12.md) |
+| Качество и скорость поиска, 2026-10-17 | [Размеченные наборы и нагрузка до 500 задач на API 35](library-quality/search-evaluation.md) |
 | Импорт, 2026-10-12 | [Локальные и Android-проверки](library-quality/import-check-2026-10-12.md), [обход интерфейса](library-quality/import-computer-check-2026-10-12.md), [PDF/DOCX/OCR](library-quality/import-ocr-computer-check-2026-10-12.md) |
 | Инструменты агента, 2026-10-13 | [Протокол и синтетические проверки](library-quality/agent-tools-check-2026-10-13.md), [живой сценарий DeepSeek](library-quality/agent-tools-live-check-2026-10-13.md) |
 | Настройки рассуждения, 2026-10-13 | [Контракты и границы проверки](library-quality/reasoning-modes-check-2026-10-13.md) |
