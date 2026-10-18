@@ -1,5 +1,11 @@
 package com.smartcalc.app.ui.calculator
 
+import androidx.activity.compose.setContent
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertTextEquals
@@ -13,6 +19,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performImeAction
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
 import androidx.lifecycle.ViewModelProvider
@@ -22,9 +29,12 @@ import com.smartcalc.app.SmartCalcApplication
 import com.smartcalc.app.SolutionViewModel
 import com.smartcalc.app.data.history.Solution
 import com.smartcalc.app.data.session.SessionState
+import com.smartcalc.app.ui.AppRoot
+import com.smartcalc.app.ui.theme.SmartCalcTheme
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -73,6 +83,34 @@ class CalculatorModesDeviceTest {
         ui.onNodeWithContentDescription("ИИ-помощник").performClick()
         ui.onNodeWithText("Написать", substring = false).performClick()
         ui.onNode(hasSetTextAction()).assertIsDisplayed()
+    }
+
+    @Test fun allAssistantLabelsFitAtTwoHundredPercentFont() {
+        ui.runOnUiThread {
+            ui.activity.setContent {
+                val density = LocalDensity.current
+                CompositionLocalProvider(LocalDensity provides Density(density.density, 2f)) {
+                    SmartCalcTheme { AppRoot(vm) }
+                }
+            }
+        }
+        ui.onNodeWithContentDescription("ИИ-помощник").performClick()
+        val clipped = mutableListOf<String>()
+        for (label in listOf("Написать", "Камера", "Галерея", "Документ", "История",
+            "Настройки", "По образцу", "Оформление", "Библиотека")) {
+            val layouts = mutableListOf<TextLayoutResult>()
+            ui.onNodeWithText(label, substring = false, useUnmergedTree = true)
+                .assertIsDisplayed()
+                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            assertEquals("Text layout for $label", 1, layouts.size)
+            val layout = layouts.single()
+            if (layout.hasVisualOverflow) {
+                clipped += "$label: size=${layout.size}, lines=${layout.lineCount}, " +
+                    "widthOverflow=${layout.didOverflowWidth}, heightOverflow=${layout.didOverflowHeight}, " +
+                    "ends=${(0 until layout.lineCount).map { layout.getLineEnd(it) }}"
+            }
+        }
+        assertTrue("Clipped assistant labels: ${clipped.joinToString()}", clipped.isEmpty())
     }
 
     @Test fun hiddenAnswerBlocksDisplayInputUntilRestored() {

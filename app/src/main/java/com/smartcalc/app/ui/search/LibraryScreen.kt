@@ -163,7 +163,7 @@ fun LibraryScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = onAddMaterial,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                     ) {
                         Icon(Icons.Outlined.FileOpen, contentDescription = null)
                         Text("Добавить материал", modifier = Modifier.padding(start = 8.dp))

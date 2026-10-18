@@ -2,6 +2,8 @@ package com.smartcalc.app.ui.search
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.Column
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -121,7 +124,9 @@ fun SearchScreen(
             },
         )
         LibraryTabs(0, onSearch = {}, onTasks = onOpenLibrary, onFiles = onOpenFiles)
-        OutlinedButton(onClick = onAddMaterial, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        OutlinedButton(onClick = onAddMaterial, modifier = Modifier.fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 12.dp)
+            .heightIn(min = 48.dp)) {
             Text("Добавить материал")
         }
         OutlinedTextField(
@@ -198,7 +203,7 @@ fun SearchScreen(
 @Composable
 private fun EmptyBase(hasLibraryExamples: Boolean, onOpenLibrary: () -> Unit) {
     Column(
-        modifier = Modifier.padding(16.dp),
+        modifier = Modifier.verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(

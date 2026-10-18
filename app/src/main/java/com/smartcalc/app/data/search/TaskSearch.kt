@@ -6,6 +6,7 @@ import com.smartcalc.app.data.library.LibraryVerification
 import com.smartcalc.app.data.library.source.SourceCatalog
 import com.smartcalc.app.data.library.source.SourceStatus
 import com.smartcalc.app.data.template.TaskTemplate
+import com.smartcalc.app.data.template.TemplateExample
 import com.smartcalc.app.data.template.ExampleFingerprint
 import kotlin.math.ln
 
@@ -193,9 +194,7 @@ object TaskSearch {
         fun addAll(sections: List<TaskTemplate>, source: FoundSource) = sections.forEach { section ->
             section.examples.forEach { ex ->
                 if (ex.isEmpty) return@forEach
-                if (source == FoundSource.BASE && ex.library?.let { !it.enabled || it.verification == LibraryVerification.REJECTED } == true) return@forEach
-                if (source == FoundSource.BASE && ex.library?.sourceRefs.orEmpty().any { ref -> sources.error != null ||
-                    sources.sources.firstOrNull { it.id == ref.sourceId }?.status != SourceStatus.ACTIVE }) return@forEach
+                if (source == FoundSource.BASE && !libraryExampleAvailable(ex, sources)) return@forEach
                 val key = ExampleFingerprint.key(ex)
                 if (seen.add(key)) {
                     val saved = savedById[FoundSolution.idOf(key)]
@@ -215,6 +214,12 @@ object TaskSearch {
         }
         return result
     }
+
+    /** One availability rule for indexing and for media checks before reusing an agent index. */
+    internal fun libraryExampleAvailable(ex: TemplateExample, sources: SourceCatalog): Boolean =
+        !ex.isEmpty && ex.library?.let { !it.enabled || it.verification == LibraryVerification.REJECTED } != true &&
+            ex.library?.sourceRefs.orEmpty().none { ref -> sources.error != null ||
+                sources.sources.firstOrNull { it.id == ref.sourceId }?.status != SourceStatus.ACTIVE }
 
     private fun Solution.searchableText() = buildString {
         steps.forEach { appendLine(it.title).appendLine(it.content) }

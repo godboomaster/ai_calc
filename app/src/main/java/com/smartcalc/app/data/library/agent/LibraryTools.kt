@@ -6,7 +6,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.*
 
 /** One request owns its allowlist and budget; every operation rechecks current library policy. */
-class LibraryTools(private val catalog: suspend () -> LibraryCatalog) {
+class LibraryTools(
+    private val index: LibrarySearchIndex = LibrarySearchIndex(),
+    private val catalog: suspend () -> LibraryCatalog,
+) {
     private val json = Json
     private val allowed = mutableMapOf<String, Int>()
     private val read = linkedMapOf<Pair<String, Int>, LibraryExampleSnapshot>()
@@ -15,10 +18,9 @@ class LibraryTools(private val catalog: suspend () -> LibraryCatalog) {
 
     suspend fun hasExamples(): Boolean = try {
         val current = catalog()
-        current.error != null || current.sources.error != null || entries(current).isNotEmpty()
-    } catch (e: CancellationException) { throw e } catch (_: Exception) { true }
-
-    private fun entries(current: LibraryCatalog) = TaskSearch.entries(current.sections, emptyList(), emptyList(), current.sources)
+        val indexed = index.entries(current)
+        current.error != null || current.sources.error != null || indexed.isNotEmpty()
+    } catch (e: CancellationException) { throw e } catch (_: Exception) { index.invalidate(); true }
 
     suspend fun execute(name: String, arguments: String): JsonObject {
         if (name !in setOf("search_examples", "read_example")) return status("invalid_tool")
@@ -37,9 +39,9 @@ class LibraryTools(private val catalog: suspend () -> LibraryCatalog) {
             if (args.keys != setOf("id", "version") || id == null || version == null || version < 1 ||
                 runCatching { UUID.fromString(id).toString() == id.lowercase() }.getOrDefault(false).not()) return status("invalid_arguments")
         }
-        val current = try { catalog() } catch (e: CancellationException) { throw e } catch (_: Exception) { return status("unavailable") }
+        val current = try { catalog() } catch (e: CancellationException) { throw e } catch (_: Exception) { index.invalidate(); return status("unavailable") }
+        val indexed = index.entries(current)
         if (current.error != null || current.sources.error != null) return status("unavailable")
-        val indexed = entries(current)
         var pending: LibraryExampleSnapshot? = null
         val newAllowed = mutableMapOf<String, Int>()
         val result = if (name == "search_examples") {

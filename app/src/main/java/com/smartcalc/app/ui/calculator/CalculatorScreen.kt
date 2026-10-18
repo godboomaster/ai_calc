@@ -81,6 +81,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.intl.LocaleList
+import androidx.compose.ui.text.style.Hyphens
+import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -113,6 +116,39 @@ private class AiAction(
     val highlighted: Boolean = false,
     val onClick: () -> Unit,
 )
+
+private val aiActionLineHeight = 13.sp
+
+@Composable
+private fun AiActionLabel(action: AiAction) {
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        val twoLines = with(LocalDensity.current) { aiActionLineHeight.toDp() * 2 }
+        val showIcon = maxHeight >= twoLines + 16.dp
+        val phrase = ' ' in action.label
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // При крупном шрифте место занимает полная подпись; иконка декоративная.
+            if (showIcon) {
+                Icon(action.icon, contentDescription = null, modifier = Modifier.size(16.dp))
+            }
+            Text(
+                action.label,
+                fontSize = 12.sp,
+                lineHeight = aiActionLineHeight,
+                maxLines = 2,
+                textAlign = TextAlign.Center,
+                overflow = TextOverflow.Clip,
+                style = TextStyle(
+                    lineBreak = if (phrase) LineBreak.Paragraph else LineBreak.Simple,
+                    hyphens = if (phrase) Hyphens.Auto else Hyphens.None,
+                    localeList = LocaleList("ru"),
+                ),
+            )
+        }
+    }
+}
 
 /** Высота задаётся только клавишам самого калькулятора; экраны шага и решения сохраняют свой размер. */
 private val LocalCalculatorKeyHeight = staticCompositionLocalOf<Dp?> { null }
@@ -231,13 +267,16 @@ fun CalculatorScreen(
         // Сетка сохраняет свою геометрию, даже когда системная клавиатура лежит поверх неё.
         val rowCount = 6
         val rowGaps = 8.dp * (rowCount - 1).toFloat()
+        val minimumKeyHeight = if (aiKeys) {
+            maxOf(48.dp, with(LocalDensity.current) { aiActionLineHeight.toDp() * 2 } + 4.dp)
+        } else 48.dp
         val fontScale = LocalDensity.current.fontScale.coerceIn(1f, 1.5f)
         // Крупному системному шрифту нужно больше места на условие и ответ. Если места совсем мало,
         // клавиши остаются не ниже touch target и прокручиваются в своём окне.
         val displayReserve = 48.dp + 128.dp * fontScale
         val keypadBudget = (maxHeight - displayReserve).coerceAtLeast(48.dp)
         val keyHeight = ((keypadBudget - rowGaps).coerceAtLeast(0.dp) / rowCount.toFloat())
-            .coerceIn(48.dp, 72.dp)
+            .coerceIn(minimumKeyHeight, maxOf(72.dp, minimumKeyHeight))
         val keypadContentHeight = keyHeight * rowCount.toFloat() + rowGaps
         val keypadViewportHeight = minOf(keypadContentHeight, keypadBudget)
         val displayBodyHeight = (maxHeight - keypadViewportHeight - 48.dp).coerceAtLeast(0.dp)
@@ -491,18 +530,7 @@ fun CalculatorScreen(
                 val action = aiActions[digit]?.takeIf { aiKeys }
                 if (action != null) {
                     CalcKey(if (action.highlighted) operatorColor else numberColor, onClick = action.onClick) {
-                        // Иконка и подпись не выше цифры — клавиши не меняют размер при переключении.
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(action.icon, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Text(
-                                action.label,
-                                fontSize = 12.sp,
-                                lineHeight = 14.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(horizontal = 4.dp),
-                            )
-                        }
+                        AiActionLabel(action)
                     }
                     return
                 }
