@@ -93,3 +93,18 @@ dependencies {
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 }
+
+// Canonical evaluation data stay in docs; only the opt-in test APK receives these assets.
+val searchBenchmarkAssets = tasks.register<Copy>("prepareSearchBenchmarkAssets") {
+    from(rootProject.file("docs/library-quality")) {
+        include("benchmark.json", "search-holdout.json")
+    }
+    into(layout.buildDirectory.dir("generated/searchBenchmarkAssets"))
+}
+android.sourceSets.getByName("androidTest").assets.srcDir(layout.buildDirectory.dir("generated/searchBenchmarkAssets"))
+// Lint also consumes the raw Android-test assets, independently of the merge task.
+tasks.matching { it.name in setOf(
+    "mergeDebugAndroidTestAssets", "generateDebugAndroidTestLintModel", "lintAnalyzeDebugAndroidTest",
+) }.configureEach {
+    dependsOn(searchBenchmarkAssets)
+}
