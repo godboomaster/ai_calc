@@ -10,6 +10,7 @@ import com.smartcalc.app.data.api.ApiException
 import com.smartcalc.app.data.api.ApiConfigurationException
 import com.smartcalc.app.data.api.LibraryAgentException
 import com.smartcalc.app.data.library.agent.LibraryCatalog
+import com.smartcalc.app.data.library.agent.LibrarySearchIndex
 import com.smartcalc.app.data.library.agent.LibraryAgentReport
 import com.smartcalc.app.data.api.OpenAiClient
 import com.smartcalc.app.data.api.TemplatePrompt
@@ -63,6 +64,7 @@ class GenerationController internal constructor(
         }, sessionActions)
 
     private val client = OpenAiClient()
+    private val libraryIndex = LibrarySearchIndex()
     private val files = RequestFiles(File(requestDirectory, "request"))
     private val journal = RequestJournal(File(requestDirectory, "request.json"))
     val runner = RequestRunner<Solution>(scope, journal,
@@ -170,7 +172,9 @@ class GenerationController internal constructor(
 
     private suspend fun execute(id: String, input: PreparedRequest, config: ApiSettings): Solution {
         val base = input.base
-        val tools = withContext(Dispatchers.IO) { libraryToolsForRequest(config.libraryToolsEnabled, input.text.orEmpty(), libraryCatalog) }
+        val tools = withContext(Dispatchers.IO) {
+            libraryToolsForRequest(config.libraryToolsEnabled, input.text.orEmpty(), libraryIndex, libraryCatalog)
+        }
         files.saveAgentReport(id, LibraryAgentReport())
         val progress: suspend (LibraryAgentReport) -> Unit = { files.saveAgentReport(id, it) }
         val payload = if (base != null) client.followUp(config, base, input.text.orEmpty(), input.template, tools, progress)
