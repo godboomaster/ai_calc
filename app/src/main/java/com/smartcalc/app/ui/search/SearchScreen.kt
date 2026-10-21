@@ -57,6 +57,7 @@ import coil.compose.AsyncImage
 import com.smartcalc.app.SolutionViewModel
 import com.smartcalc.app.data.library.LibraryVerification
 import com.smartcalc.app.data.search.FoundSource
+import com.smartcalc.app.ui.components.QuickHideButton
 import com.smartcalc.app.ui.template.label
 import com.smartcalc.app.data.search.FoundSolution
 import com.smartcalc.app.data.search.SearchHit
@@ -122,6 +123,7 @@ fun SearchScreen(
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
                 }
             },
+            actions = { QuickHideButton() },
         )
         LibraryTabs(0, onSearch = {}, onTasks = onOpenLibrary, onFiles = onOpenFiles)
         OutlinedButton(onClick = onAddMaterial, modifier = Modifier.fillMaxWidth()

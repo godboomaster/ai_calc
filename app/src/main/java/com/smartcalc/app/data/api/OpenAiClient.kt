@@ -9,6 +9,7 @@ import com.smartcalc.app.data.library.agent.LibraryTools
 import com.smartcalc.app.data.library.agent.LibraryAgentReport
 import com.smartcalc.app.data.library.agent.redact
 import com.smartcalc.app.data.library.agent.redactSecret
+import com.smartcalc.app.data.search.TaskDescription
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -85,6 +86,15 @@ private const val ESCAPE_LIKE_LATEX =
  * (группа 2) или одиночный «\» — первую и последний нужно экранировать.
  */
 private val JSON_ESCAPE = Regex("""\\(?:((?:$ESCAPE_LIKE_LATEX)(?![a-zA-Z]))|(["\\/bfnrt]|u[0-9a-fA-F]{4}))?""")
+
+/** Подбор похожих задач: модель только читает задачу и называет её тип, решать её не нужно. */
+private const val DESCRIBE_RULE =
+    "Ты подбираешь из библиотеки пользователя решённые задачи, которые решаются тем же способом, что и новая. " +
+        "Новую задачу не решай. Отвечай строго одним JSON-объектом, без пояснений и без markdown."
+
+/** Названия разделов уходят модели целиком; больше — уже не каталог, а лишние токены. */
+private const val MAX_DESCRIBE_SECTIONS = 200
+private const val MAX_DESCRIBE_TEXT = 8_000
 
 data class StepPayload(
     val title: String,
@@ -417,6 +427,73 @@ class OpenAiClient {
                     "обозначения и стиль записи. Задачу с образца решать не нужно.",
             )
         }
+    }
+
+    /**
+     * Короткий запрос перед решением: модель читает задачу (фото, текст или документ) и называет её тип
+     * и подходящие разделы [sections], чтобы найти в библиотеке похожие. Рассуждения выключены: ответ
+     * нужен быстрый и дешёвый, а решать задачу здесь не нужно.
+     */
+    suspend fun describeTask(settings: ApiSettings, images: List<String>, text: String?, sections: List<String>): TaskDescription =
+        withContext(Dispatchers.IO) {
+            val quick = settings.copy(thinkingEnabled = false)
+            val messages = buildJsonArray {
+                add(message("system", JsonPrimitive(DESCRIBE_RULE)))
+                add(message("user", buildJsonArray {
+                    add(textPart(describeInstructions(sections)))
+                    if (!text.isNullOrBlank()) add(textPart("Новая задача:\n" + text.take(MAX_DESCRIBE_TEXT)))
+                    if (images.isNotEmpty()) add(textPart(if (text.isNullOrBlank()) "Новая задача — на фото ниже." else "Фото к новой задаче:"))
+                    images.forEach { add(imagePart(it)) }
+                }))
+            }
+            requireImageSupport(quick, messages)
+            fun body(jsonMode: Boolean) = buildJsonObject {
+                put("model", quick.model)
+                put("messages", messages)
+                if (jsonMode) put("response_format", buildJsonObject { put("type", "json_object") })
+            }
+            val raw = try {
+                execute(quick, body(jsonMode = true))
+            } catch (e: ApiException) {
+                if (e.httpCode == 400 || e.httpCode == 422) execute(quick, body(jsonMode = false)) else throw e
+            }
+            val found = parseTaskDescription(raw)
+            if (settings.apiKey.isBlank()) found else {
+                fun clean(value: String) = value.replace(settings.apiKey, "[скрыто]")
+                TaskDescription(clean(found.condition), clean(found.topic), found.keywords.map(::clean), found.sections.map(::clean))
+            }
+        }
+
+    private fun describeInstructions(sections: List<String>) = buildString {
+        appendLine("Прочитай новую задачу и верни JSON-объект:")
+        appendLine("{\"condition\": \"условие задачи полностью, как написано; формулы — в LaTeX между $ и $\",")
+        appendLine(" \"topic\": \"тип задачи одной фразой: что дано, что найти и каким методом такие задачи решают\",")
+        appendLine(" \"keywords\": [\"5–12 слов и коротких терминов, которыми такие задачи называют в учебниках, включая метод решения и синонимы\"],")
+        appendLine(" \"sections\": [\"до 3 разделов из списка ниже, задачи которых решаются тем же способом, — название точно как в списке; [], если подходящих нет\"]}")
+        appendLine()
+        appendLine("Разделы библиотеки:")
+        sections.take(MAX_DESCRIBE_SECTIONS).forEach { appendLine("- " + it.take(150)) }
+    }
+
+    /** Разбор так же снисходителен, как у решения: обёртки, неэкранированный LaTeX, строка вместо списка. */
+    internal fun parseTaskDescription(raw: String): TaskDescription {
+        val text = raw.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+        val start = text.indexOf('{')
+        val end = text.lastIndexOf('}')
+        if (start < 0 || end <= start) throw ApiException("Модель вернула ответ не в формате JSON")
+        val repaired = JSON_ESCAPE.replace(text.substring(start, end + 1)) { m -> if (m.groups[2] != null) m.value else "\\" + m.value }
+        val obj = try {
+            json.parseToJsonElement(repaired).jsonObject
+        } catch (e: Exception) {
+            throw ApiException("Не удалось разобрать ответ модели")
+        }
+        fun string(key: String, limit: Int) = (obj[key] as? JsonPrimitive)?.contentOrNull.orEmpty().replace("`", "").trim().take(limit)
+        fun list(key: String, count: Int, limit: Int): List<String> = when (val value = obj[key]) {
+            is JsonArray -> value.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+            is JsonPrimitive -> value.contentOrNull.orEmpty().split(',', ';', '\n')
+            else -> emptyList()
+        }.map { it.trim().take(limit) }.filter { it.isNotEmpty() }.distinct().take(count)
+        return TaskDescription(string("condition", 4_000), string("topic", 300), list("keywords", 20, 60), list("sections", 5, 200))
     }
 
     suspend fun testConnection(settings: ApiSettings): String = withContext(Dispatchers.IO) {

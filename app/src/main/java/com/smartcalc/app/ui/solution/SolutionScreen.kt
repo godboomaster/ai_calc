@@ -69,6 +69,7 @@ import com.smartcalc.app.data.session.ListPosition
 import com.smartcalc.app.data.session.SolutionBlockId
 import com.smartcalc.app.data.session.blockIds
 import com.smartcalc.app.ui.calculator.CalcKey
+import com.smartcalc.app.ui.components.QuickHideButton
 import com.smartcalc.app.ui.math.MathMarkup
 import com.smartcalc.app.ui.math.MathText
 import com.smartcalc.app.ui.plot.PlotView
@@ -149,6 +150,7 @@ fun SolutionScreen(
                     }
                 }
             }
+            QuickHideButton()
         }
 
         val s = solution

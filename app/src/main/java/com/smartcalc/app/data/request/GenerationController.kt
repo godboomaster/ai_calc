@@ -20,6 +20,7 @@ import com.smartcalc.app.data.history.FollowUp
 import com.smartcalc.app.data.history.HistoryStore
 import com.smartcalc.app.data.history.Solution
 import com.smartcalc.app.data.history.SolutionStep
+import com.smartcalc.app.data.search.SimilarTasks
 import com.smartcalc.app.data.session.SessionStore
 import com.smartcalc.app.data.session.SolutionSession
 import com.smartcalc.app.data.settings.ApiSettings
@@ -35,6 +36,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/** Новая задача до отправки: подбор похожих задач читает её заранее, запрос получает уже прочитанное. */
+sealed interface TaskInput {
+    data class Text(val problem: String) : TaskInput
+    class Image(val jpeg: ByteArray) : TaskInput
+    data class Gallery(val uri: Uri) : TaskInput
+    data class Document(val uri: Uri) : TaskInput
+}
 
 /** Application-owned input preparation, execution and recovery. Credentials never enter the journal. */
 class GenerationController internal constructor(
@@ -94,21 +103,25 @@ class GenerationController internal constructor(
         }
     }
 
-    fun text(problem: String, template: TaskTemplate?, config: ApiSettings?) = submit(config, problem, problem, template = template) {
-        PreparedRequest(text = problem)
+    /** Подпись на дисплее, пока задача решается. */
+    fun caption(input: TaskInput) = when (input) {
+        is TaskInput.Text -> input.problem
+        is TaskInput.Image, is TaskInput.Gallery -> "Задача с фото"
+        is TaskInput.Document -> "Задача из документа"
     }
 
-    fun image(bytes: ByteArray, template: TaskTemplate?, config: ApiSettings?) = submit(config, "Задача с фото", template = template) {
-        PreparedRequest(images = listOf(encode(bytes)))
+    suspend fun load(input: TaskInput): PreparedRequest = withContext(Dispatchers.IO) {
+        when (input) {
+            is TaskInput.Text -> PreparedRequest(text = input.problem)
+            is TaskInput.Image -> PreparedRequest(images = listOf(encode(input.jpeg)))
+            is TaskInput.Gallery -> PreparedRequest(images = listOf(encode(loadGallery(input.uri))))
+            is TaskInput.Document -> loadDocument(input.uri)
+        }
     }
 
-    fun gallery(uri: Uri, template: TaskTemplate?, config: ApiSettings?) = submit(config, "Задача с фото", template = template) {
-        PreparedRequest(images = listOf(encode(loadGallery(uri))))
-    }
-
-    fun document(uri: Uri, template: TaskTemplate?, config: ApiSettings?) = submit(config, "Задача из документа", template = template) {
-        loadDocument(uri)
-    }
+    /** [prepared] — задача, уже прочитанная при подборе примеров: второй раз её не читаем. */
+    fun solve(input: TaskInput, template: TaskTemplate?, config: ApiSettings?, prepared: PreparedRequest? = null) =
+        submit(config, caption(input), (input as? TaskInput.Text)?.problem, template = template) { prepared ?: load(input) }
 
     fun followUp(question: String, base: Solution, template: TaskTemplate?, config: ApiSettings?) =
         submit(config, question, question, base, template) { PreparedRequest(text = question, base = base) }
@@ -172,7 +185,8 @@ class GenerationController internal constructor(
 
     private suspend fun execute(id: String, input: PreparedRequest, config: ApiSettings): Solution {
         val base = input.base
-        val tools = withContext(Dispatchers.IO) {
+        // Примеры уже выбраны пользователем: агенту искать их ещё раз незачем.
+        val tools = if (input.templateId == SimilarTasks.TEMPLATE_ID) null else withContext(Dispatchers.IO) {
             libraryToolsForRequest(config.libraryToolsEnabled, input.text.orEmpty(), libraryIndex, libraryCatalog)
         }
         files.saveAgentReport(id, LibraryAgentReport())

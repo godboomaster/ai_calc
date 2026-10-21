@@ -15,6 +15,7 @@ import com.smartcalc.app.SolutionViewModel
 import com.smartcalc.app.data.search.FoundSolution
 import com.smartcalc.app.data.search.SearchEntry
 import com.smartcalc.app.data.library.source.SourceSegmentRef
+import com.smartcalc.app.ui.components.QuickHideButton
 import com.smartcalc.app.ui.library.sourceLabel
 import com.smartcalc.app.ui.math.MathText
 import com.smartcalc.app.ui.solution.StepImages
@@ -46,7 +47,10 @@ internal fun TaskPreviewScreen(
             IconButton(onClick = onBack, enabled = !busy) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад к списку")
             }
-        }, actions = { onEdit?.let { TextButton(onClick = it, enabled = !busy) { Text("Изменить") } } })
+        }, actions = {
+            onEdit?.let { TextButton(onClick = it, enabled = !busy) { Text("Изменить") } }
+            QuickHideButton()
+        })
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(listOfNotNull(entry.source.label, entry.type).joinToString(" · "),

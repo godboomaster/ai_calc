@@ -4,6 +4,8 @@ import com.smartcalc.app.data.history.HistoryStore
 import com.smartcalc.app.data.history.Solution
 import com.smartcalc.app.data.library.source.LibrarySourceStore
 import com.smartcalc.app.data.search.FoundSolution
+import com.smartcalc.app.data.search.LibraryCandidate
+import com.smartcalc.app.data.search.SimilarTasks
 import com.smartcalc.app.data.search.SearchEntry
 import com.smartcalc.app.data.search.TaskSearch
 import com.smartcalc.app.data.template.*
@@ -12,13 +14,14 @@ import java.io.OutputStream
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.withContext
 
 /** ViewModel-lifetime collection operations and selection; stores keep their application lifetime. */
 class ExampleWorkspace(
     private val templateStore: TemplateStore,
     private val libraryStore: TemplateStore,
     private val historyStore: HistoryStore,
-    sources: LibrarySourceStore,
+    private val sources: LibrarySourceStore,
     scope: CoroutineScope,
 ) {
     val templates = templateStore.items
@@ -31,6 +34,11 @@ class ExampleWorkspace(
             // Building fingerprints reads local example images; keep that work off the CPU pool.
             .flowOn(Dispatchers.IO)
             .stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Задачи библиотеки, которые можно предложить примером; текущие, а не только пока открыт поиск. */
+    suspend fun libraryCandidates(): List<LibraryCandidate> = withContext(Dispatchers.IO) {
+        SimilarTasks.candidates(libraryStore.items.value, sources.state.value)
+    }
 
     /**
      * Шаблон, выбранный для следующей задачи. Действует на одну задачу: после ответа снимается,

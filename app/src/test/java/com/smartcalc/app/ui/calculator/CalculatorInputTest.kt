@@ -62,6 +62,13 @@ class CalculatorInputTest {
         assertFalse(assistantConcealed(code = "42", revealed = true))
     }
 
+    @Test fun quickHideIsOfferedOnlyWhileCodeIsTyped() {
+        assertTrue(quickHideAvailable(code = "42", revealed = true))
+        assertFalse(quickHideAvailable(code = "42", revealed = false))
+        assertFalse(quickHideAvailable(code = "", revealed = true))
+        assertFalse(quickHideAvailable(code = null, revealed = false))
+    }
+
     @Test fun onlyExactTypedCodeToggles() {
         // Повторное «=» по результату «42» не должно сразу же спрятать кнопку обратно.
         assertFalse(togglesAssistant("42", evaluated = true, code = "42"))

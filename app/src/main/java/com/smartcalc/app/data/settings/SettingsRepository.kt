@@ -50,6 +50,8 @@ data class ApiSettings(
     val systemPrompt: String = DEFAULT_SYSTEM_PROMPT,
     val supportsImages: Boolean = false,
     val libraryToolsEnabled: Boolean = false,
+    /** Перед отправкой подобрать похожие задачи библиотеки и дать отметить подходящие. */
+    val similarTasksEnabled: Boolean = true,
     val thinkingEnabled: Boolean = true,
     val apiFormat: ApiFormat = ApiFormat.AUTO,
     val connectionName: String = "",
@@ -101,6 +103,7 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
         val ACTIVE_CONNECTION = stringPreferencesKey("active_connection")
         val SYSTEM_PROMPT = stringPreferencesKey("system_prompt")
         val LIBRARY_TOOLS = booleanPreferencesKey("library_tools")
+        val SIMILAR_TASKS = booleanPreferencesKey("similar_tasks")
         val SWIPE_TO_RESTORE = booleanPreferencesKey("swipe_to_restore")
         val ASSISTANT_CODE = stringPreferencesKey("assistant_code")
         val ASSISTANT_REVEALED = booleanPreferencesKey("assistant_revealed")
@@ -146,19 +149,27 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
         store.edit { p -> p[Keys.ASSISTANT_REVEALED] = !(p[Keys.ASSISTANT_REVEALED] ?: false) }
     }
 
+    /** Экстренное скрытие: ✦ прячется до следующего набора кода. Без кода прятать нечего. */
+    suspend fun concealAssistant() {
+        store.edit { p -> if (p[Keys.ASSISTANT_CODE] != null) p[Keys.ASSISTANT_REVEALED] = false }
+    }
+
     val connections: Flow<ConnectionList> = store.data.map(::connectionList)
 
     val settings: Flow<ApiSettings> = store.data.map { p ->
         ApiSettings(
             systemPrompt = p[Keys.SYSTEM_PROMPT] ?: ApiSettings.DEFAULT_SYSTEM_PROMPT,
             libraryToolsEnabled = p[Keys.LIBRARY_TOOLS] ?: false,
+            similarTasksEnabled = p[Keys.SIMILAR_TASKS] ?: true,
         ).withConnection(connectionList(p).active)
     }
 
-    suspend fun saveSolving(systemPrompt: String, libraryToolsEnabled: Boolean) {
+    /** null в [similarTasksEnabled] оставляет подбор похожих задач как был. */
+    suspend fun saveSolving(systemPrompt: String, libraryToolsEnabled: Boolean, similarTasksEnabled: Boolean? = null) {
         store.edit { p ->
             p[Keys.SYSTEM_PROMPT] = systemPrompt
             p[Keys.LIBRARY_TOOLS] = libraryToolsEnabled
+            similarTasksEnabled?.let { p[Keys.SIMILAR_TASKS] = it }
         }
     }
 

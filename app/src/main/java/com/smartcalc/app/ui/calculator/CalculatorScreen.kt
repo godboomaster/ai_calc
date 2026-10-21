@@ -96,6 +96,7 @@ import androidx.compose.ui.unit.sp
 import com.smartcalc.app.SolutionViewModel
 import com.smartcalc.app.data.request.RequestStatus
 import com.smartcalc.app.data.DocumentReader
+import com.smartcalc.app.ui.components.QuickHideButton
 import com.smartcalc.app.ui.math.MathMarkup
 import com.smartcalc.app.ui.settings.ConnectionPicker
 import com.smartcalc.app.ui.math.MathText
@@ -313,6 +314,7 @@ fun CalculatorScreen(
                             Modifier.widthIn(max = 240.dp))
                     }
                     Spacer(Modifier.weight(1f))
+                    QuickHideButton(tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
                     // Помощник скрыт: на экране только калькулятор и неприметный значок в углу. С кодом пропадает
                     // и значок, а его место остаётся пустым, чтобы дисплей не сдвигался.
                     if (!presentation.assistantButtonVisible) {

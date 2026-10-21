@@ -101,6 +101,13 @@ internal data class CalculatorModes(
         showConnectionPicker = !context.concealed && (aiKeys || (context.assistantVisible && context.hasError)),
     )
 
+    /**
+     * Скрытый кодом помощник не показывает ни клавиш ИИ, ни строки задачи: после экстренного скрытия
+     * калькулятор обычный с первого кадра, ещё до того, как [CalculatorEvent.Conceal] закроет их.
+     */
+    fun visibleIn(context: CalculatorContext) =
+        if (context.concealed) copy(aiKeys = false, editorMode = EditorMode.NONE) else this
+
     fun shouldMarkViewed(context: CalculatorContext, resumed: Boolean) =
         context.assistantVisible && !context.solving && !editing && !aiKeys && resumed
 

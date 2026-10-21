@@ -63,6 +63,7 @@ import com.smartcalc.app.data.ImageUtils
 import com.smartcalc.app.data.template.ImageDraft
 import com.smartcalc.app.data.template.TemplateKind
 import com.smartcalc.app.ui.components.ExplanationCard
+import com.smartcalc.app.ui.components.QuickHideButton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.io.File
@@ -247,6 +248,7 @@ fun TemplateEditScreen(
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
                 }
             },
+            actions = { QuickHideButton() },
         )
         if (storageError != null) {
             Text(storageError.orEmpty(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))

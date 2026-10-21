@@ -51,6 +51,7 @@ import com.smartcalc.app.data.settings.ApiConnection
 import com.smartcalc.app.data.settings.ApiFormat
 import com.smartcalc.app.data.settings.ApiSettings
 import com.smartcalc.app.data.settings.withConnection
+import com.smartcalc.app.ui.components.QuickHideButton
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -107,6 +108,7 @@ fun ConnectionScreen(
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
                 }
             },
+            actions = { QuickHideButton() },
         )
         if (!loaded) return@Column
         Column(

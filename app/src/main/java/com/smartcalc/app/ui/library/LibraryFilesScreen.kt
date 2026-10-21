@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import com.smartcalc.app.data.library.source.*
 import com.smartcalc.app.data.library.importer.*
+import com.smartcalc.app.ui.components.QuickHideButton
 
 internal val ImportStatus.label: String get() = when (this) {
     ImportStatus.COPIED -> "Оригинал сохранён"
@@ -35,7 +36,7 @@ internal val ImportJob.busy: Boolean get() = waitingForSolution || status in set
 @Composable fun LibraryHeader(title: String, onBack: () -> Unit) {
     TopAppBar(title = { Text(title, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }, navigationIcon = {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") }
-    })
+    }, actions = { QuickHideButton() })
 }
 /** The screen owns the outer inset; this block also works inside already padded content. */
 @Composable internal fun LibraryError(message: String?, modifier: Modifier = Modifier, clear: (() -> Unit)? = null) {

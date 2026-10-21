@@ -23,10 +23,15 @@ import com.smartcalc.app.data.session.CalculatorSession
 import com.smartcalc.app.data.session.ListPosition
 import com.smartcalc.app.data.session.ReadingTarget
 import com.smartcalc.app.data.request.RequestStatus
+import com.smartcalc.app.data.request.SimilarChoice
+import com.smartcalc.app.data.request.SimilarTaskPicker
+import com.smartcalc.app.data.request.TaskInput
+import com.smartcalc.app.data.search.SimilarTasks
 import com.smartcalc.app.data.request.active
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -92,17 +97,37 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
     }
     val swipeToRestore = settingsRepo.swipeToRestore.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    // Экстренное скрытие действует до записи в настройки: ✦ не должен мелькнуть, пока она идёт.
+    private val concealedNow = MutableStateFlow(false)
+
     /** Код кнопки ✦ и её состояние; null — настройки ещё не прочитаны. Состояние переживает перезапуск. */
     val assistantLock: StateFlow<AssistantLock?> =
-        settingsRepo.assistantLock.stateIn<AssistantLock?>(viewModelScope, SharingStarted.Eagerly, null)
+        combine(settingsRepo.assistantLock, concealedNow) { lock, concealed ->
+            if (concealed) lock.copy(revealed = false) else lock
+        }.stateIn<AssistantLock?>(viewModelScope, SharingStarted.Eagerly, null)
 
     /** На калькуляторе набрали код и «=»: ✦ появляется или прячется (ответ с дисплея убирает калькулятор). */
     fun toggleAssistant() {
-        viewModelScope.launch { settingsRepo.toggleAssistantRevealed() }
+        viewModelScope.launch {
+            settingsRepo.toggleAssistantRevealed()
+            concealedNow.value = false
+        }
+    }
+
+    /** Экстренное скрытие: ✦ и ответ пропадают сразу, вернуть помощника можно только кодом. */
+    fun concealAssistant() {
+        concealedNow.value = true
+        // Задача, ждущая выбора примеров, пропадает вместе с помощником.
+        similar.take()
+        assistantDisplay.hide()
+        viewModelScope.launch { settingsRepo.concealAssistant() }
     }
 
     /** Новый код не прячет кнопку сразу — её скрывает первый набор кода на калькуляторе. */
-    suspend fun setAssistantCode(code: String) = settingsRepo.setAssistantCode(code)
+    suspend fun setAssistantCode(code: String) {
+        settingsRepo.setAssistantCode(code)
+        concealedNow.value = false
+    }
 
     private val _current = MutableStateFlow(history.value.firstOrNull { it.id == restoredSession.reading.solutionId })
     val current: StateFlow<Solution?> = _current
@@ -173,10 +198,55 @@ class SolutionViewModel(app: Application) : AndroidViewModel(app) {
         send(attemptSettings)
     }
 
-    fun solveText(problem: String) = beginRequest { generation.text(problem, armedTemplate.value, it) }
-    fun solveImage(jpeg: ByteArray) = beginRequest { generation.image(jpeg, armedTemplate.value, it) }
-    fun solveGalleryImage(uri: Uri) = beginRequest { generation.gallery(uri, armedTemplate.value, it) }
-    fun solveDocument(uri: Uri) = beginRequest { generation.document(uri, armedTemplate.value, it) }
+    fun solveText(problem: String) = solve(TaskInput.Text(problem))
+    fun solveImage(jpeg: ByteArray) = solve(TaskInput.Image(jpeg))
+    fun solveGalleryImage(uri: Uri) = solve(TaskInput.Gallery(uri))
+    fun solveDocument(uri: Uri) = solve(TaskInput.Document(uri))
+
+    /**
+     * Похожие задачи библиотеки, которые можно отметить примерами перед отправкой. Пока подбор
+     * не закончен или не выбран, задача никуда, кроме короткого запроса подбора, не отправлена.
+     */
+    private val similar = SimilarTaskPicker(viewModelScope, generation::load, examples::libraryCandidates,
+        { settings, prepared, sections -> client.describeTask(settings, prepared.images, prepared.text, sections) })
+    val similarChoice: StateFlow<SimilarChoice?> = similar.state
+
+    init {
+        // Похожих задач нет — выбирать нечего, задача уходит сразу, без примеров.
+        viewModelScope.launch {
+            similar.state.collect { if (it?.status == SimilarChoice.Status.READY && it.candidates.isEmpty()) sendSimilar(false) }
+        }
+    }
+
+    /** Выбранный образец уже задаёт способ решения — тогда подбирать нечего. */
+    private fun solve(input: TaskInput) {
+        val settings = requestSettings
+        val library = examples.library.value.any { section ->
+            section.examples.any { !it.isEmpty && it.library?.enabled != false }
+        }
+        if (settings?.similarTasksEnabled != false && armedTemplate.value == null && library) {
+            similar.start(input, settings)
+        } else {
+            beginRequest { generation.solve(input, armedTemplate.value, it) }
+        }
+    }
+
+    fun toggleSimilar(candidateId: String) = similar.toggle(candidateId)
+
+    fun retrySimilar() = similar.retry(requestSettings)
+
+    /** Отправка с отмеченными задачами (они уходят одноразовым образцом) или без примеров. */
+    fun sendSimilar(withExamples: Boolean) {
+        val choice = similar.take() ?: return
+        val template = choice.chosen.takeIf { withExamples && it.isNotEmpty() }?.let(SimilarTasks::template)
+        beginRequest { generation.solve(choice.input, template, it, choice.prepared) }
+    }
+
+    /** Передумали отправлять: текст задачи возвращается в строку ввода, фото просто отпускается. */
+    fun cancelSimilar() {
+        val input = similar.take()?.input
+        if (input is TaskInput.Text) editRequest = EditRequest(input.problem, followUp = false)
+    }
 
     fun askFollowUp(question: String) {
         val base = _current.value ?: return solveText(question)

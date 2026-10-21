@@ -42,6 +42,9 @@ internal fun assistantButtonVisible(code: String?, revealed: Boolean) = code != 
 /** Помощник спрятан кодом: недоступны и кнопка, и строка ввода задачи, и возврат к ответу. */
 internal fun assistantConcealed(code: String?, revealed: Boolean) = !code.isNullOrEmpty() && !revealed
 
+/** Экстренное скрытие есть, пока код набран: оно прячет ✦ так же, как повторный набор кода. */
+internal fun quickHideAvailable(code: String?, revealed: Boolean) = !code.isNullOrEmpty() && revealed
+
 /**
  * «=» после набранного на клавишах кода показывает или снова прячет ✦. Повторное «=» по результату
  * ([evaluated]) ничего не переключает: иначе «42 = =» открыло бы и тут же закрыло кнопку.

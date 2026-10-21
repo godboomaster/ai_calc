@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.smartcalc.app.SolutionViewModel
 import com.smartcalc.app.data.history.Solution
+import com.smartcalc.app.ui.components.QuickHideButton
 import com.smartcalc.app.ui.math.MathText
 import java.io.File
 import java.text.SimpleDateFormat
@@ -68,7 +69,9 @@ fun HistoryScreen(
                 "История",
                 fontSize = 20.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
             )
+            QuickHideButton(tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (history.isEmpty()) {
             Column(

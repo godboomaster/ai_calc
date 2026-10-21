@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import com.smartcalc.app.SolutionViewModel
 import com.smartcalc.app.data.template.TaskTemplate
 import com.smartcalc.app.ui.components.ExplanationCard
+import com.smartcalc.app.ui.components.QuickHideButton
 
 /**
  * Шаблоны заданий. Нажатие на шаблон выбирает его для следующей задачи и возвращает на
@@ -93,6 +94,7 @@ fun TemplatesScreen(
                         }
                     }
                 }
+                QuickHideButton()
             },
         )
         LazyColumn(

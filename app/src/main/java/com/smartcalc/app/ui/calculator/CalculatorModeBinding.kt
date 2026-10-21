@@ -94,5 +94,6 @@ internal fun rememberCalculatorModes(
     LaunchedEffect(context.concealed) {
         if (context.concealed) dispatch(CalculatorEvent.Conceal)
     }
-    return CalculatorModeBinding(state, state.presentation(context), field, ::dispatch)
+    val visible = state.visibleIn(context)
+    return CalculatorModeBinding(visible, visible.presentation(context), field, ::dispatch)
 }

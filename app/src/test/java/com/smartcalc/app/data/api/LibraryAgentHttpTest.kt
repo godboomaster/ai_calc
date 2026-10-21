@@ -11,7 +11,7 @@ import kotlinx.serialization.json.*
 import org.junit.Assert.*
 import org.junit.Test
 
-private class AgentServer(replies: List<Pair<Int, JsonObject>>) : AutoCloseable {
+internal class AgentServer(replies: List<Pair<Int, JsonObject>>) : AutoCloseable {
     val requests = CopyOnWriteArrayList<JsonObject>()
     val responseHeaders = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val pending = ArrayDeque(replies)

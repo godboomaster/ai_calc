@@ -18,6 +18,7 @@ import com.smartcalc.app.data.search.FoundSource
 import com.smartcalc.app.data.search.SearchEntry
 import com.smartcalc.app.data.template.ExampleFingerprint
 import com.smartcalc.app.data.template.TaskTemplate
+import com.smartcalc.app.ui.components.QuickHideButton
 import com.smartcalc.app.ui.math.MathText
 import com.smartcalc.app.ui.template.label
 
@@ -48,7 +49,10 @@ internal fun LibrarySectionScreen(
     Column(Modifier.fillMaxSize()) {
         TopAppBar(title = { Text(section.name, maxLines = 2) }, navigationIcon = {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад к разделам") }
-        }, actions = { TextButton(onClick = { onEdit(null) }) { Text("Изменить") } })
+        }, actions = {
+            TextButton(onClick = { onEdit(null) }) { Text("Изменить") }
+            QuickHideButton()
+        })
         LazyColumn(state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (section.examples.isEmpty()) item { Text("В разделе пока нет задач. Добавьте их через «Изменить».") }
             itemsIndexed(section.examples) { index, task ->

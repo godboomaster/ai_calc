@@ -1,7 +1,12 @@
 package com.smartcalc.app.data.request
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import com.smartcalc.app.data.api.TemplatePrompt
 import com.smartcalc.app.data.format.SolutionFormat
+import com.smartcalc.app.data.search.LibraryCandidate
+import com.smartcalc.app.data.search.SimilarTasks
+import com.smartcalc.app.data.template.TaskTemplate
+import com.smartcalc.app.data.template.TemplateExample
 import com.smartcalc.app.data.history.HistoryStore
 import com.smartcalc.app.data.library.agent.LibraryCatalog
 import com.smartcalc.app.data.session.SessionStore
@@ -26,6 +31,7 @@ class GenerationConnectionTest {
     @get:Rule val temporary = TemporaryFolder()
 
     private suspend fun fixture(startService: (SettingsRepository) -> Unit = {},
+        templatePrompt: suspend (TaskTemplate) -> TemplatePrompt = { error("No template in fixture") },
         block: suspend (GenerationController, SettingsRepository, HistoryStore, File) -> Unit,
     ) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -35,7 +41,7 @@ class GenerationConnectionTest {
             val history = HistoryStore(root)
             val controller = GenerationController(scope, history, SessionStore(File(root, "session.json"), scope),
                 currentFormat = { SolutionFormat() }, readFormatSample = { null },
-                loadTemplatePrompt = { error("No template in fixture") }, libraryCatalog = { LibraryCatalog(emptyList()) },
+                loadTemplatePrompt = templatePrompt, libraryCatalog = { LibraryCatalog(emptyList()) },
                 requestDirectory = File(root, "requests"), startService = { startService(settings) },
                 loadGallery = { error("Not used") }, loadDocument = { error("Not used") })
             block(controller, settings, history, root)
@@ -86,7 +92,7 @@ class GenerationConnectionTest {
                 settings.saveConnection(first, activate = true)
                 settings.saveConnection(second)
                 settings.saveSolving("tool-prompt-A", libraryToolsEnabled = true)
-                controller.text("Найди похожую задачу", null, settings.settings.first())
+                controller.solve(TaskInput.Text("Найди похожую задачу"), null, settings.settings.first())
                 withTimeout(5000) { received.await() }
                 settings.selectConnection(second.id)
                 settings.saveSolving("tool-prompt-B", libraryToolsEnabled = false)
@@ -113,7 +119,7 @@ class GenerationConnectionTest {
                     settings.saveSolving("before-submit", libraryToolsEnabled = false)
                     // As in SolutionViewModel: the immutable loaded value is handed to submit synchronously.
                     val snapshot = settings.settings.first()
-                    controller.text("synthetic task", null, snapshot)
+                    controller.solve(TaskInput.Text("synthetic task"), null, snapshot)
                     controller.awaitStatus(RequestStatus.SUCCEEDED)
                     assertTrue("Capture must precede service startup", a.matches(first, "before-submit", 1))
                     assertTrue(b.requests.isEmpty())
@@ -143,7 +149,7 @@ class GenerationConnectionTest {
             settings.saveConnection(connection, activate = true)
             val historyTarget = File(root, "history.json").apply { mkdir() }
             File(historyTarget, "blocker").writeText("synthetic")
-            controller.text("synthetic task", null, settings.settings.first())
+            controller.solve(TaskInput.Text("synthetic task"), null, settings.settings.first())
             controller.awaitStatus(RequestStatus.FAILED)
             val checkpoint = RequestFiles(File(root, "requests/request")).readResult(controller.state.value!!.id)
             assertNotNull(checkpoint)
@@ -167,7 +173,7 @@ class GenerationConnectionTest {
                 // History cannot replace a non-empty directory, after the response has been checkpointed.
                 val historyTarget = File(root, "history.json").apply { mkdir() }
                 File(historyTarget, "blocker").writeText("synthetic")
-                controller.text("synthetic task", null, settings.settings.first())
+                controller.solve(TaskInput.Text("synthetic task"), null, settings.settings.first())
                 controller.awaitStatus(RequestStatus.FAILED)
                 val id = controller.state.value!!.id
                 assertNotNull(RequestFiles(File(root, "requests/request")).readResult(id))
@@ -181,6 +187,25 @@ class GenerationConnectionTest {
                 assertEquals(1, history.items.value.size)
                 assertNoRequestSecrets(root, first.apiKey, second.apiKey)
             } }
+        }
+    }
+
+    @Test fun chosenSimilarTasksGoAsExamplesInsteadOfAgentSearch() = runBlocking {
+        LoopbackServer(listOf(200 to finalMessage())).use { server ->
+            fixture(templatePrompt = { t ->
+                TemplatePrompt(t.name, t.requirements, t.examples.map { TemplatePrompt.Example(it.condition, emptyList(), it.solution, emptyList()) })
+            }) { controller, settings, history, _ ->
+                settings.saveConnection(server.connection("A"), activate = true)
+                settings.saveSolving("prompt", libraryToolsEnabled = true)
+                val chosen = LibraryCandidate("section#0", "Раздел", TemplateExample(condition = "Похожее условие", solution = "Похожее решение"))
+                controller.solve(TaskInput.Text("Найди похожую задачу и реши"), SimilarTasks.template(listOf(chosen)),
+                    settings.settings.first(), PreparedRequest(text = "Найди похожую задачу и реши"))
+                controller.awaitStatus(RequestStatus.SUCCEEDED)
+                val body = server.requests.single().body
+                assertNull("Chosen examples replace the agent's own search", body["tools"])
+                assertTrue(body["messages"].toString().contains("Похожее решение"))
+                assertEquals(SimilarTasks.TEMPLATE_NAME, history.items.value.single().template)
+            }
         }
     }
 

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
+import com.smartcalc.app.ui.components.LocalQuickHide
 import com.smartcalc.app.ui.components.LocalReadingHeight
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
@@ -21,6 +22,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -33,11 +35,13 @@ import com.smartcalc.app.SolutionViewModel
 import com.smartcalc.app.data.session.ReadingTarget
 import com.smartcalc.app.data.template.TemplateKind
 import com.smartcalc.app.ui.calculator.CalculatorScreen
+import com.smartcalc.app.ui.calculator.quickHideAvailable
 import com.smartcalc.app.ui.camera.CameraScreen
 import com.smartcalc.app.ui.format.FormatScreen
 import com.smartcalc.app.ui.search.LibraryScreen
 import com.smartcalc.app.ui.library.*
 import com.smartcalc.app.ui.search.SearchScreen
+import com.smartcalc.app.ui.search.SimilarTasksScreen
 import com.smartcalc.app.ui.settings.ConnectionScreen
 import com.smartcalc.app.ui.settings.ConnectionEditorViewModel
 import com.smartcalc.app.ui.settings.SettingsScreen
@@ -67,6 +71,7 @@ object Routes {
     const val LIBRARY_REVIEW = "library/review/{jobId}"
     const val LIBRARY_SOURCE = "library/source/{sourceId}?ordinal={ordinal}"
     const val LIBRARY_CAMERA = "library/camera"
+    const val SIMILAR = "similar"
 
     fun templateEdit(id: String?) = if (id == null) "template" else "template?id=$id"
     fun connection(id: String?) = if (id == null) "connection" else "connection?id=${Uri.encode(id)}"
@@ -162,9 +167,37 @@ private fun AppSession(vm: SolutionViewModel) {
         }
     }
 
+    val assistantLock by vm.assistantLock.collectAsState()
+    val keyboard = LocalSoftwareKeyboardController.current
+
+    // Экстренное скрытие: с любого экрана сразу обычный калькулятор без ✦. Открытые решение и шаг
+    // запоминаются, как при «К калькулятору»: после набора кода к ним вернёт удержание ✦.
+    fun quickHide() {
+        keyboard?.hide()
+        vm.concealAssistant()
+        val entry = nav.currentBackStackEntry
+        when (entry?.destination?.route) {
+            Routes.SOLUTION -> hideReading(Routes.SOLUTION)
+            Routes.STEP -> hideReading(Routes.step(entry.arguments?.getInt("index") ?: 0))
+            else -> backToCalculator()
+        }
+    }
+    val quickHide = (::quickHide).takeIf { quickHideAvailable(assistantLock?.code, assistantLock?.revealed == true) }
+
+    // Задача ждёт выбора примеров: экран выбора открывается вместо того, откуда её отправили.
+    val similarChoice by vm.similarChoice.collectAsState()
+    LaunchedEffect(similarChoice?.id) {
+        if (similarChoice != null && nav.currentDestination?.route != Routes.SIMILAR) {
+            nav.navigate(Routes.SIMILAR) {
+                popUpTo(Routes.CALCULATOR)
+                launchSingleTop = true
+            }
+        }
+    }
+
     Scaffold { padding ->
         BoxWithConstraints(Modifier.padding(padding).consumeWindowInsets(padding)) {
-        CompositionLocalProvider(LocalReadingHeight provides maxHeight) {
+        CompositionLocalProvider(LocalReadingHeight provides maxHeight, LocalQuickHide provides quickHide) {
         NavHost(
             navController = nav,
             startDestination = Routes.CALCULATOR,
@@ -310,6 +343,9 @@ private fun AppSession(vm: SolutionViewModel) {
                 ),
             ) { entry ->
                 TemplateEditScreen(vm = vm, templateId = entry.arguments?.getString("id"), onBack = { nav.popBackStack() })
+            }
+            composable(Routes.SIMILAR) {
+                SimilarTasksScreen(vm, onClose = ::backToCalculator)
             }
             composable(Routes.CAMERA) {
                 CameraScreen(

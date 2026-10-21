@@ -89,6 +89,25 @@ class ConnectionSettingsTest {
         assertEquals(listOf("a"), repo.connections.first().items.map { it.id })
     }
 
+    @Test fun similarTasksAreOfferedByDefaultAndKeptUnlessSaved() = storeTest { repo, _ ->
+        assertTrue(repo.settings.first().similarTasksEnabled)
+        repo.saveSolving("prompt", libraryToolsEnabled = false, similarTasksEnabled = false)
+        assertFalse(repo.settings.first().similarTasksEnabled)
+        repo.saveSolving("prompt 2", libraryToolsEnabled = true)
+        assertFalse(repo.settings.first().similarTasksEnabled)
+    }
+
+    @Test fun quickHideConcealsAssistantUntilCodeIsTypedAgain() = storeTest { repo, _ ->
+        repo.concealAssistant()
+        assertEquals(AssistantLock(), repo.assistantLock.first())
+        repo.setAssistantCode("42")
+        assertTrue(repo.assistantLock.first().revealed)
+        repo.concealAssistant()
+        assertEquals(AssistantLock(code = "42", revealed = false), repo.assistantLock.first())
+        repo.toggleAssistantRevealed()
+        assertTrue(repo.assistantLock.first().revealed)
+    }
+
     @Test fun savedListToleratesUnknownFieldsAndFormatsAndRejectsDamage() {
         val decoded = decodeConnections("""[{"id":"x","model":"m","apiFormat":"FUTURE","futureField":1}]""")!!.single()
         assertEquals(ApiFormat.AUTO, decoded.apiFormat)

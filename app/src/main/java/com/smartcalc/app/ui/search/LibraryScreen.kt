@@ -55,6 +55,7 @@ import com.smartcalc.app.SolutionViewModel
 import com.smartcalc.app.data.template.TaskTemplate
 import com.smartcalc.app.data.template.TemplateExample
 import com.smartcalc.app.data.template.TemplateKind
+import com.smartcalc.app.ui.components.QuickHideButton
 import com.smartcalc.app.ui.template.rememberTemplateTransfer
 import com.smartcalc.app.ui.components.ExplanationCard
 import com.smartcalc.app.ui.library.LibraryTabs
@@ -147,6 +148,7 @@ fun LibraryScreen(
                         }
                     }
                 }
+                QuickHideButton()
             },
         )
         LibraryTabs(1, onSearch = onSearch, onTasks = {}, onFiles = onFiles)

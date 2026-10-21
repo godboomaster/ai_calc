@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartcalc.app.data.history.Solution
 import com.smartcalc.app.ui.calculator.CalcKey
+import com.smartcalc.app.ui.components.QuickHideButton
 import com.smartcalc.app.ui.math.MathText
 import com.smartcalc.app.ui.plot.PlotView
 import com.smartcalc.app.ui.scheme.SchemeView
@@ -105,6 +106,7 @@ fun StepScreen(
             IconButton(onClick = onHideToCalculator) {
                 Icon(Icons.Filled.Calculate, contentDescription = "К калькулятору")
             }
+            QuickHideButton()
         }
         if (step != null) MathText(
             step.title,

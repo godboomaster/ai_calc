@@ -35,7 +35,7 @@ internal fun ReadingDialog(title: String, onBack: () -> Unit, content: @Composab
             Column(Modifier.fillMaxSize()) {
                 TopAppBar(windowInsets = WindowInsets(0, 0, 0, 0), title = { Text(title, maxLines = 2) }, navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") }
-                })
+                }, actions = { QuickHideButton() })
                 content()
             }
         }

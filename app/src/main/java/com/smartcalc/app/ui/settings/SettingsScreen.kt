@@ -51,6 +51,7 @@ import com.smartcalc.app.data.settings.ApiConnection
 import com.smartcalc.app.data.settings.ApiSettings
 import com.smartcalc.app.ui.calculator.ASSISTANT_CODE_LENGTH
 import com.smartcalc.app.ui.calculator.isValidAssistantCode
+import com.smartcalc.app.ui.components.QuickHideButton
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -78,12 +79,14 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit, onOpenConnection: 
     var loaded by remember { mutableStateOf(false) }
     var systemPrompt by remember { mutableStateOf("") }
     var libraryToolsEnabled by remember { mutableStateOf(false) }
+    var similarTasksEnabled by remember { mutableStateOf(true) }
     var libraryDetails by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(settings) {
         if (!loaded) {
             systemPrompt = settings.systemPrompt
             libraryToolsEnabled = settings.libraryToolsEnabled
+            similarTasksEnabled = settings.similarTasksEnabled
             loaded = true
         }
     }
@@ -99,6 +102,7 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit, onOpenConnection: 
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
                 }
             },
+            actions = { QuickHideButton() },
         )
         Column(
             modifier = Modifier
@@ -207,6 +211,11 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit, onOpenConnection: 
                 modifier = Modifier.fillMaxWidth(),
             )
             SettingsGroup {
+                SettingsSwitch("Похожие задачи перед отправкой", similarTasksEnabled) { similarTasksEnabled = it }
+                SettingsHint("Модель читает новую задачу, приложение показывает похожие из библиотеки. Отмеченные уйдут " +
+                    "примерами вместе с задачей. Это один короткий дополнительный запрос; без задач в библиотеке его нет.")
+            }
+            SettingsGroup {
                 SettingsSwitch("Поиск агента в библиотеке", libraryToolsEnabled) { libraryToolsEnabled = it }
                 SettingsHint("Агент сам решает, когда искать примеры. Найденные фрагменты и прочитанные тексты передаются выбранному API.")
                 DisclosureButton("Как работает поиск", libraryDetails) { libraryDetails = !libraryDetails }
@@ -219,7 +228,8 @@ fun SettingsScreen(vm: SolutionViewModel, onBack: () -> Unit, onOpenConnection: 
             SettingsStatus(status, statusIsError)
                 Button(onClick = {
                     scope.launch {
-                        vm.settingsRepo.saveSolving(systemPrompt.trim().ifBlank { ApiSettings.DEFAULT_SYSTEM_PROMPT }, libraryToolsEnabled)
+                        vm.settingsRepo.saveSolving(systemPrompt.trim().ifBlank { ApiSettings.DEFAULT_SYSTEM_PROMPT },
+                            libraryToolsEnabled, similarTasksEnabled)
                         status = "Сохранено"
                         statusIsError = false
                     }

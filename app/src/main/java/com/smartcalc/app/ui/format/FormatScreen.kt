@@ -49,6 +49,7 @@ import coil.compose.AsyncImage
 import com.smartcalc.app.SolutionViewModel
 import com.smartcalc.app.data.ImageUtils
 import com.smartcalc.app.ui.components.ExplanationCard
+import com.smartcalc.app.ui.components.QuickHideButton
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -99,6 +100,7 @@ fun FormatScreen(vm: SolutionViewModel, onBack: () -> Unit) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
                 }
             },
+            actions = { QuickHideButton() },
         )
         Column(
             modifier = Modifier

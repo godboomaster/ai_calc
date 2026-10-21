@@ -70,6 +70,7 @@ import com.smartcalc.app.data.ImageUtils
 import com.smartcalc.app.data.library.source.SourceInput
 import android.provider.OpenableColumns
 import com.smartcalc.app.data.format.SolutionFormat
+import com.smartcalc.app.ui.components.QuickHideButton
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -279,6 +280,7 @@ fun CameraScreen(
                         tint = Color.White,
                     )
                 }
+                QuickHideButton(tint = Color.White)
             }
             if (onImportInput == null) FormatChip(
                 format = format,

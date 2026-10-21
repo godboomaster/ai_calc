@@ -256,6 +256,17 @@ class CalculatorModesTest {
         assertFalse(screen.state.presentation(screen.context.copy(swipeToRestore = true)).canSwipeToRestore)
     }
 
+    @Test fun quickHideShowsOrdinaryCalculatorBeforeConcealIsHandled() {
+        val hidden = answer.copy(assistantVisible = false, assistantCode = "42")
+        val open = CalculatorModes(aiKeys = true, editorMode = EditorMode.TASK)
+        val visible = open.visibleIn(hidden)
+        assertFalse(visible.aiKeys)
+        assertFalse(visible.editing)
+        assertEquals(CalculatorDisplayMode.CALCULATOR, visible.presentation(hidden).displayMode)
+        assertFalse(visible.presentation(hidden).assistantButtonVisible)
+        assertSame(open, open.visibleIn(hidden.copy(assistantRevealed = true)))
+    }
+
     @Test fun swipeAvailabilityRespectsEveryBlockingMode() {
         val context = CalculatorContext(swipeToRestore = true, hasSolution = true)
         assertTrue(CalculatorModes().presentation(context).canSwipeToRestore)
