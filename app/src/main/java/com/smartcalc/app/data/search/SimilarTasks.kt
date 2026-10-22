@@ -1,6 +1,7 @@
 package com.smartcalc.app.data.search
 
 import com.smartcalc.app.data.library.source.SourceCatalog
+import com.smartcalc.app.data.template.ExampleFingerprint
 import com.smartcalc.app.data.template.TaskTemplate
 import com.smartcalc.app.data.template.TemplateExample
 
@@ -45,11 +46,11 @@ object SimilarTasks {
 
     /** Доступные задачи библиотеки; одинаковая задача из двух разделов предлагается один раз. */
     fun candidates(sections: List<TaskTemplate>, sources: SourceCatalog = SourceCatalog()): List<LibraryCandidate> {
-        val seen = HashSet<Pair<String, String>>()
+        val seen = HashSet<String>()
         return sections.flatMap { section ->
             section.examples.mapIndexedNotNull { index, example ->
-                val same = example.condition.trim() to example.solution.trim()
-                if (!TaskSearch.libraryExampleAvailable(example, sources) || !seen.add(same)) null
+                if (!TaskSearch.libraryExampleAvailable(example, sources) ||
+                    !seen.add(ExampleFingerprint.key(example))) null
                 else LibraryCandidate("${section.id}#$index", section.name, example)
             }
         }

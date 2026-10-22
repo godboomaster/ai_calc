@@ -5,9 +5,13 @@ import com.smartcalc.app.data.library.LibraryVerification
 import com.smartcalc.app.data.template.TaskTemplate
 import com.smartcalc.app.data.template.TemplateExample
 import org.junit.Assert.*
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 class SimilarTasksTest {
+    @get:Rule val temporary = TemporaryFolder()
+
     private fun task(id: String, condition: String, solution: String = "Решение", enabled: Boolean = true,
         verification: LibraryVerification = LibraryVerification.UNVERIFIED) =
         TemplateExample(condition = condition, solution = solution,
@@ -79,5 +83,48 @@ class SimilarTasksTest {
         val template = SimilarTasks.template(library.filter { it.section == mikhailov.name })
         assertEquals(SimilarTasks.TEMPLATE_ID, template.id)
         assertEquals(mikhailov.examples, template.examples)
+    }
+
+    @Test fun keepsDifferentPhotosAndTheirSectionsAvailable() {
+        val firstPhoto = temporary.newFile("first.jpg").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        val secondPhoto = temporary.newFile("second.jpg").apply { writeBytes(byteArrayOf(3, 2, 1)) }
+        val solutionPhoto = temporary.newFile("solution.jpg").apply { writeBytes(byteArrayOf(4, 5, 6)) }
+        val first = task("first", "", "").copy(conditionImages = listOf(firstPhoto.path))
+        val second = task("second", "", "").copy(conditionImages = listOf(secondPhoto.path))
+        val third = task("third", "", "").copy(conditionImages = listOf(firstPhoto.path),
+            solutionImages = listOf(solutionPhoto.path))
+        val sections = listOf(
+            TaskTemplate(id = "one", name = "Первый метод", updated = 0, examples = listOf(first)),
+            TaskTemplate(id = "two", name = "Другой метод", updated = 0, examples = listOf(second)),
+            TaskTemplate(id = "three", name = "Третий метод", updated = 0, examples = listOf(third)),
+        )
+
+        val candidates = SimilarTasks.candidates(sections)
+
+        assertEquals(listOf("first", "second", "third"), candidates.map { it.example.library?.id })
+        assertEquals(listOf("Первый метод", "Другой метод", "Третий метод"), SimilarTasks.sectionNames(candidates))
+        assertEquals(listOf("second"), SimilarTasks.rank(candidates,
+            TaskDescription(sections = listOf("Другой метод"))).map { it.example.library?.id })
+    }
+
+    @Test fun keepsExamplesWithDifferentAnswers() {
+        val examples = listOf(
+            task("first", "Найти корни", "См. ответ").copy(answer = "2"),
+            task("second", "Найти корни", "См. ответ").copy(answer = "3"),
+        )
+        val section = TaskTemplate(id = "answers", name = "Корни", updated = 0, examples = examples)
+
+        assertEquals(listOf("first", "second"),
+            SimilarTasks.candidates(listOf(section)).map { it.example.library?.id })
+    }
+
+    @Test fun offersCopiedPhotosOnceRegardlessOfTheirPaths() {
+        val original = temporary.newFile("original.jpg").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        val copied = temporary.newFile("copied.jpg").apply { writeBytes(original.readBytes()) }
+        val first = task("first", "", "").copy(conditionImages = listOf(original.path))
+        val copy = task("copy", "", "").copy(conditionImages = listOf(copied.path))
+        val section = TaskTemplate(id = "photos", name = "Фотографии", updated = 0, examples = listOf(first, copy))
+
+        assertEquals(listOf("first"), SimilarTasks.candidates(listOf(section)).map { it.example.library?.id })
     }
 }
